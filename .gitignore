@@ -17,3 +17,8 @@ wheels/
 
 # Customizations
 .agents/
+
+# Internal Planning Docs
+choir-context.md
+choir-design-brief.md
+plan-of-action.md
