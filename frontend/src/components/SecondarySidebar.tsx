@@ -125,12 +125,14 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
             <p className="text-[11px] text-graphite leading-tight truncate">Online</p>
           </div>
         </div>
-        <button
+        <Link
+          href="/settings"
           title="User Settings"
-          className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-hover transition-colors text-graphite hover:text-ink shrink-0"
+          className={`w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-hover transition-colors shrink-0
+            ${pathname === "/settings" ? "text-ink bg-surface-hover" : "text-graphite hover:text-ink"}`}
         >
           <Settings size={18} />
-        </button>
+        </Link>
       </div>
     </div>
   );

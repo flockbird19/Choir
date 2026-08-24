@@ -12,17 +12,28 @@ interface Message {
   model_name?: string | null;
 }
 
-export function MessageList({ messages }: { messages: Message[] }) {
+interface MessageListProps {
+  messages: Message[];
+  /** Content being streamed in real-time (shown in a temporary "typing" bubble). */
+  streamingContent?: string | null;
+  /** Whether the AI is currently thinking/connecting (before first token). */
+  isStreaming?: boolean;
+}
+
+export function MessageList({ messages, streamingContent, isStreaming }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, streamingContent]);
+
+  const showTypingBubble = isStreaming && !streamingContent;
+  const showStreamingBubble = !!streamingContent;
 
   if (!messages || messages.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-center p-8 select-none">
-        {/* Decorative mark — abstract, no cliché AI icons */}
+        {/* Decorative mark */}
         <div className="w-12 h-12 rounded-full border-2 border-dashed border-border flex items-center justify-center mb-4">
           <span className="text-graphite text-lg leading-none">✦</span>
         </div>
@@ -58,10 +69,7 @@ export function MessageList({ messages }: { messages: Message[] }) {
               {/* Avatar */}
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5
-                  ${isUser
-                    ? "bg-accent/12 text-accent"
-                    : "bg-ink/6 text-graphite"
-                  }`}
+                  ${isUser ? "bg-accent/12 text-accent" : "bg-ink/6 text-graphite"}`}
               >
                 {isUser ? <User size={13} /> : <Bot size={13} />}
               </div>
@@ -70,9 +78,10 @@ export function MessageList({ messages }: { messages: Message[] }) {
               <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
                 <div
                   className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed
-                    ${isUser
-                      ? "bg-accent text-white rounded-tr-sm shadow-sm shadow-accent/20"
-                      : isSharedFrom
+                    ${
+                      isUser
+                        ? "bg-accent text-white rounded-tr-sm shadow-sm shadow-accent/20"
+                        : isSharedFrom
                         ? "bg-shared-muted border border-shared/25 text-ink rounded-tl-sm"
                         : "bg-surface border border-border text-ink rounded-tl-sm"
                     }`}
@@ -97,6 +106,37 @@ export function MessageList({ messages }: { messages: Message[] }) {
           </div>
         );
       })}
+
+      {/* ── Typing / streaming bubble ────────────────────────────────────── */}
+      {(showTypingBubble || showStreamingBubble) && (
+        <div className="flex gap-3 max-w-[85%] mr-auto">
+          {/* Bot avatar */}
+          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-ink/6 text-graphite">
+            <Bot size={13} />
+          </div>
+
+          <div className="flex flex-col items-start">
+            <div className="px-4 py-2.5 rounded-2xl rounded-tl-sm text-sm leading-relaxed bg-surface border border-border text-ink">
+              {showTypingBubble ? (
+                /* Three-dot pulse while waiting for first token */
+                <span className="flex gap-1 items-center h-4">
+                  <span className="w-1.5 h-1.5 rounded-full bg-graphite/50 animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-graphite/50 animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-graphite/50 animate-bounce [animation-delay:300ms]" />
+                </span>
+              ) : (
+                <p className="whitespace-pre-wrap">{streamingContent}</p>
+              )}
+            </div>
+            {showStreamingBubble && (
+              <span className="text-[10px] text-graphite/40 mt-1 mx-1 animate-pulse">
+                AI is typing…
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div ref={endRef} className="h-2" />
     </div>
   );
