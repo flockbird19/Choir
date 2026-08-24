@@ -1,8 +1,8 @@
-import { Sidebar } from "../../components/Sidebar";
+import { AppLayoutClient } from "../../components/AppLayoutClient";
 import { getUserTeams, getProjects, getThreads } from "../../utils/supabase/queries";
 import { createClient } from "../../utils/supabase/server";
 import { redirect } from "next/navigation";
-import { Project, Thread } from "../../types/database";
+import { Project, Thread, Team } from "../../types/database";
 
 export default async function AppLayout({
   children,
@@ -16,35 +16,31 @@ export default async function AppLayout({
     redirect("/login");
   }
 
-  const teams = await getUserTeams() || [];
-  const activeTeam = teams[0] || null;
+  const teams = await getUserTeams() as Team[] || [];
+  
+  let allProjects: Project[] = [];
+  let allThreads: Thread[] = [];
 
-  let projects: Project[] = [];
-  let threads: Thread[] = [];
-
-  if (activeTeam) {
-    projects = await getProjects(activeTeam.id) as Project[] || [];
-    const activeProject = projects[0];
-    if (activeProject) {
-      threads = await getThreads(activeProject.id) as Thread[] || [];
+  if (teams.length > 0) {
+    const projectPromises = teams.map(team => getProjects(team.id));
+    const projectsArrays = await Promise.all(projectPromises);
+    allProjects = projectsArrays.flat() as Project[];
+    
+    if (allProjects.length > 0) {
+      const threadPromises = allProjects.map(project => getThreads(project.id));
+      const threadsArrays = await Promise.all(threadPromises);
+      allThreads = threadsArrays.flat() as Thread[];
     }
   }
 
-  const sharedThread = threads.find((t: Thread) => t.type === 'shared') || null;
-  const privateThreads = threads.filter((t: Thread) => t.type === 'private' && t.owner_id === user.id);
-
   return (
-    <div className="flex h-full w-full bg-canvas overflow-hidden">
-      <Sidebar 
-        user={user} 
-        team={activeTeam} 
-        project={projects[0] || null} 
-        sharedThread={sharedThread} 
-        privateThreads={privateThreads} 
-      />
-      <main className="flex-1 flex flex-col min-w-0 h-full relative">
-        {children}
-      </main>
-    </div>
+    <AppLayoutClient 
+      user={user} 
+      teams={teams}
+      projects={allProjects}
+      threads={allThreads}
+    >
+      {children}
+    </AppLayoutClient>
   );
 }

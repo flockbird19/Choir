@@ -8,10 +8,12 @@
   --color-graphite: var(--color-graphite);
   --color-border: var(--color-border);
   --color-accent: var(--color-accent);
+  --color-accent-light: var(--color-accent-light);
   --color-accent-fg: var(--color-accent-fg);
   --color-bubble-user: var(--color-bubble-user);
   --color-bubble-ai: var(--color-bubble-ai);
   --color-shared: var(--color-shared);
+  --color-shared-light: var(--color-shared-light);
   --color-shared-muted: var(--color-shared-muted);
   --color-shared-fg: var(--color-shared-fg);
 }
@@ -28,6 +30,7 @@
 
   /* Blue accent — used for shared thread identity */
   --color-accent:        #2563EB;
+  --color-accent-light:  #3B82F6;
   --color-accent-fg:     #FFFFFF;
 
   /* Message bubbles */
@@ -36,6 +39,7 @@
 
   /* Shared thread colors */
   --color-shared:        #2563EB;
+  --color-shared-light:  #3B82F6;
   --color-shared-muted:  #EFF4FF;
   --color-shared-fg:     #1D4ED8;
 }
@@ -50,12 +54,14 @@
   --color-border:        #2C2620;
 
   --color-accent:        #60A5FA;
+  --color-accent-light:  #93C5FD;
   --color-accent-fg:     #0F172A;
 
   --color-bubble-user:   #60A5FA;
   --color-bubble-ai:     #1C1917;
 
   --color-shared:        #60A5FA;
+  --color-shared-light:  #93C5FD;
   --color-shared-muted:  #1A2D4A;
   --color-shared-fg:     #93C5FD;
 }
