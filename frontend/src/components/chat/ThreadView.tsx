@@ -107,17 +107,20 @@ export function ThreadView({
   }, [messages]);
 
   const handleMessageSent = useCallback((id: string, content: string) => {
-    setLocalMessages((prev) => [
-      ...prev,
-      {
-        id,
-        thread_id: thread.id,
-        sender_type: "user",
-        sender_id: "", // Optimistic, doesn't matter for rendering usually
-        content,
-        created_at: new Date().toISOString(),
-      } as Message,
-    ]);
+    setLocalMessages((prev) => {
+      if (prev.some(m => m.id === id)) return prev; // Prevent React Strict Mode duplicates
+      return [
+        ...prev,
+        {
+          id,
+          thread_id: thread.id,
+          sender_type: "user",
+          sender_id: "", // Optimistic, doesn't matter for rendering usually
+          content,
+          created_at: new Date().toISOString(),
+        } as Message,
+      ];
+    });
   }, [thread.id]);
 
   // ── Streaming state ────────────────────────────────────────────────────────
@@ -139,16 +142,19 @@ export function ThreadView({
     // Optimistically commit the stream content as a real message
     setStreamingContent((currentContent) => {
       if (currentContent && aiMessageId) {
-        setLocalMessages((prev) => [
-          ...prev,
-          {
-            id: aiMessageId,
-            thread_id: thread.id,
-            sender_type: "assistant",
-            content: currentContent,
-            created_at: new Date().toISOString(),
-          } as Message,
-        ]);
+        setLocalMessages((prev) => {
+          if (prev.some(m => m.id === aiMessageId)) return prev; // Prevent React Strict Mode duplicates
+          return [
+            ...prev,
+            {
+              id: aiMessageId,
+              thread_id: thread.id,
+              sender_type: "assistant",
+              content: currentContent,
+              created_at: new Date().toISOString(),
+            } as Message,
+          ];
+        });
       }
       return null;
     });

@@ -238,6 +238,17 @@ def stream_ai_response(
     role_ctx = "a Team Owner" if role == "owner" else "a Team Member"
     user_name_ctx = user_name or "the User"
 
+    # ── Fetch Workspace (Team) and Project names ─────────────────────────────
+    db = get_db()
+    project_name = project["name"] if project else "Unknown Project"
+    team_name = "Unknown Workspace"
+    if project and project.get("team_id"):
+        team_res = db.table("teams").select("name").eq("id", project["team_id"]).execute()
+        if team_res.data:
+            team_name = team_res.data[0]["name"]
+    
+    workspace_context = f"Workspace: '{team_name}' | Project: '{project_name}'"
+
     if thread["type"] == "private":
         # Find the shared thread for this project
         db = get_db()
@@ -254,9 +265,9 @@ def stream_ai_response(
             shared_msgs = _fetch_messages(shared_rows[0]["id"])
 
         system_prompt = (
-            f"You are Choir, an AI in a private scratchpad. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
+            f"You are Choir, an AI in a private scratchpad for {workspace_context}. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
             "ROLE: Brainstorming partner. Help explore, stress-test, and refine ideas before they are shared with the team.\n"
-            "STYLE: Exploratory, direct, creative, yet concise.\n"
+            "STYLE: Exploratory, direct, creative, yet concise. Do NOT use emojis. Provide enough detail to be genuinely helpful, but avoid exhaustively long or overly verbose responses.\n"
             "CONTEXT: The team's shared thread is below for alignment. Only answer the user's immediate private questions.\n\n"
             + _format_shared_as_system_context(shared_msgs, user_id, user_name_ctx)
         )
@@ -274,9 +285,9 @@ def stream_ai_response(
                     provider, model, api_key = proj_provider, proj_model, owner_key
 
         system_prompt = (
-            f"You are Choir, an AI in a shared team space. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
-            "ROLE: Drive consensus, synthesize ideas, and provide objective clarity for the whole team.\n"
-            "STYLE: Structured, objective, professional, and highly concise. Use markdown for readability."
+            f"You are Choir, the central AI for {workspace_context}. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
+            "ROLE: Synthesizer, facilitator, and collective intelligence for the team.\n"
+            "STYLE: Objective, concise, collaborative. Do NOT use emojis. Provide enough detail to be genuinely helpful, but avoid exhaustively long or overly verbose responses. Do not hallucinate private context."
         )
         chat_messages = _to_chat_messages(_fetch_messages(thread_id))
 
