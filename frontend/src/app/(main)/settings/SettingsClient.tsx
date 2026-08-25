@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { Check, Trash2, KeyRound, ExternalLink } from "lucide-react";
 import { saveApiKey, deleteApiKey } from "@/app/(main)/thread/[id]/actions";
 
@@ -199,6 +199,10 @@ interface SettingsClientProps {
 
 export function SettingsClient({ initialSavedProviders }: SettingsClientProps) {
   const [savedProviders, setSavedProviders] = useState<string[]>(initialSavedProviders);
+
+  useEffect(() => {
+    setSavedProviders(initialSavedProviders);
+  }, [initialSavedProviders]);
 
   // Simple optimistic refresh — re-fetch from the server
   const handleRefresh = async () => {

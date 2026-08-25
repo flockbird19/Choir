@@ -3,14 +3,15 @@ import { getUserTeams, getProjects, getThreads } from "@/utils/supabase/queries"
 import { Logo } from "@/components/Logo";
 import Link from "next/link";
 import { Users, Lock, ArrowRight } from "lucide-react";
-
-import { Project, Thread } from "@/types/database";
+import { Project, Thread, Team } from "@/types/database";
 
 export default async function Home() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const teams = await getUserTeams() || [];
+  // Reuse the layout's already-fetched data via server-side re-fetch
+  // (Next.js deduplicates fetch calls with the same cache key)
+  const teams = await getUserTeams() as Team[] || [];
   const activeTeam = teams[0] || null;
   const projects = activeTeam ? (await getProjects(activeTeam.id) as Project[] || []) : [];
   const activeProject = projects[0] || null;
@@ -30,7 +31,6 @@ export default async function Home() {
     <div className="h-full flex flex-col items-center justify-center bg-canvas p-8 overflow-y-auto">
       <div className="max-w-md w-full flex flex-col items-center text-center">
 
-        {/* Logo mark */}
         <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center mb-6">
           <Logo className="w-7 h-7 text-accent" />
         </div>
@@ -44,10 +44,8 @@ export default async function Home() {
             : "Select a conversation from the sidebar to get started."}
         </p>
 
-        {/* Quick-access cards */}
         <div className="w-full space-y-3">
 
-          {/* Shared thread card */}
           {sharedThread && (
             <Link
               href={`/thread/${sharedThread.id}`}
@@ -58,7 +56,7 @@ export default async function Home() {
                 <Users size={18} className="text-white" />
               </div>
               <div className="flex-1 text-left">
-                <p className="text-sm font-semibold text-shared-fg">Team Space</p>
+                <p className="text-sm font-semibold text-shared-fg">{sharedThread.name || "Team Space"}</p>
                 <p className="text-xs text-shared/55">The shared conversation · everyone can see this</p>
               </div>
               <ArrowRight
@@ -68,7 +66,6 @@ export default async function Home() {
             </Link>
           )}
 
-          {/* Private threads */}
           {privateThreads.length > 0 ? (
             <>
               <div className="pt-1">

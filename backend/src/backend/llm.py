@@ -27,7 +27,7 @@ OPENAI_COMPAT_PROVIDERS: dict[str, dict[str, str]] = {
     },
     "google": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "default_model": "gemini-2.0-flash",
+        "default_model": "gemini-2.5-flash",
     },
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",
@@ -73,9 +73,9 @@ def _fetch_messages(thread_id: str) -> list[dict[str, Any]]:
 
 def _save_assistant_message(
     thread_id: str, content: str, provider: str, model: str
-) -> None:
+) -> str | None:
     db = get_db()
-    db.table("messages").insert(
+    resp = db.table("messages").insert(
         {
             "thread_id": thread_id,
             "sender_type": "assistant",
@@ -84,6 +84,8 @@ def _save_assistant_message(
             "model_name": model,
         }
     ).execute()
+    data = cast(list[dict[str, Any]], resp.data)
+    return data[0]["id"] if data else None
 
 
 # ---------------------------------------------------------------------------
@@ -103,27 +105,40 @@ def _to_chat_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
     return result
 
 
-def _format_shared_as_system_context(messages: list[dict[str, Any]]) -> str:
+def _format_shared_as_system_context(messages: list[dict[str, Any]], current_user_id: str, current_user_name: str) -> str:
     """Render the shared thread as a plain-text context block for the system prompt."""
     if not messages:
-        return "(No shared team context yet.)"
-    lines = ["=== SHARED TEAM THREAD (background context — read-only) ==="]
+        return "[No shared team context yet]"
+    lines = ["--- SHARED THREAD (Read-Only) ---"]
     for msg in messages:
-        label = "AI" if msg["sender_type"] == "assistant" else "Team member"
+        if msg["sender_type"] == "assistant":
+            label = "AI"
+        else:
+            if msg.get("sender_id") == current_user_id:
+                label = current_user_name
+            else:
+                label = "Team Member"
         lines.append(f"{label}: {msg['content']}")
-    lines.append("=== END OF SHARED CONTEXT ===")
+    lines.append("--- END SHARED ---")
     return "\n".join(lines)
 
 
 def _resolve_provider_and_model(
-    thread: dict[str, Any], user_id: str
+    thread: dict[str, Any], user_id: str, override_provider: str | None = None, override_model: str | None = None
 ) -> tuple[str, str] | None:
     """
     Determine which provider + model to use for this thread.
+    If overrides are provided, uses them (fails if no key).
     For private threads: use thread.model_provider / thread.model_name if set,
     otherwise fall back to the first provider for which the user has a key.
     Returns (provider, model) or None if no key is available.
     """
+    if override_provider and override_model:
+        key = get_api_key(user_id, override_provider)
+        if key:
+            return override_provider, override_model
+        return None
+
     thread_provider = thread.get("model_provider")
     thread_model = thread.get("model_name")
 
@@ -166,6 +181,9 @@ def _sse(payload: dict[str, Any]) -> str:
 def stream_ai_response(
     thread_id: str,
     user_id: str,
+    override_provider: str | None = None,
+    override_model: str | None = None,
+    user_name: str | None = None,
 ) -> Generator[str, None, None]:
     """
     Core generator: assembles context, calls the LLM, streams SSE chunks to the
@@ -183,7 +201,7 @@ def stream_ai_response(
         return
 
     # ── Resolve provider / model ──────────────────────────────────────────────
-    resolved = _resolve_provider_and_model(thread, user_id)
+    resolved = _resolve_provider_and_model(thread, user_id, override_provider, override_model)
     if not resolved:
         yield _sse(
             {
@@ -202,6 +220,24 @@ def stream_ai_response(
         return
 
     # ── Assemble context ──────────────────────────────────────────────────────
+    project = _fetch_project(thread["project_id"])
+    role = "member"
+    if project:
+        db = get_db()
+        role_resp = (
+            db.table("team_members")
+            .select("role")
+            .eq("team_id", project["team_id"])
+            .eq("user_id", user_id)
+            .execute()
+        )
+        role_data = cast(list[dict[str, Any]], role_resp.data)
+        if role_data:
+            role = role_data[0].get("role", "member")
+            
+    role_ctx = "a Team Owner" if role == "owner" else "a Team Member"
+    user_name_ctx = user_name or "the User"
+
     if thread["type"] == "private":
         # Find the shared thread for this project
         db = get_db()
@@ -218,17 +254,16 @@ def stream_ai_response(
             shared_msgs = _fetch_messages(shared_rows[0]["id"])
 
         system_prompt = (
-            "You are a helpful AI assistant in Choir, a collaborative team AI platform. "
-            "You are inside a user's private thread — your responses are visible only to them.\n\n"
-            "Below is the shared team thread for background context. "
-            "Use it to stay aligned with the team's goals, but keep the private conversation focused.\n\n"
-            + _format_shared_as_system_context(shared_msgs)
+            f"You are Choir, an AI in a private scratchpad. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
+            "ROLE: Brainstorming partner. Help explore, stress-test, and refine ideas before they are shared with the team.\n"
+            "STYLE: Exploratory, direct, creative, yet concise.\n"
+            "CONTEXT: The team's shared thread is below for alignment. Only answer the user's immediate private questions.\n\n"
+            + _format_shared_as_system_context(shared_msgs, user_id, user_name_ctx)
         )
         chat_messages = _to_chat_messages(_fetch_messages(thread_id))
 
     else:
         # Shared thread — use the project owner's key if possible
-        project = _fetch_project(thread["project_id"])
         if project:
             proj_provider = project.get("shared_model_provider") or "anthropic"
             proj_model = project.get("shared_model_name") or ANTHROPIC_DEFAULT_MODEL
@@ -239,9 +274,9 @@ def stream_ai_response(
                     provider, model, api_key = proj_provider, proj_model, owner_key
 
         system_prompt = (
-            "You are a helpful AI assistant in Choir. "
-            "You are in the shared team thread — your responses are visible to all team members. "
-            "Be clear, collaborative, and concise."
+            f"You are Choir, an AI in a shared team space. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
+            "ROLE: Drive consensus, synthesize ideas, and provide objective clarity for the whole team.\n"
+            "STYLE: Structured, objective, professional, and highly concise. Use markdown for readability."
         )
         chat_messages = _to_chat_messages(_fetch_messages(thread_id))
 
@@ -302,7 +337,8 @@ def stream_ai_response(
         return
 
     # ── Persist final message ─────────────────────────────────────────────────
+    msg_id = None
     if full_response.strip():
-        _save_assistant_message(thread_id, full_response, provider, model)
+        msg_id = _save_assistant_message(thread_id, full_response, provider, model)
 
-    yield _sse({"done": True})
+    yield _sse({"done": True, "message_id": msg_id})

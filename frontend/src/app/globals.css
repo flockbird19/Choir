@@ -90,6 +90,20 @@ body {
   background: var(--color-graphite);
 }
 
+/* ─── No-scrollbar utility ──────────────────────────────── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ─── Smooth transitions for theme switching ────────────── */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+
+/* Don't animate layout/transform by default */
+[data-no-transition] { transition: none !important; }
+
 /* ─── Focus Ring ────────────────────────────────── */
 :focus-visible {
   outline: 2px solid var(--color-accent);

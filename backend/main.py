@@ -1,6 +1,9 @@
+from datetime import datetime
+import json
+import re
 from typing import Any, cast
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -106,7 +109,17 @@ def remove_key(provider: str, user_id: str = Depends(get_current_user)):
 
 class ChatRequest(BaseModel):
     thread_id: str
+    model_provider: str | None = None
+    model_name: str | None = None
+    user_name: str | None = None
 
+
+import time
+from collections import defaultdict
+
+# Simple in-memory rate limiting (per user, per minute)
+AI_RATE_LIMITS = defaultdict(list)
+MAX_REQUESTS_PER_MINUTE = 15
 
 @app.post("/api/chat")
 def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
@@ -118,6 +131,19 @@ def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
     - Streams the LLM response as Server-Sent Events (SSE).
     - Persists the final response to Supabase once streaming is complete.
     """
+    
+    # ── Rate Limiting ──
+    now = time.time()
+    user_requests = AI_RATE_LIMITS[user_id]
+    user_requests = [t for t in user_requests if now - t < 60]
+    if len(user_requests) >= MAX_REQUESTS_PER_MINUTE:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. You can only make {MAX_REQUESTS_PER_MINUTE} requests per minute.",
+        )
+    user_requests.append(now)
+    AI_RATE_LIMITS[user_id] = user_requests
+
     if not verify_thread_access(user_id, body.thread_id):
         raise HTTPException(
             status_code=403,
@@ -125,11 +151,111 @@ def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
         )
 
     return StreamingResponse(
-        stream_ai_response(body.thread_id, user_id),
+        stream_ai_response(body.thread_id, user_id, body.model_provider, body.model_name, body.user_name),
         media_type="text/event-stream",
         headers={
             # Prevent buffering in proxies / Next.js dev server
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Export — separate from /api/chat to avoid route shadowing
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _safe_filename(name: str) -> str:
+    """
+    Convert a thread name into a safe filename.
+    Strips anything that isn't a word char, space, or hyphen,
+    then replaces spaces with underscores and lowercases the result.
+    """
+    sanitized = re.sub(r"[^\w\s\-]", "", name)
+    sanitized = re.sub(r"\s+", "_", sanitized.strip())
+    return (sanitized or "thread").lower()
+
+
+@app.get("/api/export/{thread_id}")
+def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get_current_user)):
+    """
+    Export all messages in a thread.
+    - If format=json, exports raw JSON data with full metadata.
+    - If format=md, exports formatted Markdown.
+    """
+    db = get_db()
+
+    # 1. Verify access
+    if not verify_thread_access(user_id, thread_id):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this thread.",
+        )
+
+    # 2. Fetch thread metadata
+    thread_resp = db.table("threads").select("*").eq("id", thread_id).single().execute()
+    thread = thread_resp.data
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    thread_name = thread.get("name") or "Untitled Thread"
+
+    # 3. Fetch messages
+    msg_resp = (
+        db.table("messages")
+        .select("*")
+        .eq("thread_id", thread_id)
+        .order("created_at")
+        .execute()
+    )
+    messages = cast(list[dict[str, Any]], msg_resp.data)
+
+    if format == "json":
+        export_data = {
+            "thread": thread,
+            "messages": messages,
+            "exported_at": datetime.utcnow().isoformat()
+        }
+        filename = f"{_safe_filename(thread_name)}_export.json"
+        
+        return Response(
+            content=json.dumps(export_data, indent=2, default=str),
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            },
+        )
+
+    # Fallback to Markdown format
+    md_lines = []
+    md_lines.append(f"# {thread_name}")
+    md_lines.append(f"**Exported:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    md_lines.append(f"**Type:** {thread.get('type', 'Unknown').capitalize()}")
+    md_lines.append("")
+    md_lines.append("---")
+    md_lines.append("")
+
+    for msg in messages:
+        sender = "User" if msg["sender_type"] == "user" else "AI"
+        model = msg.get("model_name")
+        if model and sender == "AI":
+            sender += f" ({model})"
+
+        md_lines.append(f"**{sender}:**")
+        md_lines.append("")
+        md_lines.append(msg["content"])
+        md_lines.append("")
+        md_lines.append("---")
+        md_lines.append("")
+
+    filename = f"{_safe_filename(thread_name)}_export.md"
+    content = "\n".join(md_lines)
+
+    return Response(
+        content=content,
+        media_type="text/markdown",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
         },
     )

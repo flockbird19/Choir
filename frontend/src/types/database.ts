@@ -38,3 +38,11 @@ export interface Message {
   created_at: string;
   shared_by?: string;
 }
+
+export interface TeamInvitation {
+  id: string;
+  team_id: string;
+  token: string;
+  created_by: string;
+  created_at: string;
+}

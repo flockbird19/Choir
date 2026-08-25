@@ -17,25 +17,25 @@ export default async function AppLayout({
   }
 
   const teams = await getUserTeams() as Team[] || [];
-  
+
+  if (teams.length === 0) {
+    redirect("/onboarding");
+  }
+
   let allProjects: Project[] = [];
   let allThreads: Thread[] = [];
 
-  if (teams.length > 0) {
-    const projectPromises = teams.map(team => getProjects(team.id));
-    const projectsArrays = await Promise.all(projectPromises);
-    allProjects = projectsArrays.flat() as Project[];
-    
-    if (allProjects.length > 0) {
-      const threadPromises = allProjects.map(project => getThreads(project.id));
-      const threadsArrays = await Promise.all(threadPromises);
-      allThreads = threadsArrays.flat() as Thread[];
-    }
+  const projectsArrays = await Promise.all(teams.map(team => getProjects(team.id)));
+  allProjects = projectsArrays.flat() as Project[];
+
+  if (allProjects.length > 0) {
+    const threadsArrays = await Promise.all(allProjects.map(project => getThreads(project.id)));
+    allThreads = threadsArrays.flat() as Thread[];
   }
 
   return (
-    <AppLayoutClient 
-      user={user} 
+    <AppLayoutClient
+      user={user}
       teams={teams}
       projects={allProjects}
       threads={allThreads}

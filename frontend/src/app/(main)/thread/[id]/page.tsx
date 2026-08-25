@@ -3,6 +3,29 @@ import { getMessages, getThreads } from "@/utils/supabase/queries";
 import { ThreadView } from "@/components/chat/ThreadView";
 import { redirect } from "next/navigation";
 import { Thread, Message } from "@/types/database";
+import type { Metadata } from "next";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const resolvedParams = await params;
+  const { id } = resolvedParams;
+  
+  const supabase = await createClient();
+  const { data: thread } = await supabase
+    .from("threads")
+    .select("name, type")
+    .eq("id", id)
+    .single();
+
+  if (!thread) {
+    return { title: "Thread Not Found — Choir" };
+  }
+
+  const title = thread.name || (thread.type === "private" ? "Private Thread" : "Team Space");
+  return {
+    title: `${title} — Choir`,
+    description: `View the ${title} thread in your Choir workspace.`,
+  };
+}
 
 export default async function ThreadPage({ 
   params 

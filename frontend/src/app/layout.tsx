@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Inter, Instrument_Serif } from "next/font/google";
 import { ThemeProvider } from "../components/ThemeProvider";
+import { ToastProvider } from "../components/Toast";
+import { CookieBanner } from "../components/CookieBanner";
+import { CommandPalette } from "../components/CommandPalette";
 import "./globals.css";
 
 const inter = Inter({
@@ -35,7 +38,11 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          <ToastProvider>
+            {children}
+            <CommandPalette />
+            <CookieBanner />
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

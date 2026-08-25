@@ -11,9 +11,24 @@ interface ChatInputProps {
   threadId: string;
   onStreamStart?: () => void;
   onStreamChunk?: (text: string) => void;
-  onStreamEnd?: () => void;
+  onStreamEnd?: (aiMessageId?: string) => void;
   onStreamError?: (error: string) => void;
+  onMessageSent?: (id: string, content: string) => void;
+  disabled?: boolean;
 }
+
+const AVAILABLE_MODELS = [
+  { provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
+  { provider: "anthropic", id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
+  { provider: "anthropic", id: "claude-opus-4-5", name: "Claude Opus 4.5" },
+  { provider: "openai", id: "gpt-4o", name: "GPT-4o" },
+  { provider: "openai", id: "gpt-4o-mini", name: "GPT-4o Mini" },
+  { provider: "openai", id: "o3", name: "o3" },
+  { provider: "openai", id: "o4-mini", name: "o4-mini" },
+  { provider: "google", id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+  { provider: "google", id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+  { provider: "groq", id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
+];
 
 export function ChatInput({
   threadId,
@@ -21,12 +36,32 @@ export function ChatInput({
   onStreamChunk,
   onStreamEnd,
   onStreamError,
+  onMessageSent,
+  disabled,
 }: ChatInputProps) {
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+
+  // Default to first model
+  const [selectedModelStr, setSelectedModelStr] = useState<string>(
+    `${AVAILABLE_MODELS[0].provider}:${AVAILABLE_MODELS[0].id}`
+  );
+
+  // Load from local storage
+  useEffect(() => {
+    const saved = localStorage.getItem("choir_selected_model");
+    if (saved && AVAILABLE_MODELS.some(m => `${m.provider}:${m.id}` === saved)) {
+      setSelectedModelStr(saved);
+    }
+  }, []);
+
+  const handleModelChange = (val: string) => {
+    setSelectedModelStr(val);
+    localStorage.setItem("choir_selected_model", val);
+  };
 
   // Detect @AI trigger — word boundary match
   const hasAITrigger = /\B@AI\b/i.test(content);
@@ -59,7 +94,11 @@ export function ChatInput({
       return;
     }
 
+    const userName = session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || "User";
+
     onStreamStart?.();
+
+    const [provider, model] = selectedModelStr.split(":");
 
     let response: Response;
     try {
@@ -69,7 +108,12 @@ export function ChatInput({
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ thread_id: threadId }),
+        body: JSON.stringify({ 
+          thread_id: threadId,
+          model_provider: provider,
+          model_name: model,
+          user_name: userName
+        }),
       });
     } catch {
       onStreamError?.("Could not reach the AI backend. Is it running?");
@@ -123,7 +167,7 @@ export function ChatInput({
             onStreamChunk?.(event.text as string);
           }
           if (event.done) {
-            onStreamEnd?.();
+            onStreamEnd?.(event.message_id as string);
             return;
           }
         }
@@ -134,11 +178,11 @@ export function ChatInput({
       readerRef.current = null;
     }
 
-    onStreamEnd?.();
+    onStreamEnd?.(undefined);
   };
 
   const handleSubmit = async () => {
-    if (!content.trim() || isSubmitting) return;
+    if (!content.trim() || isSubmitting || disabled) return;
     setSendError(null);
     setIsSubmitting(true);
 
@@ -154,6 +198,10 @@ export function ChatInput({
       setSendError(result.error);
       setIsSubmitting(false);
       return;
+    }
+
+    if (result.messageId) {
+      onMessageSent?.(result.messageId as string, textToSend);
     }
 
     setIsSubmitting(false);
@@ -181,7 +229,24 @@ export function ChatInput({
         </div>
       )}
 
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-3xl mx-auto flex flex-col gap-1.5">
+        
+        {/* Model Selector Bar */}
+        <div className="flex items-center justify-end px-1">
+           <select
+             value={selectedModelStr}
+             onChange={e => handleModelChange(e.target.value)}
+             className="text-[11px] font-medium text-graphite bg-surface/50 hover:bg-surface border border-transparent hover:border-border rounded-md px-1.5 py-0.5 outline-none transition-colors appearance-none cursor-pointer"
+             title="Select AI Model"
+           >
+             {AVAILABLE_MODELS.map(m => (
+               <option key={`${m.provider}:${m.id}`} value={`${m.provider}:${m.id}`}>
+                 {m.name}
+               </option>
+             ))}
+           </select>
+        </div>
+
         {/* Input container */}
         <div
           className={`relative flex items-end gap-2 bg-surface border rounded-2xl px-3 py-2
@@ -200,7 +265,7 @@ export function ChatInput({
             placeholder="Message… type @AI to call the assistant"
             className="flex-1 max-h-[200px] bg-transparent resize-none outline-none py-1.5 text-ink placeholder:text-graphite/50 text-sm leading-relaxed"
             rows={1}
-            disabled={isSubmitting}
+            disabled={isSubmitting || disabled}
           />
 
           <div className="flex items-center gap-2 pb-0.5 shrink-0">
@@ -214,11 +279,11 @@ export function ChatInput({
             {/* Send button */}
             <button
               onClick={handleSubmit}
-              disabled={!content.trim() || isSubmitting}
+              disabled={!content.trim() || isSubmitting || disabled}
               aria-label="Send message"
               className={`w-8 h-8 rounded-full flex items-center justify-center transition-all
                 ${
-                  content.trim() && !isSubmitting
+                  content.trim() && !isSubmitting && !disabled
                     ? "bg-accent text-white shadow-sm hover:bg-accent/90 active:scale-95"
                     : "bg-surface-hover text-graphite cursor-not-allowed"
                 }`}
@@ -233,7 +298,7 @@ export function ChatInput({
         </div>
 
         {/* Footer hint */}
-        <p className="text-center text-[10px] text-graphite/35 mt-2 tracking-wide select-none">
+        <p className="text-center text-[10px] text-graphite/35 mt-1 tracking-wide select-none">
           Enter to send · Shift+Enter for new line
         </p>
       </div>

@@ -1,9 +1,23 @@
 import { getSavedProviders } from "@/app/(main)/thread/[id]/actions";
 import { SettingsClient } from "./SettingsClient";
+import { InviteSection } from "./InviteSection";
+import { DangerZone } from "./DangerZone";
 import { KeyRound } from "lucide-react";
+import { getUserTeams } from "@/utils/supabase/queries";
+import { createClient } from "@/utils/supabase/server";
+import { Team } from "@/types/database";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Settings — Choir",
+  description: "Manage your API keys, integrations, and workspace settings.",
+};
 
 export default async function SettingsPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
   const savedProviders = await getSavedProviders();
+  const teams = (await getUserTeams()) as Team[];
 
   return (
     <div className="h-full overflow-y-auto bg-canvas">
@@ -33,6 +47,11 @@ export default async function SettingsPage() {
           <SettingsClient initialSavedProviders={savedProviders} />
         </div>
 
+        {/* Section: Invite Members */}
+        <InviteSection teams={teams} />
+
+        {/* Danger Zone */}
+        {user && <DangerZone teams={teams} currentUserId={user.id} />}
       </div>
     </div>
   );

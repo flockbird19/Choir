@@ -15,20 +15,20 @@ export async function sendMessage(threadId: string, content: string) {
     return { error: "Not logged in" };
   }
 
-  const { error } = await supabase.from("messages").insert({
+  const { data, error } = await supabase.from("messages").insert({
     thread_id: threadId,
     sender_type: "user",
     sender_id: user.id,
     content,
-  });
+  }).select().single();
 
   if (error) {
     console.error("Error sending message:", error);
     return { error: error.message };
   }
 
-  revalidatePath(`/thread/${threadId}`);
-  return { success: true };
+  // Removed revalidatePath to prevent full-page reload on every message
+  return { success: true, messageId: data.id };
 }
 
 export async function getSessionToken(): Promise<string | null> {
@@ -103,5 +103,82 @@ export async function deleteApiKey(
     return { error: json.detail ?? "Failed to delete key." };
   }
   revalidatePath("/settings");
+  return { success: true };
+}
+
+export async function postToSharedThread(
+  sharedThreadId: string,
+  content: string
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "Not logged in" };
+  }
+
+  // Insert the compiled markdown block into the shared thread.
+  // We set `shared_by` to the current user's ID so the frontend can display
+  // the "Shared from private exploration" banner.
+  const { error } = await supabase.from("messages").insert({
+    thread_id: sharedThreadId,
+    sender_type: "user",
+    sender_id: user.id,
+    content,
+    shared_by: user.id,
+  });
+
+  if (error) {
+    console.error("Error posting to shared thread:", error);
+    return { error: error.message };
+  }
+
+  revalidatePath(`/thread/${sharedThreadId}`);
+  return { success: true };
+}
+
+export async function createThread(projectId: string, name: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not logged in" };
+
+  const { data, error } = await supabase.from("threads").insert({
+    type: "private",
+    owner_id: user.id,
+    project_id: projectId,
+    name,
+  }).select().single();
+
+  if (error) {
+    console.error("Error creating thread:", error);
+    return { error: error.message };
+  }
+
+  revalidatePath("/");
+  return { success: true, threadId: data.id };
+}
+
+export async function deleteThread(threadId: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not logged in" };
+
+  const { error } = await supabase.from("threads")
+    .delete()
+    .eq("id", threadId)
+    .eq("owner_id", user.id);
+
+  if (error) {
+    console.error("Error deleting thread:", error);
+    return { error: error.message };
+  }
+
+  revalidatePath("/");
   return { success: true };
 }
