@@ -5,9 +5,17 @@ import { useRouter } from "next/navigation";
 import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download } from "lucide-react";
-import { postToSharedThread, getSessionToken } from "../../app/(main)/thread/[id]/actions";
+import { DecisionsPanel } from "./DecisionsPanel";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin } from "lucide-react";
+import {
+  postToSharedThread,
+  getSessionToken,
+  pinMessage,
+  unpinMessage,
+} from "../../app/(main)/thread/[id]/actions";
 import { useToast } from "../Toast";
+import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
+import { useThreadPresence } from "@/hooks/useThreadPresence";
 
 import { Thread, Message } from "@/types/database";
 
@@ -106,6 +114,87 @@ export function ThreadView({
     setLocalMessages(messages);
   }, [messages]);
 
+  // ── Live sync (Realtime) ────────────────────────────────────────────────────
+  // Pushes new/changed messages from other clients into this thread's view without
+  // requiring a refresh. UPDATE events cover pin/unpin (`is_decision`) changes.
+  const handleRealtimeInsert = useCallback((incoming: Message) => {
+    setLocalMessages((prev) => {
+      if (prev.some((m) => m.id === incoming.id)) return prev;
+      return [...prev, incoming];
+    });
+  }, []);
+
+  const handleRealtimeUpdate = useCallback((incoming: Message) => {
+    setLocalMessages((prev) => prev.map((m) => (m.id === incoming.id ? { ...m, ...incoming } : m)));
+  }, []);
+
+  useRealtimeMessages(thread.id, handleRealtimeInsert, handleRealtimeUpdate);
+
+  // When viewing a private thread, also keep the Team Space preview (Context Drawer)
+  // live — otherwise it would go stale until the user navigates away and back.
+  const [localSharedMessages, setLocalSharedMessages] = useState<Message[]>(sharedMessages || []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLocalSharedMessages(sharedMessages || []);
+  }, [sharedMessages]);
+
+  const handleSharedRealtimeInsert = useCallback((incoming: Message) => {
+    setLocalSharedMessages((prev) => {
+      if (prev.some((m) => m.id === incoming.id)) return prev;
+      return [...prev, incoming];
+    });
+  }, []);
+
+  const handleSharedRealtimeUpdate = useCallback((incoming: Message) => {
+    setLocalSharedMessages((prev) => prev.map((m) => (m.id === incoming.id ? { ...m, ...incoming } : m)));
+  }, []);
+
+  useRealtimeMessages(
+    isPrivate ? sharedThread?.id : undefined,
+    handleSharedRealtimeInsert,
+    handleSharedRealtimeUpdate
+  );
+
+  // ── Presence — who else currently has this thread open ─────────────────────
+  const presentUsers = useThreadPresence(thread.id);
+
+  // ── Global Decisions — pin/unpin shared-thread messages ─────────────────────
+  const [decisionsOpen, setDecisionsOpen] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const decisions = localMessages.filter((m) => m.is_decision);
+
+  const handleTogglePin = useCallback(
+    async (id: string, currentlyPinned: boolean) => {
+      // Optimistic update — the realtime UPDATE event will also arrive and confirm this.
+      setLocalMessages((prev) =>
+        prev.map((m) =>
+          m.id === id
+            ? { ...m, is_decision: !currentlyPinned, pinned_at: currentlyPinned ? null : new Date().toISOString() }
+            : m
+        )
+      );
+      const res = currentlyPinned ? await unpinMessage(thread.id, id) : await pinMessage(thread.id, id);
+      if (res.error) {
+        toastError(res.error);
+        // Revert on failure
+        setLocalMessages((prev) =>
+          prev.map((m) => (m.id === id ? { ...m, is_decision: currentlyPinned } : m))
+        );
+      }
+    },
+    [thread.id, toastError]
+  );
+
+  const handleJumpToDecision = useCallback((id: string) => {
+    setDecisionsOpen(false);
+    setHighlightedMessageId(id);
+    requestAnimationFrame(() => {
+      document.getElementById(`message-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    setTimeout(() => setHighlightedMessageId(null), 2000);
+  }, []);
+
   const handleMessageSent = useCallback((id: string, content: string) => {
     setLocalMessages((prev) => {
       if (prev.some(m => m.id === id)) return prev; // Prevent React Strict Mode duplicates
@@ -202,6 +291,28 @@ export function ThreadView({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Presence — avatars of teammates currently viewing this thread */}
+            {presentUsers.length > 0 && (
+              <div
+                className="flex items-center -space-x-2 mr-1"
+                title={presentUsers.map((u) => u.name).join(", ")}
+              >
+                {presentUsers.slice(0, 4).map((u) => (
+                  <div
+                    key={u.id}
+                    className="w-7 h-7 rounded-full bg-accent text-white flex items-center justify-center text-[10px] font-bold ring-2 ring-canvas select-none"
+                  >
+                    {u.name.slice(0, 2).toUpperCase()}
+                  </div>
+                ))}
+                {presentUsers.length > 4 && (
+                  <div className="w-7 h-7 rounded-full bg-surface-hover text-graphite flex items-center justify-center text-[10px] font-bold ring-2 ring-canvas select-none">
+                    +{presentUsers.length - 4}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Export buttons */}
             <div className="flex items-center rounded-lg border border-border bg-surface overflow-hidden">
               <button
@@ -222,6 +333,22 @@ export function ThreadView({
                 <span className="hidden sm:inline">{isExporting === "json" ? "..." : "JSON"}</span>
               </button>
             </div>
+
+            {/* Decisions toggle — only on the shared thread itself */}
+            {!isPrivate && (
+              <button
+                onClick={() => setDecisionsOpen(!decisionsOpen)}
+                title="View pinned decisions"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
+                  ${decisionsOpen
+                    ? "bg-amber-400/10 text-amber-600 dark:text-amber-400 border-amber-400/30"
+                    : "bg-surface text-graphite border-border hover:border-amber-400/40 hover:text-amber-600 dark:hover:text-amber-400"
+                  }`}
+              >
+                <Pin size={15} />
+                <span className="hidden sm:inline">Decisions{decisions.length > 0 ? ` (${decisions.length})` : ""}</span>
+              </button>
+            )}
 
             {/* Select mode toggle — only for private threads */}
             {isPrivate && sharedThread && (
@@ -272,6 +399,9 @@ export function ThreadView({
           selectMode={selectMode}
           selectedMessageIds={selectedMessageIds}
           onToggleSelect={handleToggleSelect}
+          isSharedThread={!isPrivate}
+          onTogglePin={handleTogglePin}
+          highlightedMessageId={highlightedMessageId}
         />
 
         {/* Chat Input or Selection Action Bar */}
@@ -337,7 +467,18 @@ export function ThreadView({
           isOpen={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           sharedThread={sharedThread}
-          sharedMessages={sharedMessages || []}
+          sharedMessages={localSharedMessages}
+        />
+      )}
+
+      {/* ── Decisions Panel ─────────────────────────────────────────── */}
+      {!isPrivate && (
+        <DecisionsPanel
+          isOpen={decisionsOpen}
+          onClose={() => setDecisionsOpen(false)}
+          decisions={decisions}
+          onJumpTo={handleJumpToDecision}
+          onUnpin={(id) => handleTogglePin(id, true)}
         />
       )}
     </div>

@@ -48,7 +48,11 @@ create table if not exists messages (
   model_provider text,
   model_name text,
   created_at timestamptz default now(),
-  shared_by uuid references auth.users(id)
+  shared_by uuid references auth.users(id),
+  -- "Global Decisions": any team member can pin a shared-thread message as a decision record.
+  is_decision boolean not null default false,
+  pinned_by uuid references auth.users(id),
+  pinned_at timestamptz
 );
 
 create table if not exists user_api_keys (
@@ -139,6 +143,12 @@ create policy "View messages in accessible threads" on messages for select using
 
 drop policy if exists "Users can insert messages" on messages;
 create policy "Users can insert messages" on messages for insert with check (
+  exists (select 1 from threads where id = messages.thread_id)
+);
+
+-- Needed for Global Decisions (pin/unpin sets is_decision/pinned_by/pinned_at).
+drop policy if exists "Users can update messages in accessible threads" on messages;
+create policy "Users can update messages in accessible threads" on messages for update using (
   exists (select 1 from threads where id = messages.thread_id)
 );
 

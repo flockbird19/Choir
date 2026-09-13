@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, memo, useState } from "react";
-import { User, Bot, ArrowUpRight, Copy, Check } from "lucide-react";
+import { User, Bot, ArrowUpRight, Copy, Check, Pin, PinOff } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -12,6 +12,7 @@ interface Message {
   created_at: string;
   shared_by?: string | null;
   model_name?: string | null;
+  is_decision?: boolean;
 }
 
 interface MessageListProps {
@@ -21,6 +22,9 @@ interface MessageListProps {
   selectMode?: boolean;
   selectedMessageIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
+  isSharedThread?: boolean;
+  onTogglePin?: (id: string, currentlyPinned: boolean) => void;
+  highlightedMessageId?: string | null;
 }
 
 // Fix: destructure `node` explicitly so it is NOT forwarded to DOM elements
@@ -72,17 +76,29 @@ const MessageItem = memo(function MessageItem({
   selectMode,
   isSelected,
   onToggleSelect,
+  isSharedThread,
+  onTogglePin,
+  isHighlighted,
 }: {
   msg: Message;
   selectMode: boolean;
   isSelected: boolean;
   onToggleSelect?: (id: string) => void;
+  isSharedThread?: boolean;
+  onTogglePin?: (id: string, currentlyPinned: boolean) => void;
+  isHighlighted?: boolean;
 }) {
   const isUser = msg.sender_type === "user";
   const isSharedFrom = !!msg.shared_by;
+  const isPinned = !!msg.is_decision;
 
   return (
-    <div>
+    <div
+      id={`message-${msg.id}`}
+      className={`rounded-2xl transition-colors duration-700 ${
+        isHighlighted ? "bg-accent/8 ring-2 ring-accent/40" : ""
+      }`}
+    >
       {isSharedFrom && (
         <div className="flex items-center gap-1.5 text-[11px] text-shared-fg font-medium mb-1.5 ml-10">
           <ArrowUpRight size={11} className="shrink-0" />
@@ -91,8 +107,8 @@ const MessageItem = memo(function MessageItem({
       )}
 
       <div
-        className={`flex gap-3 ${isUser ? "flex-row-reverse max-w-[85%] ml-auto" : "max-w-[85%] mr-auto"} ${
-          selectMode ? "cursor-pointer group" : ""
+        className={`flex gap-3 group ${isUser ? "flex-row-reverse max-w-[85%] ml-auto" : "max-w-[85%] mr-auto"} ${
+          selectMode ? "cursor-pointer" : ""
         }`}
         onClick={() => {
           if (selectMode && onToggleSelect) onToggleSelect(msg.id);
@@ -134,6 +150,7 @@ const MessageItem = memo(function MessageItem({
                   : "bg-surface border border-border text-ink rounded-tl-sm"
               }
               ${selectMode && isSelected ? "ring-2 ring-accent ring-offset-2 ring-offset-canvas" : ""}
+              ${isPinned ? "border-l-2 border-l-amber-400" : ""}
             `}
           >
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -142,6 +159,12 @@ const MessageItem = memo(function MessageItem({
           </div>
 
           <div className="flex items-center gap-2 mt-1 mx-1">
+            {isPinned && (
+              <span className="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                <Pin size={10} className="fill-current" />
+                Decision
+              </span>
+            )}
             {msg.model_name && !isUser && (
               <span className="text-[10px] text-graphite/40 font-mono">{msg.model_name}</span>
             )}
@@ -151,6 +174,18 @@ const MessageItem = memo(function MessageItem({
                 minute: "2-digit",
               })}
             </span>
+            {isSharedThread && onTogglePin && !selectMode && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTogglePin(msg.id, isPinned);
+                }}
+                title={isPinned ? "Unpin decision" : "Pin as decision"}
+                className="opacity-0 group-hover:opacity-100 p-0.5 rounded-md text-graphite/50 hover:text-amber-500 hover:bg-amber-500/10 transition-all"
+              >
+                {isPinned ? <PinOff size={11} /> : <Pin size={11} />}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -165,6 +200,9 @@ export function MessageList({
   selectMode = false,
   selectedMessageIds = new Set(),
   onToggleSelect,
+  isSharedThread = false,
+  onTogglePin,
+  highlightedMessageId,
 }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -200,6 +238,9 @@ export function MessageList({
           selectMode={selectMode}
           isSelected={selectedMessageIds.has(msg.id)}
           onToggleSelect={onToggleSelect}
+          isSharedThread={isSharedThread}
+          onTogglePin={onTogglePin}
+          isHighlighted={highlightedMessageId === msg.id}
         />
       ))}
 

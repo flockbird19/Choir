@@ -37,6 +37,9 @@ export interface Message {
   model_name?: string;
   created_at: string;
   shared_by?: string;
+  is_decision?: boolean;
+  pinned_by?: string | null;
+  pinned_at?: string | null;
 }
 
 export interface TeamInvitation {

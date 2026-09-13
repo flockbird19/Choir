@@ -145,6 +145,65 @@ export async function postToSharedThread(
   return { success: true };
 }
 
+// ── Global Decisions — pin/unpin a shared-thread message ──────────────────────
+// No revalidatePath here: the Decisions panel and message list update live via
+// the useRealtimeMessages UPDATE subscription, so a full route revalidation
+// would just be redundant (and would fight the optimistic local state).
+
+export async function pinMessage(
+  threadId: string,
+  messageId: string
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "Not logged in" };
+  }
+
+  const { error } = await supabase
+    .from("messages")
+    .update({ is_decision: true, pinned_by: user.id, pinned_at: new Date().toISOString() })
+    .eq("id", messageId)
+    .eq("thread_id", threadId);
+
+  if (error) {
+    console.error("Error pinning message:", error);
+    return { error: error.message };
+  }
+
+  return { success: true };
+}
+
+export async function unpinMessage(
+  threadId: string,
+  messageId: string
+): Promise<{ success?: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "Not logged in" };
+  }
+
+  const { error } = await supabase
+    .from("messages")
+    .update({ is_decision: false, pinned_by: null, pinned_at: null })
+    .eq("id", messageId)
+    .eq("thread_id", threadId);
+
+  if (error) {
+    console.error("Error unpinning message:", error);
+    return { error: error.message };
+  }
+
+  return { success: true };
+}
+
 export async function createThread(projectId: string, name: string) {
   const supabase = await createClient();
   const {
