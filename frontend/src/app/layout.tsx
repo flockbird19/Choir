@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Instrument_Serif } from "next/font/google";
+import { Inter, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "../components/ThemeProvider";
 import { ToastProvider } from "../components/Toast";
 import { CookieBanner } from "../components/CookieBanner";
@@ -7,6 +7,11 @@ import { CommandPalette } from "../components/CommandPalette";
 import "./globals.css";
 
 const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+});
+
+const jetbrains = JetBrains_Mono({
   variable: "--font-sans",
   subsets: ["latin"],
 });
@@ -30,7 +35,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className="h-full antialiased">
       <body
-        className={`${inter.variable} ${instrumentSerif.variable} h-full bg-canvas text-ink font-sans flex flex-col selection:bg-accent selection:text-accent-fg overflow-hidden`}
+        className={`${inter.variable} ${jetbrains.variable} ${instrumentSerif.variable} h-full bg-canvas text-ink font-sans flex flex-col selection:bg-accent selection:text-accent-fg overflow-hidden`}
       >
         <ThemeProvider
           attribute="class"

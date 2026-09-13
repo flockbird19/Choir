@@ -177,7 +177,7 @@ export function MessageList({
 
   if (!messages || messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-center p-8 select-none">
+      <div className="flex-1 flex flex-col items-center justify-center text-center p-8 select-none font-inter">
         <div className="w-12 h-12 rounded-full border-2 border-dashed border-border flex items-center justify-center mb-4">
           <span className="text-graphite text-lg leading-none">✦</span>
         </div>
@@ -192,7 +192,7 @@ export function MessageList({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-3">
+    <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-3 font-inter">
       {messages.map((msg) => (
         <MessageItem
           key={msg.id}
@@ -209,7 +209,11 @@ export function MessageList({
             <Bot size={13} />
           </div>
           <div className="flex flex-col items-start">
-            <div className="px-4 py-2.5 rounded-2xl rounded-tl-sm text-sm leading-relaxed bg-surface border border-border text-ink">
+            <div className={`px-4 py-2.5 rounded-2xl rounded-tl-sm text-sm leading-relaxed text-ink transition-all duration-300 ease-in-out ${
+              showStreamingBubble
+                ? "bg-surface border-2 border-accent/40 shadow-[0_0_12px_rgba(37,99,235,0.15)] ring-1 ring-accent/10"
+                : "bg-surface border border-border"
+            }`}>
               {showTypingBubble ? (
                 <span className="flex gap-1 items-center h-4">
                   <span className="w-1.5 h-1.5 rounded-full bg-graphite/50 animate-bounce [animation-delay:0ms]" />

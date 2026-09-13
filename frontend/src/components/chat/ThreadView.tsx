@@ -100,7 +100,7 @@ export function ThreadView({
 
   // ── Local Messages State (Optimistic UI) ───────────────────────────────────
   const [localMessages, setLocalMessages] = useState<Message[]>(messages);
-  
+
   // Sync when navigating between threads
   useEffect(() => {
     setLocalMessages(messages);
@@ -138,7 +138,7 @@ export function ThreadView({
 
   const handleStreamEnd = useCallback((aiMessageId?: string) => {
     setIsStreaming(false);
-    
+
     // Optimistically commit the stream content as a real message
     setStreamingContent((currentContent) => {
       if (currentContent && aiMessageId) {
@@ -295,21 +295,38 @@ export function ThreadView({
               <button
                 onClick={handlePostToShared}
                 disabled={selectedMessageIds.size === 0 || isPosting}
-                className="px-5 py-2 text-sm font-semibold bg-accent text-white rounded-xl shadow-sm shadow-accent/25 hover:bg-accent/90 disabled:opacity-50 disabled:hover:bg-accent transition-all"
+                className={`flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white rounded-xl shadow-sm transition-all duration-300 ${
+                  isPosting
+                    ? "bg-accent/80 scale-[0.98] cursor-wait shadow-inner"
+                    : "bg-accent shadow-accent/25 hover:bg-accent/90 hover:-translate-y-px active:scale-95 disabled:opacity-50 disabled:hover:bg-accent disabled:hover:translate-y-0"
+                }`}
               >
-                {isPosting ? "Posting..." : "Post to Team Space"}
+                {isPosting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Posting...
+                  </>
+                ) : (
+                  <>
+                    Post to Team Space
+                    <PanelRightOpen size={15} />
+                  </>
+                )}
               </button>
             </div>
           </div>
         ) : (
           <ChatInput
             threadId={thread.id}
+            disabled={isStreaming}
+            onMessageSent={handleMessageSent}
+            onMessageFailed={(failedId) => {
+              setLocalMessages((prev) => prev.filter(m => m.id !== failedId));
+            }}
             onStreamStart={handleStreamStart}
             onStreamChunk={handleStreamChunk}
             onStreamEnd={handleStreamEnd}
             onStreamError={handleStreamError}
-            onMessageSent={handleMessageSent}
-            disabled={isStreaming}
           />
         )}
       </div>

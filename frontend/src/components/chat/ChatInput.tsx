@@ -14,6 +14,7 @@ interface ChatInputProps {
   onStreamEnd?: (aiMessageId?: string) => void;
   onStreamError?: (error: string) => void;
   onMessageSent?: (id: string, content: string) => void;
+  onMessageFailed?: (id: string) => void;
   disabled?: boolean;
 }
 
@@ -37,6 +38,7 @@ export function ChatInput({
   onStreamEnd,
   onStreamError,
   onMessageSent,
+  onMessageFailed,
   disabled,
 }: ChatInputProps) {
   const [content, setContent] = useState("");
@@ -191,17 +193,21 @@ export function ChatInput({
     setContent("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
-    // 1. Save the user message to DB
-    const result = await sendMessage(threadId, textToSend);
+    // TRUE OPTIMISTIC UI: Generate ID and display immediately
+    const optimisticId = crypto.randomUUID();
+    onMessageSent?.(optimisticId, textToSend);
+
+    // 1. Save the user message to DB in the background
+    const result = await sendMessage(threadId, textToSend, optimisticId);
     if (result.error) {
-      setContent(textToSend);
+      // Remove the optimistic bubble from the UI
+      if (onMessageFailed) {
+        onMessageFailed(optimisticId);
+      }
+      setContent(textToSend); // Put text back into the input box
       setSendError(result.error);
       setIsSubmitting(false);
       return;
-    }
-
-    if (result.messageId) {
-      onMessageSent?.(result.messageId as string, textToSend);
     }
 
     setIsSubmitting(false);
@@ -220,7 +226,7 @@ export function ChatInput({
   };
 
   return (
-    <div className="px-4 pb-4 pt-2 bg-canvas/80 backdrop-blur-md border-t border-border sticky bottom-0 w-full z-10">
+    <div className="px-4 pb-4 pt-2 bg-canvas/80 backdrop-blur-md border-t border-border sticky bottom-0 w-full z-10 font-inter">
 
       {/* Error banner */}
       {sendError && (

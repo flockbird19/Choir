@@ -3,9 +3,9 @@
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
 
-export async function sendMessage(threadId: string, content: string) {
+export async function sendMessage(threadId: string, content: string, messageId?: string) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -15,12 +15,18 @@ export async function sendMessage(threadId: string, content: string) {
     return { error: "Not logged in" };
   }
 
-  const { data, error } = await supabase.from("messages").insert({
+  const insertData: any = {
     thread_id: threadId,
     sender_type: "user",
     sender_id: user.id,
     content,
-  }).select().single();
+  };
+
+  if (messageId) {
+    insertData.id = messageId;
+  }
+
+  const { data, error } = await supabase.from("messages").insert(insertData).select().single();
 
   if (error) {
     console.error("Error sending message:", error);

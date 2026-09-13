@@ -19,6 +19,7 @@ wheels/
 .agents/
 
 # Internal Planning Docs
-choir-context.md
-choir-design-brief.md
-plan-of-action.md
+PROJECT_CONTEXT.md
+
+# Ignore PDFs
+*.pdf

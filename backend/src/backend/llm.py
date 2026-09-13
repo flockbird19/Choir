@@ -234,7 +234,7 @@ def stream_ai_response(
         role_data = cast(list[dict[str, Any]], role_resp.data)
         if role_data:
             role = role_data[0].get("role", "member")
-            
+
     role_ctx = "a Team Owner" if role == "owner" else "a Team Member"
     user_name_ctx = user_name or "the User"
 
@@ -244,9 +244,10 @@ def stream_ai_response(
     team_name = "Unknown Workspace"
     if project and project.get("team_id"):
         team_res = db.table("teams").select("name").eq("id", project["team_id"]).execute()
-        if team_res.data:
-            team_name = team_res.data[0]["name"]
-    
+        team_data = cast(list[dict[str, Any]], team_res.data)
+        if team_data:
+            team_name = str(team_data[0]["name"])
+
     workspace_context = f"Workspace: '{team_name}' | Project: '{project_name}'"
 
     if thread["type"] == "private":

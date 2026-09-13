@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Choir - Shared Intelligence</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: DM Sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet">
+    
+    <!-- GSAP for Smooth, Organic Animations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        background: '#F9F8F5', /* Warm, organic paper white */
+                        foreground: '#1B2624', /* Deep, soft slate green/black */
+                        primary: '#0F766E',    /* Teal 600 - calm, confident */
+                        secondary: '#E6E4DD',  /* Warm structural gray */
+                        accent: '#F59E0B',     /* Amber/Gold - warm, human */
+                        cardPrivate: '#FFFFFF',
+                        cardShared: '#E9F1F0', /* Soft teal tint for shared space */
+                        muted: '#818B8A',
+                    },
+                    fontFamily: {
+                        sans: ['"DM Sans"', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'soft': '0 10px 40px -10px rgba(15, 118, 110, 0.08)',
+                        'float': '0 20px 40px -5px rgba(27, 38, 36, 0.1)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background-color: #F9F8F5;
+            color: #1B2624;
+            overflow-x: hidden;
+        }
+
+        /* Hide before GSAP */
+        .reveal { opacity: 0; transform: translateY(20px); }
+
+        /* Organic shape converging animation */
+        .dot { transition: all 1s cubic-bezier(0.4, 0, 0.2, 1); }
+        .converge-container:hover .dot-left { transform: translate(16px, 0) scale(1.2); background-color: #0F766E; }
+        .converge-container:hover .dot-right { transform: translate(-16px, 0) scale(1.2); background-color: #0F766E; }
+        .converge-container:hover .dot-center { transform: scale(1.5); background-color: #0F766E; }
+    </style>
+</head>
+<body class="antialiased selection:bg-primary selection:text-white">
+
+    <!-- Header -->
+    <header class="py-6 px-6 md:px-12 flex justify-between items-center bg-[#F9F8F5]/90 backdrop-blur-sm sticky top-0 z-50">
+        <div class="font-bold text-xl tracking-tight text-foreground flex items-center gap-2">
+            <!-- Many becoming one logo mark -->
+            <div class="flex gap-1 items-center justify-center">
+                <div class="w-2 h-2 rounded-full bg-accent"></div>
+                <div class="w-3 h-3 rounded-full bg-primary"></div>
+                <div class="w-2 h-2 rounded-full bg-accent"></div>
+            </div>
+            CHOIR
+        </div>
+        <nav class="hidden md:flex gap-8 text-sm font-medium text-muted">
+            <a href="#vision" class="hover:text-primary transition-colors duration-300">The Vision</a>
+            <a href="#features" class="hover:text-primary transition-colors duration-300">How it Works</a>
+        </nav>
+        <button class="bg-primary text-white px-6 py-2.5 rounded-full text-sm font-medium hover:bg-opacity-90 transition-all duration-300 shadow-soft">
+            Start Collaborating
+        </button>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="min-h-[85vh] flex flex-col justify-center items-center text-center px-6 md:px-12 py-20 relative overflow-hidden">
+        <div class="max-w-4xl mx-auto w-full z-10">
+            <h1 class="reveal text-5xl md:text-7xl font-bold leading-[1.1] tracking-tight mb-6 text-foreground">
+                Think in private.<br/>
+                <span class="text-primary">Create together.</span>
+            </h1>
+            
+            <p class="reveal text-lg md:text-2xl text-muted leading-relaxed max-w-2xl mx-auto font-normal mb-12">
+                The team chat that separates your personal AI scratchpad from the canonical group record. Stop copy-pasting, start flowing.
+            </p>
+            
+            <div class="reveal flex justify-center items-center gap-4">
+                <button class="bg-primary text-white px-8 py-4 rounded-full text-base font-medium hover:bg-opacity-90 hover:-translate-y-1 transition-all duration-300 shadow-float">
+                    Get Early Access
+                </button>
+            </div>
+        </div>
+
+        <!-- Abstract "Many becoming one" visual -->
+        <div class="reveal mt-20 w-full max-w-3xl flex flex-col items-center justify-center gap-8 converge-container cursor-pointer">
+            <div class="text-sm text-muted font-medium uppercase tracking-widest">Hover to synchronize</div>
+            <div class="flex items-center justify-center gap-8 h-32">
+                <div class="w-16 h-16 rounded-full bg-accent opacity-80 dot dot-left"></div>
+                <div class="w-16 h-16 rounded-full border-2 border-primary dot dot-center flex items-center justify-center">
+                    <div class="w-4 h-4 bg-primary rounded-full"></div>
+                </div>
+                <div class="w-16 h-16 rounded-full bg-accent opacity-80 dot dot-right"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- The Context Divide -->
+    <section id="vision" class="py-32 px-6 md:px-12 bg-white">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-20 reveal">
+                <h2 class="text-4xl md:text-5xl font-bold leading-tight tracking-tight mb-6 text-foreground">
+                    One space. Two mindsets.
+                </h2>
+                <p class="text-muted text-xl max-w-2xl mx-auto">
+                    Choir introduces a physical separation between your messy exploration and the team's polished conclusions.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+                
+                <!-- Private Threads Card -->
+                <div class="reveal bg-cardPrivate border border-secondary rounded-[2rem] p-10 md:p-14 shadow-soft h-full flex flex-col justify-center">
+                    <div class="w-12 h-12 rounded-2xl bg-secondary flex items-center justify-center mb-8">
+                        <div class="w-4 h-4 rounded-full bg-muted"></div>
+                    </div>
+                    <div class="text-primary font-bold text-sm mb-3 tracking-wide uppercase">Solo Mode</div>
+                    <h3 class="text-3xl font-bold mb-4">Private Threads</h3>
+                    <p class="text-muted text-lg leading-relaxed">
+                        Your personal scratchpad. Iterate on prompts, test ideas, and make mistakes without notifying the whole team. It’s your safe space to think.
+                    </p>
+                </div>
+
+                <!-- Shared Threads Card -->
+                <div class="reveal bg-cardShared rounded-[2rem] p-10 md:p-14 h-full flex flex-col justify-center relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-64 h-64 bg-white/40 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2"></div>
+                    <div class="w-12 h-12 rounded-2xl bg-white flex items-center justify-center mb-8 shadow-sm">
+                        <div class="w-4 h-4 rounded-full bg-primary"></div>
+                    </div>
+                    <div class="text-primary font-bold text-sm mb-3 tracking-wide uppercase">Team Mode</div>
+                    <h3 class="text-3xl font-bold mb-4">The Shared Thread</h3>
+                    <p class="text-foreground/80 text-lg leading-relaxed relative z-10">
+                        The canonical record. When you strike gold in your private thread, hit "Post to Shared" to instantly push that block of insight to the entire team.
+                    </p>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture & Features -->
+    <section id="features" class="py-32 px-6 md:px-12 bg-background">
+        <div class="max-w-7xl mx-auto">
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div class="md:col-span-3 reveal mb-8">
+                    <h2 class="text-3xl md:text-4xl font-bold mb-4">Built for flow state.</h2>
+                    <p class="text-muted text-lg">No loading spinners. No hidden costs. Just pure velocity.</p>
+                </div>
+
+                <div class="reveal bg-white p-8 rounded-3xl shadow-sm border border-secondary hover:shadow-soft transition-shadow">
+                    <div class="text-4xl mb-6">⚡</div>
+                    <h4 class="text-xl font-bold mb-3">Zero-Latency UI</h4>
+                    <p class="text-muted leading-relaxed">Optimistic rendering means messages appear the millisecond you hit enter. Database syncing happens invisibly in the background.</p>
+                </div>
+                
+                <div class="reveal bg-white p-8 rounded-3xl shadow-sm border border-secondary hover:shadow-soft transition-shadow">
+                    <div class="text-4xl mb-6">🔑</div>
+                    <h4 class="text-xl font-bold mb-3">Bring Your Own Key</h4>
+                    <p class="text-muted leading-relaxed">You control your AI destiny. We securely encrypt and store your OpenAI or Anthropic keys. You never pay a markup on tokens.</p>
+                </div>
+                
+                <div class="reveal bg-white p-8 rounded-3xl shadow-sm border border-secondary hover:shadow-soft transition-shadow">
+                    <div class="text-4xl mb-6">🔎</div>
+                    <h4 class="text-xl font-bold mb-3">Global Search</h4>
+                    <p class="text-muted leading-relaxed">Hit Cmd+K to summon the Command Palette. Instantly query any thought or thread across your entire workspace in real-time.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-foreground text-white py-24 px-6 md:px-12 rounded-t-[3rem] mt-12">
+        <div class="max-w-4xl mx-auto text-center reveal">
+            <h2 class="text-4xl md:text-5xl font-bold mb-8">Ready to join the Choir?</h2>
+            <p class="text-white/60 text-lg mb-10 max-w-xl mx-auto">Ditch the single-player chat boxes. Bring your team's intelligence into one unified space.</p>
+            <button class="bg-accent text-foreground px-8 py-4 rounded-full text-base font-bold hover:bg-white transition-colors duration-300">
+                Join the Waitlist
+            </button>
+            <div class="mt-20 pt-8 border-t border-white/10 text-white/40 text-sm">
+                &copy; 2026 RNS Maverick Submission.
+            </div>
+        </div>
+    </footer>
+
+    <!-- GSAP Animations -->
+    <script>
+        gsap.registerPlugin(ScrollTrigger);
+
+        // Gentle fade up reveal
+        gsap.utils.toArray('.reveal').forEach(elem => {
+            gsap.to(elem, {
+                scrollTrigger: {
+                    trigger: elem,
+                    start: "top 85%",
+                },
+                y: 0,
+                opacity: 1,
+                duration: 1,
+                ease: "power2.out"
+            });
+        });
+    </script>
+</body>
+</html>

@@ -21,13 +21,13 @@ export function ContextDrawer({
   return (
     <>
       {/* Full-screen backdrop — sits behind drawer, closes on click */}
-      {isOpen && (
-        <div
-          onClick={onClose}
-          aria-hidden="true"
-          className="fixed inset-0 bg-ink/20 z-30 backdrop-blur-[1px]"
-        />
-      )}
+      <div
+        onClick={onClose}
+        aria-hidden="true"
+        className={`fixed inset-0 bg-ink/40 z-30 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
+          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        }`}
+      />
 
       {/* Drawer panel — fixed to viewport right edge, overlays everything */}
       <div
@@ -37,9 +37,9 @@ export function ContextDrawer({
         aria-hidden={!isOpen}
         className={`
           fixed top-0 right-0 h-full w-80 md:w-[360px]
-          bg-canvas border-l border-border
+          bg-surface border-l border-border
           flex flex-col z-40
-          transform transition-transform duration-300 ease-in-out will-change-transform
+          transform transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform
           ${isOpen ? "translate-x-0 shadow-2xl" : "translate-x-full"}
         `}
       >

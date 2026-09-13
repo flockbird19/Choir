@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
 @theme inline {
+  --font-inter: var(--font-inter);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-sans);
   --color-canvas: var(--color-canvas);
   --color-surface: var(--color-surface);
   --color-surface-hover: var(--color-surface-hover);

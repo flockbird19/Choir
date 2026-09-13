@@ -67,7 +67,6 @@ class SaveKeyRequest(BaseModel):
     provider: str  # "anthropic" | "openai" | "google" | "groq"
     api_key: str
 
-
 VALID_PROVIDERS = {"anthropic", "openai", "google", "groq"}
 
 
@@ -131,7 +130,7 @@ def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
     - Streams the LLM response as Server-Sent Events (SSE).
     - Persists the final response to Supabase once streaming is complete.
     """
-    
+
     # ── Rate Limiting ──
     now = time.time()
     user_requests = AI_RATE_LIMITS[user_id]
@@ -218,7 +217,7 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
             "exported_at": datetime.utcnow().isoformat()
         }
         filename = f"{_safe_filename(thread_name)}_export.json"
-        
+
         return Response(
             content=json.dumps(export_data, indent=2, default=str),
             media_type="application/json",
