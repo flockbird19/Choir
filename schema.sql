@@ -72,6 +72,15 @@ create table if not exists team_invitations (
   created_at timestamptz default now()
 );
 
+-- Tracks each user's last "Catch me up" point per thread, so the digest only
+-- summarizes what's new since they last asked.
+create table if not exists thread_reads (
+  thread_id uuid references threads(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade,
+  last_seen_at timestamptz not null default now(),
+  primary key (thread_id, user_id)
+);
+
 -- ==========================================
 -- 2. ENABLE ROW LEVEL SECURITY (RLS)
 -- ==========================================
@@ -83,6 +92,7 @@ alter table threads enable row level security;
 alter table messages enable row level security;
 alter table user_api_keys enable row level security;
 alter table team_invitations enable row level security;
+alter table thread_reads enable row level security;
 
 -- ==========================================
 -- 3. RLS POLICIES (With Drop If Exists to prevent errors)
@@ -167,4 +177,10 @@ create policy "Team members can manage invitations" on team_invitations for all 
 drop policy if exists "Anyone can read invitation by token" on team_invitations;
 create policy "Anyone can read invitation by token" on team_invitations for select using (
   true
+);
+
+-- ── Thread Reads (Catch Me Up) ────────────
+drop policy if exists "Users manage their own read state" on thread_reads;
+create policy "Users manage their own read state" on thread_reads for all using (
+  user_id = auth.uid()
 );

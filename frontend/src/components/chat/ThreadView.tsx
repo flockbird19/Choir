@@ -6,7 +6,8 @@ import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin } from "lucide-react";
+import { CatchMeUpModal } from "./CatchMeUpModal";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles } from "lucide-react";
 import {
   postToSharedThread,
   getSessionToken,
@@ -195,6 +196,43 @@ export function ThreadView({
     setTimeout(() => setHighlightedMessageId(null), 2000);
   }, []);
 
+  // ── Catch Me Up — one-shot AI digest of new shared-thread messages ─────────
+  const [catchUpOpen, setCatchUpOpen] = useState(false);
+  const [catchUpLoading, setCatchUpLoading] = useState(false);
+  const [catchUpSummary, setCatchUpSummary] = useState<string | null>(null);
+  const [catchUpCount, setCatchUpCount] = useState<number | null>(null);
+
+  const handleCatchMeUp = useCallback(async () => {
+    setCatchUpOpen(true);
+    setCatchUpLoading(true);
+    setCatchUpSummary(null);
+    setCatchUpCount(null);
+    try {
+      const token = await getSessionToken();
+      if (!token) throw new Error("No session token");
+
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+      const res = await fetch(`${BACKEND_URL}/api/digest/${thread.id}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to generate digest.");
+      }
+
+      const data = await res.json();
+      setCatchUpSummary(data.summary);
+      setCatchUpCount(data.message_count);
+    } catch (err: unknown) {
+      setCatchUpOpen(false);
+      toastError(err instanceof Error ? err.message : "Failed to generate digest.");
+    } finally {
+      setCatchUpLoading(false);
+    }
+  }, [thread.id, toastError]);
+
   const handleMessageSent = useCallback((id: string, content: string) => {
     setLocalMessages((prev) => {
       if (prev.some(m => m.id === id)) return prev; // Prevent React Strict Mode duplicates
@@ -333,6 +371,18 @@ export function ThreadView({
                 <span className="hidden sm:inline">{isExporting === "json" ? "..." : "JSON"}</span>
               </button>
             </div>
+
+            {/* Catch Me Up — only on the shared thread itself */}
+            {!isPrivate && (
+              <button
+                onClick={handleCatchMeUp}
+                title="Catch me up on what you missed"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border bg-surface text-graphite border-border hover:border-accent/40 hover:text-accent"
+              >
+                <Sparkles size={15} />
+                <span className="hidden sm:inline">Catch me up</span>
+              </button>
+            )}
 
             {/* Decisions toggle — only on the shared thread itself */}
             {!isPrivate && (
@@ -479,6 +529,17 @@ export function ThreadView({
           decisions={decisions}
           onJumpTo={handleJumpToDecision}
           onUnpin={(id) => handleTogglePin(id, true)}
+        />
+      )}
+
+      {/* ── Catch Me Up Modal ───────────────────────────────────────── */}
+      {!isPrivate && (
+        <CatchMeUpModal
+          isOpen={catchUpOpen}
+          onClose={() => setCatchUpOpen(false)}
+          isLoading={catchUpLoading}
+          summary={catchUpSummary}
+          messageCount={catchUpCount}
         />
       )}
     </div>

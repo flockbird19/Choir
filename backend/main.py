@@ -15,7 +15,7 @@ from backend.keys import (
     list_saved_providers,
     store_api_key,
 )
-from backend.llm import stream_ai_response
+from backend.llm import NoApiKeyError, generate_digest, stream_ai_response
 
 app = FastAPI(title="Choir AI Backend")
 
@@ -120,18 +120,9 @@ from collections import defaultdict
 AI_RATE_LIMITS = defaultdict(list)
 MAX_REQUESTS_PER_MINUTE = 15
 
-@app.post("/api/chat")
-def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
-    """
-    Trigger an AI response for the given thread.
 
-    - Verifies the user has access to the thread.
-    - Assembles context (shared thread injected as system prompt for private threads).
-    - Streams the LLM response as Server-Sent Events (SSE).
-    - Persists the final response to Supabase once streaming is complete.
-    """
-
-    # ── Rate Limiting ──
+def _check_and_record_rate_limit(user_id: str) -> None:
+    """Shared rate limit for any endpoint that makes an LLM call on the user's behalf."""
     now = time.time()
     user_requests = AI_RATE_LIMITS[user_id]
     user_requests = [t for t in user_requests if now - t < 60]
@@ -142,6 +133,19 @@ def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
         )
     user_requests.append(now)
     AI_RATE_LIMITS[user_id] = user_requests
+
+
+@app.post("/api/chat")
+def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
+    """
+    Trigger an AI response for the given thread.
+
+    - Verifies the user has access to the thread.
+    - Assembles context (shared thread injected as system prompt for private threads).
+    - Streams the LLM response as Server-Sent Events (SSE).
+    - Persists the final response to Supabase once streaming is complete.
+    """
+    _check_and_record_rate_limit(user_id)
 
     if not verify_thread_access(user_id, body.thread_id):
         raise HTTPException(
@@ -158,6 +162,35 @@ def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# "Catch Me Up" — one-shot AI digest of new shared-thread messages
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@app.post("/api/digest/{thread_id}")
+def get_digest(thread_id: str, user_id: str = Depends(get_current_user)):
+    """
+    Summarize what's new in a thread since the caller last used this feature,
+    using their own BYOK key. Non-streaming — the response is short by design.
+    """
+    _check_and_record_rate_limit(user_id)
+
+    if not verify_thread_access(user_id, thread_id):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this thread.",
+        )
+
+    try:
+        return generate_digest(thread_id, user_id)
+    except NoApiKeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 
 # ──────────────────────────────────────────────────────────────────────────────

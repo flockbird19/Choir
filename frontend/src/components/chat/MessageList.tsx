@@ -54,7 +54,7 @@ const CodeBlock = ({ children, ...props }: any) => {
   );
 };
 
-const markdownComponents = {
+export const markdownComponents = {
   p: ({ node: _node, ...props }: any) => <p className="mb-2 last:mb-0" {...props} />,
   ul: ({ node: _node, ...props }: any) => <ul className="list-disc ml-4 mb-2" {...props} />,
   ol: ({ node: _node, ...props }: any) => <ol className="list-decimal ml-4 mb-2" {...props} />,

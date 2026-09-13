@@ -9,10 +9,15 @@ Handles:
 """
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Generator, cast
 
 from backend.db import get_db
 from backend.keys import get_api_key
+
+
+class NoApiKeyError(Exception):
+    """Raised when the user has no BYOK key available for any provider."""
 
 # ---------------------------------------------------------------------------
 # Provider configuration
@@ -69,6 +74,56 @@ def _fetch_messages(thread_id: str) -> list[dict[str, Any]]:
         .execute()
     )
     return cast(list[dict[str, Any]], resp.data)
+
+
+def _fetch_messages_since(thread_id: str, since: str | None) -> list[dict[str, Any]]:
+    """
+    Messages newer than `since`, oldest first. If `since` is None (the user has
+    never used Catch Me Up on this thread), falls back to the most recent 30
+    messages instead of the full history, to keep the digest prompt bounded.
+    """
+    db = get_db()
+    if since:
+        resp = (
+            db.table("messages")
+            .select("*")
+            .eq("thread_id", thread_id)
+            .gt("created_at", since)
+            .order("created_at")
+            .execute()
+        )
+        return cast(list[dict[str, Any]], resp.data)
+
+    resp = (
+        db.table("messages")
+        .select("*")
+        .eq("thread_id", thread_id)
+        .order("created_at", desc=True)
+        .limit(30)
+        .execute()
+    )
+    return list(reversed(cast(list[dict[str, Any]], resp.data)))
+
+
+def _fetch_thread_read(thread_id: str, user_id: str) -> str | None:
+    db = get_db()
+    resp = (
+        db.table("thread_reads")
+        .select("last_seen_at")
+        .eq("thread_id", thread_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    data = cast(list[dict[str, Any]], resp.data)
+    return data[0]["last_seen_at"] if data else None
+
+
+def _upsert_thread_read(thread_id: str, user_id: str, seen_at: str) -> None:
+    db = get_db()
+    db.table("thread_reads").upsert(
+        {"thread_id": thread_id, "user_id": user_id, "last_seen_at": seen_at},
+        on_conflict="thread_id,user_id",
+    ).execute()
 
 
 def _save_assistant_message(
@@ -354,3 +409,98 @@ def stream_ai_response(
         msg_id = _save_assistant_message(thread_id, full_response, provider, model)
 
     yield _sse({"done": True, "message_id": msg_id})
+
+
+# ---------------------------------------------------------------------------
+# "Catch Me Up" digest — one-shot, non-streaming summary of new messages
+# ---------------------------------------------------------------------------
+
+
+DIGEST_SYSTEM_PROMPT = (
+    "You are Choir's digest assistant. Summarize what happened in a team's shared AI chat "
+    "thread since the user last checked, so they can catch up quickly without re-reading "
+    "everything.\n"
+    "STYLE: Concise. Do NOT use emojis. Structure the summary as short bullet points under "
+    "these headings when relevant: Decisions, Updates, Open questions. Omit a heading if there "
+    "is nothing for it. Do not restate the raw messages verbatim — synthesize."
+)
+
+
+def generate_digest(thread_id: str, user_id: str) -> dict[str, Any]:
+    """
+    Summarizes shared-thread messages the caller hasn't seen yet, using their own
+    BYOK key (never the shared thread owner's — this is a personal, read-only
+    convenience action, not part of the canonical conversation).
+
+    Returns {"summary": str, "message_count": int}.
+    Raises NoApiKeyError if the user has no saved key, or RuntimeError on an
+    upstream provider error (rate limit, etc).
+    """
+    thread = _fetch_thread(thread_id)
+    if not thread:
+        raise ValueError("Thread not found.")
+
+    resolved = _resolve_provider_and_model(thread, user_id)
+    if not resolved:
+        raise NoApiKeyError(
+            "No API key found. Please add one in Settings → API Keys before using Catch Me Up."
+        )
+
+    provider, model = resolved
+    api_key = get_api_key(user_id, provider)
+    if not api_key:
+        raise NoApiKeyError(f"Could not retrieve API key for {provider}.")
+
+    last_seen = _fetch_thread_read(thread_id, user_id)
+    new_messages = _fetch_messages_since(thread_id, last_seen)
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    if not new_messages:
+        _upsert_thread_read(thread_id, user_id, now_iso)
+        return {
+            "summary": "You're all caught up — no new messages since your last check.",
+            "message_count": 0,
+        }
+
+    context_block = _format_shared_as_system_context(new_messages, user_id, "You")
+    user_prompt = f"Here are the new messages since your last check:\n\n{context_block}"
+
+    try:
+        if provider == "anthropic":
+            import anthropic  # type: ignore
+
+            client = anthropic.Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=model,
+                max_tokens=512,
+                system=DIGEST_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            summary = response.content[0].text if response.content else ""  # type: ignore[union-attr]
+
+        else:
+            import openai as openai_module  # type: ignore
+
+            config = OPENAI_COMPAT_PROVIDERS[provider]
+            base_url: str | None = config["base_url"] or None
+            client = openai_module.OpenAI(api_key=api_key, base_url=base_url)
+
+            response = client.chat.completions.create(  # type: ignore[call-overload]
+                model=model,
+                messages=[
+                    {"role": "system", "content": DIGEST_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            summary = response.choices[0].message.content or ""
+
+    except Exception as exc:
+        err = str(exc)
+        if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
+            raise RuntimeError(
+                "Rate limit reached. Please check your API key usage limits or try again later."
+            ) from exc
+        raise RuntimeError(f"AI error: {err}") from exc
+
+    _upsert_thread_read(thread_id, user_id, now_iso)
+    return {"summary": summary.strip(), "message_count": len(new_messages)}
