@@ -19,6 +19,45 @@
   --color-shared-light: var(--color-shared-light);
   --color-shared-muted: var(--color-shared-muted);
   --color-shared-fg: var(--color-shared-fg);
+
+  /* New design system (auth screens first; rest of the app migrates in E2) */
+  --font-display: var(--font-space-grotesk);
+  --font-body: var(--font-dm-sans);
+  --color-bg: var(--ds-bg);
+  --color-card: var(--ds-card);
+  --color-field: var(--ds-field);
+  --color-fg: var(--ds-fg);
+  --color-fg-muted: var(--ds-fg-muted);
+  --color-fg-subtle: var(--ds-fg-subtle);
+  --color-line: var(--ds-line);
+  --color-line-strong: var(--ds-line-strong);
+  --color-primary: var(--ds-primary);
+  --color-primary-hover: var(--ds-primary-hover);
+  --color-on-primary: var(--ds-on-primary);
+  --color-primary-soft: var(--ds-primary-soft);
+  --color-ring: var(--ds-ring);
+  --color-danger: var(--ds-danger);
+  --color-danger-soft: var(--ds-danger-soft);
+  --color-danger-line: var(--ds-danger-line);
+  --color-success: var(--ds-success);
+  --color-success-soft: var(--ds-success-soft);
+  --color-panel: var(--ds-panel);
+  --shadow-soft: var(--ds-shadow-soft);
+  --shadow-float: var(--ds-shadow-float);
+}
+
+@theme {
+  --animate-rise: rise 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade: fade 360ms ease-out both;
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
 }
 
 /* ─── Light Mode ────────────────────────────────── */
@@ -45,6 +84,29 @@
   --color-shared-light:  #3B82F6;
   --color-shared-muted:  #EFF4FF;
   --color-shared-fg:     #1D4ED8;
+
+  /* New design system — contrast checked against --ds-bg / --ds-card */
+  --ds-bg:            #F7F7FA;
+  --ds-card:          #FFFFFF;
+  --ds-field:         #FFFFFF;
+  --ds-fg:            #12131F;
+  --ds-fg-muted:      #525769;
+  --ds-fg-subtle:     #6B7083;
+  --ds-line:          #E3E4EB;
+  --ds-line-strong:   #CDD0DA;
+  --ds-primary:       #4F46E5;
+  --ds-primary-hover: #4338CA;
+  --ds-on-primary:    #FFFFFF;
+  --ds-primary-soft:  #EEF0FF;
+  --ds-ring:          #6366F1;
+  --ds-danger:        #B42318;
+  --ds-danger-soft:   #FEF3F2;
+  --ds-danger-line:   #FECDCA;
+  --ds-success:       #067647;
+  --ds-success-soft:  #ECFDF3;
+  --ds-panel:         #111230;
+  --ds-shadow-soft:   0 1px 2px rgb(16 17 35 / 0.06), 0 1px 1px rgb(16 17 35 / 0.03);
+  --ds-shadow-float:  0 1px 2px rgb(16 17 35 / 0.08), 0 24px 48px -16px rgb(16 17 35 / 0.35);
 }
 
 /* ─── Dark Mode ─────────────────────────────────── */
@@ -67,6 +129,28 @@
   --color-shared-light:  #93C5FD;
   --color-shared-muted:  #1A2D4A;
   --color-shared-fg:     #93C5FD;
+
+  --ds-bg:            #0A0B10;
+  --ds-card:          #12131A;
+  --ds-field:         #0F1016;
+  --ds-fg:            #ECEDF3;
+  --ds-fg-muted:      #A3A7B8;
+  --ds-fg-subtle:     #8B90A3;
+  --ds-line:          #23252F;
+  --ds-line-strong:   #343746;
+  --ds-primary:       #818CF8;
+  --ds-primary-hover: #A5B4FC;
+  --ds-on-primary:    #0A0B10;
+  --ds-primary-soft:  #1B1C3A;
+  --ds-ring:          #818CF8;
+  --ds-danger:        #FDA29B;
+  --ds-danger-soft:   #2A1413;
+  --ds-danger-line:   #5A2320;
+  --ds-success:       #75E0A7;
+  --ds-success-soft:  #0F2A1E;
+  --ds-panel:         #0E0F24;
+  --ds-shadow-soft:   0 1px 2px rgb(0 0 0 / 0.4);
+  --ds-shadow-float:  0 1px 2px rgb(0 0 0 / 0.5), 0 24px 48px -16px rgb(0 0 0 / 0.7);
 }
 
 /* ─── Base ──────────────────────────────────────── */

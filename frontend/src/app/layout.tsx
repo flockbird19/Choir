@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Instrument_Serif, JetBrains_Mono } from "next/font/google";
+import { Inter, Instrument_Serif, JetBrains_Mono, Space_Grotesk, DM_Sans } from "next/font/google";
 import { ThemeProvider } from "../components/ThemeProvider";
 import { ToastProvider } from "../components/Toast";
 import { CookieBanner } from "../components/CookieBanner";
@@ -22,6 +22,16 @@ const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
 });
 
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
+  subsets: ["latin"],
+});
+
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
   title: "Choir — Multiplayer AI",
   description: "A collaborative workspace where your team and AI share context.",
@@ -35,7 +45,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className="h-full antialiased">
       <body
-        className={`${inter.variable} ${jetbrains.variable} ${instrumentSerif.variable} h-full bg-canvas text-ink font-sans flex flex-col selection:bg-accent selection:text-accent-fg overflow-hidden`}
+        className={`${inter.variable} ${jetbrains.variable} ${instrumentSerif.variable} ${spaceGrotesk.variable} ${dmSans.variable} h-full bg-canvas text-ink font-sans flex flex-col selection:bg-accent selection:text-accent-fg overflow-hidden`}
       >
         <ThemeProvider
           attribute="class"
