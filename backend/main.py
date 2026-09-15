@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
 import re
 from typing import Any, cast
@@ -113,26 +113,40 @@ class ChatRequest(BaseModel):
     user_name: str | None = None
 
 
-import time
-from collections import defaultdict
-
-# Simple in-memory rate limiting (per user, per minute)
-AI_RATE_LIMITS = defaultdict(list)
 MAX_REQUESTS_PER_MINUTE = 15
 
 
 def _check_and_record_rate_limit(user_id: str) -> None:
-    """Shared rate limit for any endpoint that makes an LLM call on the user's behalf."""
-    now = time.time()
-    user_requests = AI_RATE_LIMITS[user_id]
-    user_requests = [t for t in user_requests if now - t < 60]
-    if len(user_requests) >= MAX_REQUESTS_PER_MINUTE:
+    """
+    Shared rate limit for any endpoint that makes an LLM call on the user's behalf.
+
+    Backed by the `ai_request_log` table rather than an in-memory counter, so
+    the limit survives backend restarts and is enforced correctly even when
+    multiple backend instances are running behind a load balancer.
+    """
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    window_start = (now - timedelta(seconds=60)).isoformat()
+
+    # Opportunistic cleanup so the log table doesn't grow unbounded — cheap at
+    # this scale and avoids needing a separate cron job.
+    stale_cutoff = (now - timedelta(hours=1)).isoformat()
+    db.table("ai_request_log").delete().lt("requested_at", stale_cutoff).execute()
+
+    recent = (
+        db.table("ai_request_log")
+        .select("id")
+        .eq("user_id", user_id)
+        .gt("requested_at", window_start)
+        .execute()
+    )
+    if len(recent.data or []) >= MAX_REQUESTS_PER_MINUTE:
         raise HTTPException(
             status_code=429,
             detail=f"Rate limit exceeded. You can only make {MAX_REQUESTS_PER_MINUTE} requests per minute.",
         )
-    user_requests.append(now)
-    AI_RATE_LIMITS[user_id] = user_requests
+
+    db.table("ai_request_log").insert({"user_id": user_id}).execute()
 
 
 @app.post("/api/chat")

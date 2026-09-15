@@ -5,6 +5,7 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 import { deleteTeam } from "./actions";
 import { Team } from "@/types/database";
 import { useToast } from "@/components/Toast";
+import { useDialogA11y } from "@/hooks/useDialogA11y";
 
 export function DangerZone({ teams, currentUserId }: { teams: Team[], currentUserId: string }) {
   const ownedTeams = teams.filter(t => t.created_by === currentUserId);
@@ -12,6 +13,7 @@ export function DangerZone({ teams, currentUserId }: { teams: Team[], currentUse
   const { error: toastError, success: toastSuccess } = useToast();
 
   const [confirmTeamId, setConfirmTeamId] = useState<string | null>(null);
+  const dialogRef = useDialogA11y(!!confirmTeamId, () => setConfirmTeamId(null));
 
   if (ownedTeams.length === 0) return null;
 
@@ -57,9 +59,19 @@ export function DangerZone({ teams, currentUserId }: { teams: Team[], currentUse
 
       {/* ── Custom Confirm Modal ── */}
       {confirmTeamId && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-ink/40 backdrop-blur-sm">
-          <div className="bg-surface p-6 rounded-2xl shadow-xl w-full max-w-sm border border-red-500/20 mx-4">
-            <h3 className="text-base font-semibold text-ink mb-2">Delete Workspace?</h3>
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-ink/40 backdrop-blur-sm"
+          onClick={() => !isPending && setConfirmTeamId(null)}
+        >
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-workspace-title"
+            onClick={(e) => e.stopPropagation()}
+            className="bg-surface p-6 rounded-2xl shadow-xl w-full max-w-sm border border-red-500/20 mx-4"
+          >
+            <h3 id="delete-workspace-title" className="text-base font-semibold text-ink mb-2">Delete Workspace?</h3>
             <p className="text-sm text-graphite mb-6 leading-relaxed">
               Are you absolutely sure? This will <span className="font-bold text-red-500">permanently delete</span> the workspace, all its projects, threads, and messages for everyone.
             </p>

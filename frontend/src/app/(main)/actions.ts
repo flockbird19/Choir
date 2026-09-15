@@ -2,12 +2,34 @@
 
 import { createClient } from "@/utils/supabase/server";
 
-export async function globalSearch(query: string) {
+export interface GlobalSearchThread {
+  id: string;
+  name: string | null;
+  type: string;
+}
+
+export interface GlobalSearchMessage {
+  id: string;
+  content: string;
+  created_at: string;
+  // A `!inner` join on a to-one FK always returns a single row, not an array —
+  // Supabase's select-string type inference can't tell that apart from a
+  // to-many relation without generated DB types, so this is asserted below.
+  threads: GlobalSearchThread;
+}
+
+export interface GlobalSearchResult {
+  threads: GlobalSearchThread[];
+  messages: GlobalSearchMessage[];
+  error?: string;
+}
+
+export async function globalSearch(query: string): Promise<GlobalSearchResult> {
   if (!query || query.trim().length < 2) return { threads: [], messages: [] };
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Unauthorized" };
+  if (!user) return { threads: [], messages: [], error: "Unauthorized" };
 
   // Search Threads
   const { data: threads } = await supabase
@@ -32,5 +54,8 @@ export async function globalSearch(query: string) {
     .ilike("content", `%${query}%`)
     .limit(10);
 
-  return { threads: threads || [], messages: messages || [] };
+  return {
+    threads: (threads as GlobalSearchThread[] | null) || [],
+    messages: (messages as unknown as GlobalSearchMessage[] | null) || [],
+  };
 }

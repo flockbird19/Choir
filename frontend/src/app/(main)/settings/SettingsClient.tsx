@@ -46,10 +46,11 @@ const PROVIDERS: Provider[] = [
 interface KeyCardProps {
   provider: Provider;
   isSaved: boolean;
-  onRefresh: () => void;
+  onSaved: () => void;
+  onDeleted: () => void;
 }
 
-function KeyCard({ provider, isSaved, onRefresh }: KeyCardProps) {
+function KeyCard({ provider, isSaved, onSaved, onDeleted }: KeyCardProps) {
   const [inputValue, setInputValue] = useState("");
   const [showInput, setShowInput] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -65,7 +66,7 @@ function KeyCard({ provider, isSaved, onRefresh }: KeyCardProps) {
         setFeedback({ type: "success", message: "Key saved!" });
         setInputValue("");
         setShowInput(false);
-        onRefresh();
+        onSaved();
         setTimeout(() => setFeedback(null), 3000);
       }
     });
@@ -78,7 +79,7 @@ function KeyCard({ provider, isSaved, onRefresh }: KeyCardProps) {
         setFeedback({ type: "error", message: result.error });
       } else {
         setFeedback({ type: "success", message: "Key removed." });
-        onRefresh();
+        onDeleted();
         setTimeout(() => setFeedback(null), 3000);
       }
     });
@@ -116,6 +117,7 @@ function KeyCard({ provider, isSaved, onRefresh }: KeyCardProps) {
       {/* Feedback */}
       {feedback && (
         <p
+          role={feedback.type === "error" ? "alert" : "status"}
           className={`text-xs px-3 py-2 rounded-lg border ${
             feedback.type === "success"
               ? "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800/50"
@@ -135,6 +137,7 @@ function KeyCard({ provider, isSaved, onRefresh }: KeyCardProps) {
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSave()}
             placeholder={provider.placeholder}
+            aria-label={`${provider.label} API key`}
             autoFocus
             className="flex-1 px-3 py-2 text-sm bg-canvas border border-border rounded-xl outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10 text-ink placeholder:text-graphite/40 font-mono"
           />
@@ -201,14 +204,19 @@ export function SettingsClient({ initialSavedProviders }: SettingsClientProps) {
   const [savedProviders, setSavedProviders] = useState<string[]>(initialSavedProviders);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSavedProviders(initialSavedProviders);
   }, [initialSavedProviders]);
 
-  // Simple optimistic refresh — re-fetch from the server
-  const handleRefresh = async () => {
-    // The server action revalidates /settings, which will re-render the parent
-    // server component. In the meantime we just leave state as-is; the parent
-    // will pass down fresh `initialSavedProviders` on next render.
+  // Real optimistic updates — the server action also calls revalidatePath,
+  // but that only takes effect on the next navigation. Updating state here
+  // directly makes the "Saved" badge flip immediately.
+  const handleProviderSaved = (providerId: string) => {
+    setSavedProviders((prev) => (prev.includes(providerId) ? prev : [...prev, providerId]));
+  };
+
+  const handleProviderDeleted = (providerId: string) => {
+    setSavedProviders((prev) => prev.filter((p) => p !== providerId));
   };
 
   return (
@@ -218,7 +226,8 @@ export function SettingsClient({ initialSavedProviders }: SettingsClientProps) {
           key={provider.id}
           provider={provider}
           isSaved={savedProviders.includes(provider.id)}
-          onRefresh={handleRefresh}
+          onSaved={() => handleProviderSaved(provider.id)}
+          onDeleted={() => handleProviderDeleted(provider.id)}
         />
       ))}
     </div>

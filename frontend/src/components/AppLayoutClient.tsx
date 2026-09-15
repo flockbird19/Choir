@@ -42,11 +42,13 @@ export function AppLayoutClient({
   const [activeTeamId, setActiveTeamId] = useState<string | null>(initialTeamId);
 
   const activeTeam = teams.find(t => t.id === activeTeamId) || null;
-  const activeProject = projects.find(p => p.team_id === activeTeamId) || null;
+  // A team can have more than one project (the schema supports it even though
+  // onboarding only ever creates one) — aggregate threads across all of the
+  // active team's projects instead of silently dropping any beyond the first.
+  const teamProjects = projects.filter(p => p.team_id === activeTeamId);
+  const activeProject = teamProjects[0] || null;
 
-  const teamThreads = activeProject
-    ? threads.filter(t => t.project_id === activeProject.id)
-    : [];
+  const teamThreads = threads.filter(t => teamProjects.some(p => p.id === t.project_id));
 
   const sharedThread = teamThreads.find(t => t.type === 'shared') || null;
   const privateThreads = teamThreads.filter(t => t.type === 'private' && t.owner_id === user?.id);
@@ -77,8 +79,10 @@ export function AppLayoutClient({
 
         <PanelResizeHandle className="w-[1px] bg-border hover:w-1 hover:bg-accent-light transition-all cursor-col-resize active:bg-accent active:w-1 z-20 -ml-[1px]" />
 
-        <Panel defaultSize="80" minSize="40" className="h-full flex flex-col min-w-0 relative">
-          {children}
+        <Panel defaultSize="80" minSize="40" className="h-full min-w-0">
+          <main className="w-full h-full flex flex-col min-w-0 relative">
+            {children}
+          </main>
         </Panel>
       </PanelGroup>
     </div>

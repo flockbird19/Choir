@@ -15,7 +15,11 @@ export default async function Home() {
   const activeTeam = teams[0] || null;
   const projects = activeTeam ? (await getProjects(activeTeam.id) as Project[] || []) : [];
   const activeProject = projects[0] || null;
-  const threads = activeProject ? (await getThreads(activeProject.id) as Thread[] || []) : [];
+
+  // A team can have more than one project — aggregate threads across all of
+  // them instead of only ever reading the first project's threads.
+  const threadsArrays = await Promise.all(projects.map((p: Project) => getThreads(p.id)));
+  const threads = threadsArrays.flat() as Thread[];
 
   const sharedThread = threads.find((t: Thread) => t.type === "shared") || null;
   const privateThreads = threads.filter(
@@ -53,7 +57,7 @@ export default async function Home() {
                 hover:border-shared/50 rounded-xl transition-all hover:shadow-sm hover:shadow-shared/10"
             >
               <div className="w-10 h-10 rounded-xl bg-shared flex items-center justify-center shrink-0 shadow-sm shadow-shared/30">
-                <Users size={18} className="text-white" />
+                <Users size={18} className="text-white" aria-hidden="true" />
               </div>
               <div className="flex-1 text-left">
                 <p className="text-sm font-semibold text-shared-fg">{sharedThread.name || "Team Space"}</p>
@@ -61,6 +65,7 @@ export default async function Home() {
               </div>
               <ArrowRight
                 size={16}
+                aria-hidden="true"
                 className="text-shared/30 group-hover:text-shared transition-all group-hover:translate-x-0.5 duration-150"
               />
             </Link>
@@ -80,7 +85,7 @@ export default async function Home() {
                       hover:border-graphite/30 rounded-xl transition-all hover:shadow-sm mb-2"
                   >
                     <div className="w-9 h-9 rounded-lg bg-surface-hover flex items-center justify-center shrink-0">
-                      <Lock size={14} className="text-graphite" />
+                      <Lock size={14} className="text-graphite" aria-hidden="true" />
                     </div>
                     <div className="flex-1 text-left min-w-0">
                       <p className="text-sm font-medium text-ink truncate">
@@ -95,6 +100,7 @@ export default async function Home() {
                     </div>
                     <ArrowRight
                       size={14}
+                      aria-hidden="true"
                       className="text-graphite/30 group-hover:text-graphite transition-colors shrink-0"
                     />
                   </Link>
@@ -103,7 +109,7 @@ export default async function Home() {
             </>
           ) : (
             <div className="p-6 bg-surface border border-dashed border-border rounded-xl text-center mt-1">
-              <Lock size={18} className="text-graphite/40 mx-auto mb-2" />
+              <Lock size={18} className="text-graphite/40 mx-auto mb-2" aria-hidden="true" />
               <p className="text-sm font-medium text-ink mb-0.5">No private threads yet</p>
               <p className="text-xs text-graphite leading-relaxed">
                 Private threads are your personal scratch space to explore ideas with AI.

@@ -29,6 +29,7 @@ export function ProfileClient({ initialName, email, initials }: ProfileClientPro
 
   useEffect(() => {
     const saved = localStorage.getItem("choir_status") as StatusId | null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved) setStatus(saved);
   }, []);
 
@@ -70,37 +71,42 @@ export function ProfileClient({ initialName, email, initials }: ProfileClientPro
 
       {/* Display Name */}
       <div className="space-y-1.5">
-        <label className="text-xs font-semibold uppercase tracking-widest text-graphite">Display Name</label>
+        <label htmlFor="display-name-input" className="text-xs font-semibold uppercase tracking-widest text-graphite">Display Name</label>
         {isEditingName ? (
           <div className="flex gap-2">
             <input
+              id="display-name-input"
               value={nameInput}
               onChange={e => setNameInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSaveName()}
               autoFocus
               className="flex-1 px-3 py-2 text-sm bg-surface border border-border rounded-xl outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10 text-ink"
             />
-            <button onClick={handleSaveName} disabled={isPending} className="p-2 rounded-xl bg-accent text-white hover:bg-accent/90 disabled:opacity-50">
+            <button onClick={handleSaveName} disabled={isPending} aria-label="Save name" className="p-2 rounded-xl bg-accent text-white hover:bg-accent/90 disabled:opacity-50">
               <Check size={15} />
             </button>
-            <button onClick={() => { setIsEditingName(false); setNameInput(displayName); }} className="p-2 rounded-xl bg-surface-hover border border-border text-graphite hover:text-ink">
+            <button onClick={() => { setIsEditingName(false); setNameInput(displayName); }} aria-label="Cancel editing name" className="p-2 rounded-xl bg-surface-hover border border-border text-graphite hover:text-ink">
               <X size={15} />
             </button>
           </div>
         ) : (
-          <div className="flex items-center justify-between px-4 py-3 bg-surface border border-border rounded-xl group">
+          <div id="display-name-input" className="flex items-center justify-between px-4 py-3 bg-surface border border-border rounded-xl group">
             <span className="text-sm text-ink font-medium">{displayName || 'No name set'}</span>
-            <button onClick={() => setIsEditingName(true)} className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg hover:bg-surface-hover">
+            <button
+              onClick={() => setIsEditingName(true)}
+              aria-label="Edit display name"
+              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 min-w-[24px] min-h-[24px] flex items-center justify-center rounded-lg hover:bg-surface-hover"
+            >
               <Pencil size={13} className="text-graphite" />
             </button>
           </div>
         )}
-        {nameError && <p className="text-xs text-red-500">{nameError}</p>}
+        {nameError && <p role="alert" className="text-xs text-red-500">{nameError}</p>}
       </div>
 
       {/* Email */}
       <div className="space-y-1.5">
-        <label className="text-xs font-semibold uppercase tracking-widest text-graphite">Email</label>
+        <span className="block text-xs font-semibold uppercase tracking-widest text-graphite">Email</span>
         <div className="px-4 py-3 bg-surface-hover border border-border rounded-xl">
           <span className="text-sm text-graphite">{email}</span>
         </div>
@@ -108,19 +114,20 @@ export function ProfileClient({ initialName, email, initials }: ProfileClientPro
 
       {/* Status */}
       <div className="space-y-2">
-        <label className="text-xs font-semibold uppercase tracking-widest text-graphite">Status</label>
-        <div className="grid grid-cols-2 gap-2">
+        <span id="status-label" className="block text-xs font-semibold uppercase tracking-widest text-graphite">Status</span>
+        <div role="group" aria-labelledby="status-label" className="grid grid-cols-2 gap-2">
           {STATUS_OPTIONS.map(option => (
             <button
               key={option.id}
               onClick={() => handleStatusChange(option.id)}
+              aria-pressed={status === option.id}
               className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
                 status === option.id
                   ? `border-current ring-2 ${option.ring} ring-offset-2 ring-offset-canvas bg-surface text-ink`
                   : 'border-border bg-surface text-graphite hover:text-ink hover:border-graphite/30'
               }`}
             >
-              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${option.color}`} />
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${option.color}`} aria-hidden="true" />
               {option.label}
             </button>
           ))}

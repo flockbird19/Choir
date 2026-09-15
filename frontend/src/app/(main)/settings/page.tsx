@@ -20,7 +20,7 @@ export default async function SettingsPage() {
   const teams = (await getUserTeams()) as Team[];
 
   return (
-    <div className="h-full overflow-y-auto bg-canvas">
+    <main className="h-full overflow-y-auto bg-canvas">
       <div className="max-w-2xl mx-auto px-6 py-10">
 
         {/* Page header */}
@@ -53,6 +53,6 @@ export default async function SettingsPage() {
         {/* Danger Zone */}
         {user && <DangerZone teams={teams} currentUserId={user.id} />}
       </div>
-    </div>
+    </main>
   );
 }

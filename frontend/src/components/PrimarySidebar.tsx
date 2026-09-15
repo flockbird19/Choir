@@ -13,10 +13,13 @@ interface PrimarySidebarProps {
 
 export function PrimarySidebar({ teams, activeTeamId, onSelectTeam }: PrimarySidebarProps) {
   return (
-    <div className="w-16 h-full flex flex-col items-center py-4 bg-surface-hover/50 border-r border-border shrink-0 z-20">
-      
+    <nav
+      aria-label="Teams"
+      className="w-16 h-full flex flex-col items-center py-4 bg-surface-hover/50 border-r border-border shrink-0 z-20"
+    >
+
       {/* Home / Logo */}
-      <Link href="/" className="group relative flex items-center justify-center w-12 h-12 mb-2">
+      <Link href="/" aria-label="Home" className="group relative flex items-center justify-center w-12 h-12 mb-2">
         <div className="absolute -left-4 w-2 h-5 bg-ink rounded-r-full opacity-0 group-hover:opacity-100 transition-all duration-300" />
         <div className="w-12 h-12 rounded-[24px] group-hover:rounded-[16px] bg-canvas flex items-center justify-center shadow-sm transition-all duration-300 group-active:translate-y-[1px]">
           <Logo className="w-6 h-6 text-ink group-hover:text-accent transition-colors duration-300" />
@@ -37,6 +40,8 @@ export function PrimarySidebar({ teams, activeTeamId, onSelectTeam }: PrimarySid
               onClick={() => onSelectTeam(team.id)}
               className="group relative flex items-center justify-center w-full h-12"
               title={team.name}
+              aria-label={team.name}
+              aria-pressed={isActive}
             >
               {/* Active / Hover indicator pill */}
               <div
@@ -67,6 +72,6 @@ export function PrimarySidebar({ teams, activeTeamId, onSelectTeam }: PrimarySid
       <div className="mt-auto pt-4 flex flex-col gap-3 items-center">
         <ThemeToggle />
       </div>
-    </div>
+    </nav>
   );
 }

@@ -34,8 +34,9 @@ export function PasswordInput({
       <button
         type="button"
         onClick={() => setShowPassword(!showPassword)}
-        className="absolute inset-y-0 right-0 pr-3 flex items-center text-graphite/50 hover:text-graphite transition-colors"
-        tabIndex={-1}
+        aria-label={showPassword ? "Hide password" : "Show password"}
+        aria-pressed={showPassword}
+        className="absolute inset-y-0 right-0 px-3 flex items-center text-graphite/50 hover:text-graphite transition-colors"
       >
         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
       </button>

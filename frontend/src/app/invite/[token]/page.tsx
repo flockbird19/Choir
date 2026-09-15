@@ -27,9 +27,9 @@ export default async function InvitePage({
 
   if (!invite) {
     return (
-      <div className="flex h-screen items-center justify-center bg-canvas text-ink">
-        <p>Invalid or expired invitation link.</p>
-      </div>
+      <main className="flex h-screen items-center justify-center bg-canvas text-ink">
+        <p role="alert">Invalid or expired invitation link.</p>
+      </main>
     );
   }
 
@@ -41,22 +41,22 @@ export default async function InvitePage({
 
   if (!team) {
     return (
-      <div className="flex h-screen items-center justify-center bg-canvas text-ink">
-        <p>Team not found.</p>
-      </div>
+      <main className="flex h-screen items-center justify-center bg-canvas text-ink">
+        <p role="alert">Team not found.</p>
+      </main>
     );
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-canvas">
+    <main className="flex h-screen items-center justify-center bg-canvas">
       <div className="w-full max-w-md p-8 bg-surface border border-border rounded-2xl shadow-sm text-center">
-        <h1 className="text-2xl font-semibold text-ink mb-2">You're Invited!</h1>
+        <h1 className="text-2xl font-semibold text-ink mb-2">You&rsquo;re Invited!</h1>
         <p className="text-graphite mb-6 text-sm">
-          You've been invited to join the team <strong className="text-ink">{team.name}</strong> on Choir.
+          You&rsquo;ve been invited to join the team <strong className="text-ink">{team.name}</strong> on Choir.
         </p>
 
         <AcceptInviteForm token={token} />
       </div>
-    </div>
+    </main>
   );
 }

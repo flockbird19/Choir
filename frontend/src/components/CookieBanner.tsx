@@ -9,6 +9,7 @@ export function CookieBanner() {
   useEffect(() => {
     const hasAccepted = localStorage.getItem("choir_cookies_accepted");
     if (!hasAccepted) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsVisible(true);
     }
   }, []);
@@ -21,7 +22,11 @@ export function CookieBanner() {
   if (!isVisible) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 w-full bg-surface border-t border-border p-4 z-[9999] shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)] flex items-center justify-between gap-4">
+    <div
+      role="region"
+      aria-label="Cookie notice"
+      className="fixed bottom-0 left-0 w-full bg-surface border-t border-border p-4 z-[9999] shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)] flex items-center justify-between gap-4"
+    >
       <div className="max-w-7xl mx-auto w-full flex flex-col sm:flex-row items-center justify-between gap-4">
         <p className="text-sm text-graphite leading-relaxed text-center sm:text-left">
           We use cookies to ensure you get the best experience on Choir. By continuing to use the app, you agree to our use of cookies.

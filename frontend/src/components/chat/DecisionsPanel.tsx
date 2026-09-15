@@ -2,6 +2,7 @@
 
 import { X, Pin } from "lucide-react";
 import { Message } from "@/types/database";
+import { useDialogA11y } from "@/hooks/useDialogA11y";
 
 interface DecisionsPanelProps {
   isOpen: boolean;
@@ -12,6 +13,8 @@ interface DecisionsPanelProps {
 }
 
 export function DecisionsPanel({ isOpen, onClose, decisions, onJumpTo, onUnpin }: DecisionsPanelProps) {
+  const dialogRef = useDialogA11y(isOpen, onClose);
+
   return (
     <>
       {/* Full-screen backdrop — sits behind the panel, closes on click */}
@@ -25,6 +28,7 @@ export function DecisionsPanel({ isOpen, onClose, decisions, onJumpTo, onUnpin }
 
       {/* Panel — fixed to viewport right edge, overlays everything */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-label="Decisions panel"
         aria-modal="true"
@@ -87,7 +91,7 @@ export function DecisionsPanel({ isOpen, onClose, decisions, onJumpTo, onUnpin }
                           })
                         : ""}
                     </span>
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                       <button
                         onClick={() => onJumpTo(msg.id)}
                         className="text-[11px] font-medium text-accent hover:underline"

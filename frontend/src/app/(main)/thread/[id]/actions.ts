@@ -15,7 +15,13 @@ export async function sendMessage(threadId: string, content: string, messageId?:
     return { error: "Not logged in" };
   }
 
-  const insertData: any = {
+  const insertData: {
+    id?: string;
+    thread_id: string;
+    sender_type: "user";
+    sender_id: string;
+    content: string;
+  } = {
     thread_id: threadId,
     sender_type: "user",
     sender_id: user.id,

@@ -24,7 +24,7 @@ export default async function ProfilePage() {
     .toUpperCase() || "?";
 
   return (
-    <div className="h-full overflow-y-auto bg-canvas">
+    <main className="h-full overflow-y-auto bg-canvas">
       <div className="max-w-lg mx-auto px-6 py-10">
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-1">
@@ -42,6 +42,6 @@ export default async function ProfilePage() {
           initials={initials}
         />
       </div>
-    </div>
+    </main>
   );
 }

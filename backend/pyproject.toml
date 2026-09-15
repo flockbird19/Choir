@@ -22,6 +22,12 @@ dependencies = [
 [project.scripts]
 backend = "backend:main"
 
+[dependency-groups]
+dev = ["pytest>=8.3.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
 build-backend = "uv_build"

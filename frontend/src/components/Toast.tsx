@@ -33,9 +33,9 @@ export function useToast() {
 // ── Individual Toast item ─────────────────────────────────────────────────────
 
 const ICONS: Record<ToastType, React.ReactNode> = {
-  success: <CheckCircle size={16} className="shrink-0 text-green-500" />,
-  error: <XCircle size={16} className="shrink-0 text-red-500" />,
-  warning: <AlertCircle size={16} className="shrink-0 text-amber-500" />,
+  success: <CheckCircle size={16} className="shrink-0 text-green-500" aria-hidden="true" />,
+  error: <XCircle size={16} className="shrink-0 text-red-500" aria-hidden="true" />,
+  warning: <AlertCircle size={16} className="shrink-0 text-amber-500" aria-hidden="true" />,
 };
 
 const BORDER_COLORS: Record<ToastType, string> = {

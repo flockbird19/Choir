@@ -26,7 +26,7 @@ export function InviteSection({ teams }: { teams: Team[] }) {
       } else if (result.link) {
         setInviteLink(result.link);
       }
-    } catch (err) {
+    } catch {
       setError("An unexpected error occurred.");
     } finally {
       setLoading(false);
@@ -55,6 +55,7 @@ export function InviteSection({ teams }: { teams: Team[] }) {
           <select
             value={selectedTeam}
             onChange={(e) => setSelectedTeam(e.target.value)}
+            aria-label="Select team to invite to"
             className="px-3 py-2 text-sm bg-canvas border border-border rounded-xl text-ink outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
           >
             {teams.map((t) => (
@@ -66,7 +67,7 @@ export function InviteSection({ teams }: { teams: Team[] }) {
         )}
 
         {error && (
-          <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 px-3 py-2 rounded-lg">
+          <div role="alert" className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 px-3 py-2 rounded-lg">
             {error}
           </div>
         )}
@@ -77,6 +78,7 @@ export function InviteSection({ teams }: { teams: Team[] }) {
               type="text"
               readOnly
               value={inviteLink}
+              aria-label="Invite link"
               className="flex-1 px-3 py-2 text-sm bg-canvas border border-border rounded-xl text-ink font-mono"
             />
             <button

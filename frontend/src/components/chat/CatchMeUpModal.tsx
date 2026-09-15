@@ -4,6 +4,7 @@ import { X, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { markdownComponents } from "./MessageList";
+import { useDialogA11y } from "@/hooks/useDialogA11y";
 
 interface CatchMeUpModalProps {
   isOpen: boolean;
@@ -20,10 +21,18 @@ export function CatchMeUpModal({
   summary,
   messageCount,
 }: CatchMeUpModalProps) {
+  const dialogRef = useDialogA11y(isOpen, onClose);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm px-4">
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Catch me up"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm px-4"
+    >
       <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg border border-border max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">

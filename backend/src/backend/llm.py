@@ -349,66 +349,78 @@ def stream_ai_response(
 
     # ── Stream from LLM ───────────────────────────────────────────────────────
     full_response = ""
+    msg_id: str | None = None
+    stream_failed = False
 
+    # The `finally` below persists whatever text was generated even if this
+    # generator is torn down early — e.g. the client disconnects mid-stream, in
+    # which case Python raises GeneratorExit at the next `yield`. Previously
+    # persistence only happened after the loop finished normally, so a dropped
+    # connection silently discarded an otherwise fully-generated response. The
+    # `finally` block must not attempt to yield (that raises RuntimeError while
+    # a GeneratorExit is propagating), so `done` is only ever yielded after it.
     try:
-        if provider == "anthropic":
-            import anthropic  # type: ignore
+        try:
+            if provider == "anthropic":
+                import anthropic  # type: ignore
 
-            client = anthropic.Anthropic(api_key=api_key)
-            with client.messages.stream(
-                model=model,
-                max_tokens=4096,
-                system=system_prompt,
-                messages=chat_messages,  # type: ignore[arg-type]
-            ) as stream:
-                for text in stream.text_stream:
-                    full_response += text
-                    yield _sse({"text": text})
+                client = anthropic.Anthropic(api_key=api_key)
+                with client.messages.stream(
+                    model=model,
+                    max_tokens=4096,
+                    system=system_prompt,
+                    messages=chat_messages,  # type: ignore[arg-type]
+                ) as stream:
+                    for text in stream.text_stream:
+                        full_response += text
+                        yield _sse({"text": text})
 
-        else:
-            import openai as openai_module  # type: ignore
+            else:
+                import openai as openai_module  # type: ignore
 
-            config = OPENAI_COMPAT_PROVIDERS[provider]
-            base_url: str | None = config["base_url"] or None
-            client = openai_module.OpenAI(api_key=api_key, base_url=base_url)
+                config = OPENAI_COMPAT_PROVIDERS[provider]
+                base_url: str | None = config["base_url"] or None
+                client = openai_module.OpenAI(api_key=api_key, base_url=base_url)
 
-            all_messages: list[dict[str, str]] = [
-                {"role": "system", "content": system_prompt},
-                *chat_messages,
-            ]
+                all_messages: list[dict[str, str]] = [
+                    {"role": "system", "content": system_prompt},
+                    *chat_messages,
+                ]
 
-            with client.chat.completions.create(  # type: ignore[call-overload]
-                model=model,
-                messages=all_messages,  # type: ignore[arg-type]
-                stream=True,
-            ) as stream:
-                for chunk in stream:
-                    delta = chunk.choices[0].delta.content  # type: ignore[union-attr]
-                    if delta:
-                        full_response += delta
-                        yield _sse({"text": delta})
+                with client.chat.completions.create(  # type: ignore[call-overload]
+                    model=model,
+                    messages=all_messages,  # type: ignore[arg-type]
+                    stream=True,
+                ) as stream:
+                    for chunk in stream:
+                        delta = chunk.choices[0].delta.content  # type: ignore[union-attr]
+                        if delta:
+                            full_response += delta
+                            yield _sse({"text": delta})
 
-    except Exception as exc:
-        err = str(exc)
-        if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
-            yield _sse(
-                {
-                    "error": (
-                        "Rate limit reached. Please check your API key usage limits "
-                        "or try again later."
-                    )
-                }
-            )
-        else:
-            yield _sse({"error": f"AI error: {err}"})
-        return
+        except Exception as exc:
+            stream_failed = True
+            err = str(exc)
+            if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
+                yield _sse(
+                    {
+                        "error": (
+                            "Rate limit reached. Please check your API key usage limits "
+                            "or try again later."
+                        )
+                    }
+                )
+            else:
+                yield _sse({"error": f"AI error: {err}"})
+    finally:
+        # Persist whatever was generated so far — on a clean finish this is the
+        # full response; on a disconnect or mid-stream provider error it's a
+        # partial one, which still beats losing it outright.
+        if full_response.strip():
+            msg_id = _save_assistant_message(thread_id, full_response, provider, model)
 
-    # ── Persist final message ─────────────────────────────────────────────────
-    msg_id = None
-    if full_response.strip():
-        msg_id = _save_assistant_message(thread_id, full_response, provider, model)
-
-    yield _sse({"done": True, "message_id": msg_id})
+    if not stream_failed:
+        yield _sse({"done": True, "message_id": msg_id})
 
 
 # ---------------------------------------------------------------------------

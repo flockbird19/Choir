@@ -81,6 +81,20 @@ create table if not exists thread_reads (
   primary key (thread_id, user_id)
 );
 
+-- Backs the AI rate limiter (one row per /api/chat or /api/digest call). A
+-- Postgres-backed log survives backend restarts and works correctly across
+-- multiple backend instances, unlike an in-memory counter. Rows older than an
+-- hour are opportunistically deleted by the backend on each check, so this
+-- table never accumulates unbounded history.
+create table if not exists ai_request_log (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade,
+  requested_at timestamptz not null default now()
+);
+
+create index if not exists ai_request_log_user_time_idx
+  on ai_request_log (user_id, requested_at);
+
 -- ==========================================
 -- 2. ENABLE ROW LEVEL SECURITY (RLS)
 -- ==========================================
@@ -93,6 +107,9 @@ alter table messages enable row level security;
 alter table user_api_keys enable row level security;
 alter table team_invitations enable row level security;
 alter table thread_reads enable row level security;
+-- No policies: only the FastAPI backend (service role, which bypasses RLS)
+-- ever touches this table, so it stays locked to anon/authenticated by default.
+alter table ai_request_log enable row level security;
 
 -- ==========================================
 -- 3. RLS POLICIES (With Drop If Exists to prevent errors)

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
@@ -31,7 +30,6 @@ export function ThreadView({
   sharedThread?: Thread | null;
   sharedMessages?: Message[];
 }) {
-  const router = useRouter();
   const { error: toastError, success: toastSuccess } = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const isPrivate = thread.type === "private";
@@ -112,6 +110,7 @@ export function ThreadView({
 
   // Sync when navigating between threads
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalMessages(messages);
   }, [messages]);
 
@@ -357,6 +356,7 @@ export function ThreadView({
                 onClick={() => handleExport("md")}
                 disabled={isExporting !== false}
                 title="Export as Markdown"
+                aria-label="Export thread as Markdown"
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-all text-graphite hover:bg-surface-hover hover:text-ink disabled:opacity-50 border-r border-border"
               >
                 <Download size={15} />
@@ -366,6 +366,7 @@ export function ThreadView({
                 onClick={() => handleExport("json")}
                 disabled={isExporting !== false}
                 title="Export as JSON Data"
+                aria-label="Export thread as JSON"
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-all text-graphite hover:bg-surface-hover hover:text-ink disabled:opacity-50"
               >
                 <span className="hidden sm:inline">{isExporting === "json" ? "..." : "JSON"}</span>
@@ -377,6 +378,7 @@ export function ThreadView({
               <button
                 onClick={handleCatchMeUp}
                 title="Catch me up on what you missed"
+                aria-label="Catch me up on what you missed"
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border bg-surface text-graphite border-border hover:border-accent/40 hover:text-accent"
               >
                 <Sparkles size={15} />
@@ -389,10 +391,12 @@ export function ThreadView({
               <button
                 onClick={() => setDecisionsOpen(!decisionsOpen)}
                 title="View pinned decisions"
+                aria-label={`View pinned decisions${decisions.length > 0 ? ` (${decisions.length})` : ""}`}
+                aria-pressed={decisionsOpen}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
                   ${decisionsOpen
-                    ? "bg-amber-400/10 text-amber-600 dark:text-amber-400 border-amber-400/30"
-                    : "bg-surface text-graphite border-border hover:border-amber-400/40 hover:text-amber-600 dark:hover:text-amber-400"
+                    ? "bg-amber-400/10 text-amber-700 dark:text-amber-400 border-amber-400/30"
+                    : "bg-surface text-graphite border-border hover:border-amber-400/40 hover:text-amber-700 dark:hover:text-amber-400"
                   }`}
               >
                 <Pin size={15} />
@@ -407,6 +411,8 @@ export function ThreadView({
                   setSelectMode(!selectMode);
                   if (selectMode) setSelectedMessageIds(new Set()); // clear on cancel
                 }}
+                aria-label="Select messages to post to Team Space"
+                aria-pressed={selectMode}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
                   ${selectMode
                     ? "bg-accent/10 text-accent border-accent/20"
@@ -423,6 +429,8 @@ export function ThreadView({
               <button
                 onClick={() => setDrawerOpen(!drawerOpen)}
                 title="Peek at Team Space"
+                aria-label="Peek at Team Space"
+                aria-pressed={drawerOpen}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
                   ${drawerOpen
                     ? "bg-shared-muted text-shared-fg border-shared/30"

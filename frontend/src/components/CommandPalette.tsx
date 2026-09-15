@@ -3,12 +3,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Hash, Lock, MessageSquare, Loader2 } from "lucide-react";
-import { globalSearch } from "@/app/(main)/actions";
+import { globalSearch, type GlobalSearchThread, type GlobalSearchMessage } from "@/app/(main)/actions";
 
 export function CommandPalette() {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<{ threads: any[], messages: any[] }>({ threads: [], messages: [] });
+  const [results, setResults] = useState<{ threads: GlobalSearchThread[], messages: GlobalSearchMessage[] }>({ threads: [], messages: [] });
   const [isSearching, setIsSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -33,6 +33,7 @@ export function CommandPalette() {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 50);
     } else {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuery("");
       setResults({ threads: [], messages: [] });
     }
@@ -41,6 +42,7 @@ export function CommandPalette() {
   // Debounced search
   useEffect(() => {
     if (query.trim().length < 2) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setResults({ threads: [], messages: [] });
       return;
     }
@@ -70,31 +72,42 @@ export function CommandPalette() {
       {/* Click outside to close */}
       <div className="absolute inset-0" onClick={() => setIsOpen(false)} />
 
-      <div className="relative w-full max-w-3xl bg-surface border border-border shadow-2xl rounded-2xl overflow-hidden flex flex-col">
-        
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Global search"
+        className="relative w-full max-w-3xl bg-surface border border-border shadow-2xl rounded-2xl overflow-hidden flex flex-col"
+      >
+
         {/* Search Input */}
         <div className="flex items-center px-6 border-b border-border/50">
-          <Search size={22} className="text-graphite shrink-0" />
+          <Search size={22} className="text-graphite shrink-0" aria-hidden="true" />
           <input
             ref={inputRef}
             type="text"
+            aria-label="Search threads and messages"
             placeholder="Search threads, messages, ideas..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="w-full bg-transparent border-none px-5 py-6 text-ink placeholder:text-graphite/40 focus:outline-none focus:ring-0 text-xl font-medium"
           />
-          {isSearching && <Loader2 size={20} className="text-graphite animate-spin shrink-0" />}
+          {isSearching && (
+            <>
+              <Loader2 size={20} className="text-graphite animate-spin shrink-0" aria-hidden="true" />
+              <span className="sr-only">Searching…</span>
+            </>
+          )}
         </div>
 
         {/* Results Area */}
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[60vh] overflow-y-auto" aria-live="polite">
           {query.trim().length < 2 ? (
             <div className="p-16 text-center text-sm text-graphite/60">
               Type at least 2 characters to search across your workspace.
             </div>
           ) : results.threads.length === 0 && results.messages.length === 0 && !isSearching ? (
             <div className="p-16 text-center text-sm text-graphite/60">
-              No results found for "{query}".
+              No results found for &ldquo;{query}&rdquo;.
             </div>
           ) : (
             <div className="p-4 space-y-6">
@@ -165,7 +178,7 @@ export function CommandPalette() {
             Global Search
           </span>
           <div className="flex items-center gap-2 text-[10px] text-graphite/50 font-mono font-medium">
-            <span>ESC</span> to close
+            <kbd>ESC</kbd> to close
           </div>
         </div>
       </div>

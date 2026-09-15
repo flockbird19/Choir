@@ -31,7 +31,7 @@ export function AcceptInviteForm({ token }: { token: string }) {
   return (
     <div className="flex flex-col gap-3">
       {error && (
-        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm text-left">
+        <div role="alert" className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm text-left">
           {error}
         </div>
       )}

@@ -36,7 +36,7 @@ export default function OnboardingPage() {
       </div>
 
       {/* Centered form */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 z-10 pb-16">
+      <main className="flex-1 flex flex-col items-center justify-center px-6 z-10 pb-16">
         <div className="w-full max-w-sm">
 
           {/* Heading */}
@@ -69,7 +69,7 @@ export default function OnboardingPage() {
             </div>
 
             {error && (
-              <div className="p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/40 text-red-600 dark:text-red-400 text-sm">
+              <div role="alert" className="p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/40 text-red-600 dark:text-red-400 text-sm">
                 {error}
               </div>
             )}
@@ -89,7 +89,7 @@ export default function OnboardingPage() {
             Choir · Multiplayer AI for teams
           </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

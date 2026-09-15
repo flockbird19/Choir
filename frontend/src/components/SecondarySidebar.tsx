@@ -8,6 +8,7 @@ import { Team, Project, Thread } from "@/types/database";
 import { useEffect, useState } from "react";
 import { createThread, deleteThread } from "@/app/(main)/thread/[id]/actions";
 import { useToast } from "@/components/Toast";
+import { useDialogA11y } from "@/hooks/useDialogA11y";
 
 type StatusId = "online" | "away" | "dnd" | "offline";
 
@@ -62,6 +63,12 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteName, setConfirmDeleteName] = useState<string>("");
 
+  const createThreadDialogRef = useDialogA11y(isCreatingThread, () => {
+    setIsCreatingThread(false);
+    setNewThreadName("");
+  });
+  const deleteDialogRef = useDialogA11y(!!confirmDeleteId, () => setConfirmDeleteId(null));
+
   const executeDelete = async () => {
     if (!confirmDeleteId) return;
     const threadId = confirmDeleteId;
@@ -82,6 +89,7 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
 
   useEffect(() => {
     const saved = localStorage.getItem("choir_status") as StatusId | null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved) setStatus(saved);
     const onFocus = () => {
       const s = localStorage.getItem("choir_status") as StatusId | null;
@@ -155,7 +163,8 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
             <button
               onClick={() => setIsCreatingThread(true)}
               title="New private thread"
-              className="w-5 h-5 rounded-md flex items-center justify-center transition-colors hover:bg-border hover:text-ink"
+              aria-label="New private thread"
+              className="min-w-[24px] min-h-[24px] rounded-md flex items-center justify-center transition-colors hover:bg-border hover:text-ink"
             >
               <Plus size={13} />
             </button>
@@ -193,8 +202,9 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
                   </span>
                   <button
                     onClick={(e) => handleDeleteThread(e, thread.id, thread.name || "Untitled")}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-graphite hover:text-red-500 transition-all rounded-md hover:bg-red-500/10 shrink-0"
-                    title="Delete Thread"
+                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 min-w-[24px] min-h-[24px] flex items-center justify-center text-graphite hover:text-red-500 transition-all rounded-md hover:bg-red-500/10 shrink-0"
+                    title="Delete thread"
+                    aria-label={`Delete thread "${thread.name || "Untitled"}"`}
                   >
                     <Trash2 size={12} />
                   </button>
@@ -229,6 +239,7 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
         <Link
           href="/settings"
           title="Settings"
+          aria-label="Settings"
           className={`w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-hover transition-colors shrink-0
             ${pathname === "/settings" ? "text-ink bg-surface-hover" : "text-graphite hover:text-ink"}`}
         >
@@ -238,9 +249,19 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
 
       {/* ── Create Thread Modal ── */}
       {isCreatingThread && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm">
-          <div className="bg-surface p-6 rounded-2xl shadow-xl w-full max-w-sm border border-border mx-4">
-            <h3 className="text-base font-semibold text-ink mb-4">New Thread</h3>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm"
+          onClick={() => { setIsCreatingThread(false); setNewThreadName(""); }}
+        >
+          <div
+            ref={createThreadDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="new-thread-title"
+            onClick={(e) => e.stopPropagation()}
+            className="bg-surface p-6 rounded-2xl shadow-xl w-full max-w-sm border border-border mx-4"
+          >
+            <h3 id="new-thread-title" className="text-base font-semibold text-ink mb-4">New Thread</h3>
             <form onSubmit={handleCreateThread}>
               <input
                 type="text"
@@ -275,9 +296,19 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
 
       {/* ── Delete Confirmation Modal ── */}
       {confirmDeleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm">
-          <div className="bg-surface p-6 rounded-2xl shadow-xl w-full max-w-sm border border-border mx-4">
-            <h3 className="text-base font-semibold text-ink mb-1">Delete Thread?</h3>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm"
+          onClick={() => setConfirmDeleteId(null)}
+        >
+          <div
+            ref={deleteDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-thread-title"
+            onClick={(e) => e.stopPropagation()}
+            className="bg-surface p-6 rounded-2xl shadow-xl w-full max-w-sm border border-border mx-4"
+          >
+            <h3 id="delete-thread-title" className="text-base font-semibold text-ink mb-1">Delete Thread?</h3>
             <p className="text-sm text-graphite mb-5">
               &ldquo;{confirmDeleteName}&rdquo; will be permanently deleted with all its messages.
             </p>

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, memo, useState } from "react";
+import { useEffect, useRef, memo, useState, isValidElement, type ReactNode } from "react";
 import { User, Bot, ArrowUpRight, Copy, Check, Pin, PinOff } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 interface Message {
@@ -27,10 +27,20 @@ interface MessageListProps {
   highlightedMessageId?: string | null;
 }
 
+// react-markdown always renders a fenced code block as <pre><code>...</code></pre>,
+// with `children` here being that nested <code> element — walk it to get the raw
+// text for the copy button, instead of the old unsafe `children?.props?.children`.
+function extractText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return extractText(node.props.children);
+  return "";
+}
+
 // Fix: destructure `node` explicitly so it is NOT forwarded to DOM elements
-const CodeBlock = ({ children, ...props }: any) => {
+const CodeBlock: Components["pre"] = ({ children, ...props }) => {
   const [copied, setCopied] = useState(false);
-  const textContent = children?.props?.children || "";
+  const textContent = extractText(children);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(textContent);
@@ -54,21 +64,27 @@ const CodeBlock = ({ children, ...props }: any) => {
   );
 };
 
-export const markdownComponents = {
-  p: ({ node: _node, ...props }: any) => <p className="mb-2 last:mb-0" {...props} />,
-  ul: ({ node: _node, ...props }: any) => <ul className="list-disc ml-4 mb-2" {...props} />,
-  ol: ({ node: _node, ...props }: any) => <ol className="list-decimal ml-4 mb-2" {...props} />,
-  li: ({ node: _node, ...props }: any) => <li className="mb-1" {...props} />,
-  h1: ({ node: _node, ...props }: any) => <h1 className="text-xl font-bold mb-2 mt-4" {...props} />,
-  h2: ({ node: _node, ...props }: any) => <h2 className="text-lg font-bold mb-2 mt-3" {...props} />,
-  h3: ({ node: _node, ...props }: any) => <h3 className="text-base font-bold mb-2 mt-3" {...props} />,
+export const markdownComponents: Components = {
+  p: ({ node: _node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
+  ul: ({ node: _node, ...props }) => <ul className="list-disc ml-4 mb-2" {...props} />,
+  ol: ({ node: _node, ...props }) => <ol className="list-decimal ml-4 mb-2" {...props} />,
+  li: ({ node: _node, ...props }) => <li className="mb-1" {...props} />,
+  h1: ({ node: _node, ...props }) => <h1 className="text-xl font-bold mb-2 mt-4" {...props} />,
+  h2: ({ node: _node, ...props }) => <h2 className="text-lg font-bold mb-2 mt-3" {...props} />,
+  h3: ({ node: _node, ...props }) => <h3 className="text-base font-bold mb-2 mt-3" {...props} />,
   pre: CodeBlock,
-  code: ({ node: _node, inline, ...props }: any) =>
-    inline
-      ? <code className="bg-canvas border border-border px-1.5 py-0.5 rounded text-xs font-mono text-accent" {...props} />
-      : <code className="font-mono text-xs" {...props} />,
-  a: ({ node: _node, ...props }: any) => <a className="text-accent hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
-  blockquote: ({ node: _node, ...props }: any) => <blockquote className="border-l-2 border-border pl-3 italic text-ink/80 my-2" {...props} />,
+  // react-markdown v9+ dropped the old `inline` prop entirely (there's no longer
+  // a signal for it in the API), which meant this previously always rendered the
+  // "block" branch — inline `code` spans silently lost their pill styling. A
+  // fenced block still gets wrapped by the `pre` override above regardless, so
+  // checking for remark's `language-*` class here only decides the inner <code>
+  // span's own styling, same as react-markdown's own docs recommend.
+  code: ({ node: _node, className, ...props }) =>
+    /language-(\w+)/.test(className || "")
+      ? <code className="font-mono text-xs" {...props} />
+      : <code className="bg-canvas border border-border px-1.5 py-0.5 rounded text-xs font-mono text-accent" {...props} />,
+  a: ({ node: _node, ...props }) => <a className="text-accent hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
+  blockquote: ({ node: _node, ...props }) => <blockquote className="border-l-2 border-border pl-3 italic text-ink/80 my-2" {...props} />,
 };
 
 const MessageItem = memo(function MessageItem({
@@ -150,7 +166,7 @@ const MessageItem = memo(function MessageItem({
                   : "bg-surface border border-border text-ink rounded-tl-sm"
               }
               ${selectMode && isSelected ? "ring-2 ring-accent ring-offset-2 ring-offset-canvas" : ""}
-              ${isPinned ? "border-l-2 border-l-amber-400" : ""}
+              ${isPinned ? "border-l-2 border-l-amber-600 dark:border-l-amber-400" : ""}
             `}
           >
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -160,7 +176,7 @@ const MessageItem = memo(function MessageItem({
 
           <div className="flex items-center gap-2 mt-1 mx-1">
             {isPinned && (
-              <span className="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+              <span className="flex items-center gap-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
                 <Pin size={10} className="fill-current" />
                 Decision
               </span>
@@ -181,7 +197,8 @@ const MessageItem = memo(function MessageItem({
                   onTogglePin(msg.id, isPinned);
                 }}
                 title={isPinned ? "Unpin decision" : "Pin as decision"}
-                className="opacity-0 group-hover:opacity-100 p-0.5 rounded-md text-graphite/50 hover:text-amber-500 hover:bg-amber-500/10 transition-all"
+                aria-label={isPinned ? "Unpin decision" : "Pin as decision"}
+                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 min-w-[24px] min-h-[24px] flex items-center justify-center rounded-md text-graphite/50 hover:text-amber-500 hover:bg-amber-500/10 transition-all"
               >
                 {isPinned ? <PinOff size={11} /> : <Pin size={11} />}
               </button>

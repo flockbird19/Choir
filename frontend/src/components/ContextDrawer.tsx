@@ -3,6 +3,7 @@
 import { X, Users, ChevronRight } from "lucide-react";
 import { MessageList } from "./chat/MessageList";
 import { Thread, Message } from "@/types/database";
+import { useDialogA11y } from "@/hooks/useDialogA11y";
 import Link from "next/link";
 
 interface ContextDrawerProps {
@@ -18,6 +19,8 @@ export function ContextDrawer({
   sharedThread,
   sharedMessages,
 }: ContextDrawerProps) {
+  const dialogRef = useDialogA11y(isOpen, onClose);
+
   return (
     <>
       {/* Full-screen backdrop — sits behind drawer, closes on click */}
@@ -31,6 +34,7 @@ export function ContextDrawer({
 
       {/* Drawer panel — fixed to viewport right edge, overlays everything */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-label="Team Space context drawer"
         aria-modal="true"

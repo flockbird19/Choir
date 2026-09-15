@@ -56,6 +56,7 @@ export function ChatInput({
   useEffect(() => {
     const saved = localStorage.getItem("choir_selected_model");
     if (saved && AVAILABLE_MODELS.some(m => `${m.provider}:${m.id}` === saved)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedModelStr(saved);
     }
   }, []);
@@ -230,7 +231,10 @@ export function ChatInput({
 
       {/* Error banner */}
       {sendError && (
-        <div className="max-w-3xl mx-auto mb-2 px-3 py-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 text-red-600 dark:text-red-400 text-xs rounded-lg">
+        <div
+          role="alert"
+          className="max-w-3xl mx-auto mb-2 px-3 py-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 text-red-600 dark:text-red-400 text-xs rounded-lg"
+        >
           {sendError}
         </div>
       )}
@@ -244,6 +248,7 @@ export function ChatInput({
              onChange={e => handleModelChange(e.target.value)}
              className="text-[11px] font-medium text-graphite bg-surface/50 hover:bg-surface border border-transparent hover:border-border rounded-md px-1.5 py-0.5 outline-none transition-colors appearance-none cursor-pointer"
              title="Select AI Model"
+             aria-label="Select AI model"
            >
              {AVAILABLE_MODELS.map(m => (
                <option key={`${m.provider}:${m.id}`} value={`${m.provider}:${m.id}`}>
@@ -268,6 +273,7 @@ export function ChatInput({
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
+            aria-label="Message"
             placeholder="Message… type @AI to call the assistant"
             className="flex-1 max-h-[200px] bg-transparent resize-none outline-none py-1.5 text-ink placeholder:text-graphite/50 text-sm leading-relaxed"
             rows={1}
