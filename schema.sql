@@ -1,25 +1,34 @@
--- ==========================================
--- 1. TABLES
--- ==========================================
+-- ============================================================================
+-- Choir database schema — one script, safe to re-run
+-- Creates what's missing, keeps all data, keeps RLS ON, resets all access rules.
+--
+-- This file is the source of truth for the live database. To change the
+-- database: edit this file, paste the whole script into the Supabase SQL Editor
+-- ("Choir schema" snippet) and run it. Last applied to live: 2026-09-15.
+-- ============================================================================
 
-create table if not exists teams (
+begin;
+
+-- ── 1. Tables ────────────────────────────────────────────────────────────────
+
+create table if not exists public.teams (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   created_by uuid references auth.users(id),
   created_at timestamptz default now()
 );
 
-create table if not exists team_members (
-  team_id uuid references teams(id) on delete cascade,
+create table if not exists public.team_members (
+  team_id uuid references public.teams(id) on delete cascade,
   user_id uuid references auth.users(id) on delete cascade,
   role text default 'member',
   joined_at timestamptz default now(),
   primary key (team_id, user_id)
 );
 
-create table if not exists projects (
+create table if not exists public.projects (
   id uuid primary key default gen_random_uuid(),
-  team_id uuid references teams(id) on delete cascade,
+  team_id uuid references public.teams(id) on delete cascade,
   name text not null,
   created_by uuid references auth.users(id),
   shared_model_provider text default 'anthropic',
@@ -28,9 +37,9 @@ create table if not exists projects (
   created_at timestamptz default now()
 );
 
-create table if not exists threads (
+create table if not exists public.threads (
   id uuid primary key default gen_random_uuid(),
-  project_id uuid references projects(id) on delete cascade,
+  project_id uuid references public.projects(id) on delete cascade,
   type text not null check (type in ('shared', 'private')),
   owner_id uuid references auth.users(id),
   name text,
@@ -39,165 +48,199 @@ create table if not exists threads (
   created_at timestamptz default now()
 );
 
-create table if not exists messages (
+create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
-  thread_id uuid references threads(id) on delete cascade,
+  thread_id uuid references public.threads(id) on delete cascade,
   sender_type text not null check (sender_type in ('user', 'assistant')),
   sender_id uuid references auth.users(id),
   content text not null,
   model_provider text,
   model_name text,
-  created_at timestamptz default now(),
-  shared_by uuid references auth.users(id),
-  -- "Global Decisions": any team member can pin a shared-thread message as a decision record.
-  is_decision boolean not null default false,
-  pinned_by uuid references auth.users(id),
-  pinned_at timestamptz
+  created_at timestamptz default now()
 );
 
-create table if not exists user_api_keys (
+-- Columns added after the first version (no-ops if they already exist)
+alter table public.messages add column if not exists shared_by uuid references auth.users(id);
+alter table public.messages add column if not exists is_decision boolean not null default false;
+alter table public.messages add column if not exists pinned_by uuid references auth.users(id);
+alter table public.messages add column if not exists pinned_at timestamptz;
+
+create table if not exists public.user_api_keys (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade,
   provider text not null,
-  encrypted_key text not null, 
+  encrypted_key text not null,
   created_at timestamptz default now(),
   unique (user_id, provider)
 );
 
-create table if not exists team_invitations (
+create table if not exists public.team_invitations (
   id uuid primary key default gen_random_uuid(),
-  team_id uuid references teams(id) on delete cascade,
+  team_id uuid references public.teams(id) on delete cascade,
   token uuid default gen_random_uuid() unique,
   created_by uuid references auth.users(id),
   created_at timestamptz default now()
 );
 
--- Tracks each user's last "Catch me up" point per thread, so the digest only
--- summarizes what's new since they last asked.
-create table if not exists thread_reads (
-  thread_id uuid references threads(id) on delete cascade,
+-- Catch Me Up: each user's last digest position per thread
+create table if not exists public.thread_reads (
+  thread_id uuid references public.threads(id) on delete cascade,
   user_id uuid references auth.users(id) on delete cascade,
   last_seen_at timestamptz not null default now(),
   primary key (thread_id, user_id)
 );
 
--- Backs the AI rate limiter (one row per /api/chat or /api/digest call). A
--- Postgres-backed log survives backend restarts and works correctly across
--- multiple backend instances, unlike an in-memory counter. Rows older than an
--- hour are opportunistically deleted by the backend on each check, so this
--- table never accumulates unbounded history.
-create table if not exists ai_request_log (
+-- AI rate limiter log (backend only)
+create table if not exists public.ai_request_log (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade,
   requested_at timestamptz not null default now()
 );
 
 create index if not exists ai_request_log_user_time_idx
-  on ai_request_log (user_id, requested_at);
+  on public.ai_request_log (user_id, requested_at);
 
--- ==========================================
--- 2. ENABLE ROW LEVEL SECURITY (RLS)
--- ==========================================
+-- ── 2. Realtime (live sync) ──────────────────────────────────────────────────
 
-alter table teams enable row level security;
-alter table team_members enable row level security;
-alter table projects enable row level security;
-alter table threads enable row level security;
-alter table messages enable row level security;
-alter table user_api_keys enable row level security;
-alter table team_invitations enable row level security;
-alter table thread_reads enable row level security;
--- No policies: only the FastAPI backend (service role, which bypasses RLS)
--- ever touches this table, so it stays locked to anon/authenticated by default.
-alter table ai_request_log enable row level security;
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'messages'
+  ) then
+    alter publication supabase_realtime add table public.messages;
+  end if;
+end $$;
 
--- ==========================================
--- 3. RLS POLICIES (With Drop If Exists to prevent errors)
--- ==========================================
+-- ── 3. Row Level Security: ON for every table ────────────────────────────────
 
--- ── Teams ─────────────────────────────────
-drop policy if exists "Team members can view teams" on teams;
-create policy "Team members can view teams" on teams for select using (
-  exists (select 1 from team_members where team_id = teams.id and user_id = auth.uid())
-);
+alter table public.teams            enable row level security;
+alter table public.team_members     enable row level security;
+alter table public.projects         enable row level security;
+alter table public.threads          enable row level security;
+alter table public.messages         enable row level security;
+alter table public.user_api_keys    enable row level security;
+alter table public.team_invitations enable row level security;
+alter table public.thread_reads     enable row level security;
+alter table public.ai_request_log   enable row level security;
 
--- ── Team Members ──────────────────────────
-drop policy if exists "Users can view their own team memberships" on team_members;
-create policy "Users can view their own team memberships" on team_members for select using (
-  user_id = auth.uid()
-);
+-- ── 4. Access helpers (same rules as the app and backend access checks) ──────
 
-drop policy if exists "Team members can view others in team" on team_members;
+create or replace function public.is_team_member(p_team_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from team_members
+    where team_id = p_team_id and user_id = auth.uid()
+  );
+$$;
 
-drop policy if exists "Team owners can delete teams" on teams;
-create policy "Team owners can delete teams" on teams for delete using (
-  created_by = auth.uid()
-);
+create or replace function public.can_access_thread(p_thread_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1
+    from threads t
+    join projects p on p.id = t.project_id
+    where t.id = p_thread_id
+      and (
+        (t.type = 'private' and t.owner_id = auth.uid())
+        or (t.type = 'shared' and exists (
+          select 1 from team_members tm
+          where tm.team_id = p.team_id and tm.user_id = auth.uid()
+        ))
+      )
+  );
+$$;
 
--- ── Projects ──────────────────────────────
-drop policy if exists "Team members can view projects" on projects;
-create policy "Team members can view projects" on projects for select using (
-  exists (select 1 from team_members where team_id = projects.team_id and user_id = auth.uid())
-);
+-- ── 5. Access rules ──────────────────────────────────────────────────────────
 
--- ── Threads ───────────────────────────────
-drop policy if exists "View shared or owned threads" on threads;
-create policy "View shared or owned threads" on threads for select using (
-  (type = 'shared' and exists (
-    select 1 from projects p
-    join team_members tm on p.team_id = tm.team_id
-    where p.id = threads.project_id and tm.user_id = auth.uid()
-  ))
-  or 
-  (owner_id = auth.uid())
-);
+-- Remove every old rule on these tables so only the ones below exist
+do $$
+declare
+  pol record;
+begin
+  for pol in
+    select policyname, tablename from pg_policies
+    where schemaname = 'public'
+      and tablename in ('teams', 'team_members', 'projects', 'threads', 'messages',
+                        'user_api_keys', 'team_invitations', 'thread_reads', 'ai_request_log')
+  loop
+    execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
+  end loop;
+end $$;
 
-drop policy if exists "Users can insert private threads" on threads;
-create policy "Users can insert private threads" on threads for insert with check (
-  owner_id = auth.uid()
-);
+-- Teams: members can see their teams; the creator can delete
+create policy "Members can view their teams" on public.teams
+  for select using (public.is_team_member(id));
+create policy "Creator can delete team" on public.teams
+  for delete using (created_by = auth.uid());
 
-drop policy if exists "Users can delete own threads" on threads;
-create policy "Users can delete own threads" on threads for delete using (
-  owner_id = auth.uid()
-);
+-- Team members: users see their own memberships
+create policy "Users can view own memberships" on public.team_members
+  for select using (user_id = auth.uid());
 
--- ── Messages ──────────────────────────────
-drop policy if exists "View messages in accessible threads" on messages;
-create policy "View messages in accessible threads" on messages for select using (
-  exists (select 1 from threads where id = messages.thread_id)
-);
+-- Projects: team members can see them
+create policy "Members can view projects" on public.projects
+  for select using (public.is_team_member(team_id));
 
-drop policy if exists "Users can insert messages" on messages;
-create policy "Users can insert messages" on messages for insert with check (
-  exists (select 1 from threads where id = messages.thread_id)
-);
+-- Threads: shared = team members, private = owner only
+create policy "View accessible threads" on public.threads
+  for select using (
+    (type = 'private' and owner_id = auth.uid())
+    or (type = 'shared' and exists (
+      select 1 from public.projects p
+      where p.id = threads.project_id and public.is_team_member(p.team_id)
+    ))
+  );
+create policy "Members can create own private threads" on public.threads
+  for insert with check (
+    type = 'private'
+    and owner_id = auth.uid()
+    and exists (
+      select 1 from public.projects p
+      where p.id = project_id and public.is_team_member(p.team_id)
+    )
+  );
+create policy "Owners can delete own private threads" on public.threads
+  for delete using (type = 'private' and owner_id = auth.uid());
 
--- Needed for Global Decisions (pin/unpin sets is_decision/pinned_by/pinned_at).
-drop policy if exists "Users can update messages in accessible threads" on messages;
-create policy "Users can update messages in accessible threads" on messages for update using (
-  exists (select 1 from threads where id = messages.thread_id)
-);
+-- Messages: only in threads the user can access; users post as themselves;
+-- pinning (update) only in shared threads. AI replies are saved by the backend.
+create policy "View messages in accessible threads" on public.messages
+  for select using (public.can_access_thread(thread_id));
+create policy "Send messages as yourself in accessible threads" on public.messages
+  for insert with check (
+    sender_type = 'user'
+    and sender_id = auth.uid()
+    and public.can_access_thread(thread_id)
+  );
+create policy "Pin messages in accessible shared threads" on public.messages
+  for update
+  using (
+    public.can_access_thread(thread_id)
+    and exists (select 1 from public.threads t where t.id = thread_id and t.type = 'shared')
+  )
+  with check (
+    public.can_access_thread(thread_id)
+    and exists (select 1 from public.threads t where t.id = thread_id and t.type = 'shared')
+  );
 
--- ── API Keys ──────────────────────────────
-drop policy if exists "Manage own API keys" on user_api_keys;
-create policy "Manage own API keys" on user_api_keys for all using (
-  user_id = auth.uid()
-);
+-- API keys: only your own (the backend reads them with the service key)
+create policy "Manage own API keys" on public.user_api_keys
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- ── Invitations ───────────────────────────
-drop policy if exists "Team members can manage invitations" on team_invitations;
-create policy "Team members can manage invitations" on team_invitations for all using (
-  exists (select 1 from team_members where team_id = team_invitations.team_id and user_id = auth.uid())
-);
+-- Invitations: team members only — no public reading of tokens.
+-- Accepting an invite uses the server's admin client, so it still works.
+create policy "Members manage team invitations" on public.team_invitations
+  for all using (public.is_team_member(team_id)) with check (public.is_team_member(team_id));
 
-drop policy if exists "Anyone can read invitation by token" on team_invitations;
-create policy "Anyone can read invitation by token" on team_invitations for select using (
-  true
-);
+-- Catch Me Up position: only your own
+create policy "Manage own read state" on public.thread_reads
+  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
--- ── Thread Reads (Catch Me Up) ────────────
-drop policy if exists "Users manage their own read state" on thread_reads;
-create policy "Users manage their own read state" on thread_reads for all using (
-  user_id = auth.uid()
-);
+-- ai_request_log: no rules on purpose — only the backend touches it.
+
+commit;
