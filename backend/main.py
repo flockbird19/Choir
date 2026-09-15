@@ -39,24 +39,6 @@ def read_root():
     return {"status": "ok", "message": "Choir Python Backend is running!"}
 
 
-@app.get("/api/me")
-def get_my_info(user_id: str = Depends(get_current_user)):
-    """
-    Test endpoint to verify authentication works.
-    Returns the user's ID and fetches their teams from the database
-    bypassing RLS (since we are using the service role key).
-    """
-    db = get_db()
-    response = db.table("team_members").select("team_id").eq("user_id", user_id).execute()
-    data = cast(list[dict[str, Any]], response.data)
-    team_ids = [row["team_id"] for row in data] if data else []
-
-    return {
-        "user_id": user_id,
-        "team_ids": team_ids,
-        "message": "Authentication successful!",
-    }
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # BYOK — API Key Management
