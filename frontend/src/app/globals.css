@@ -46,11 +46,103 @@
   --color-panel: var(--ds-panel);
   --shadow-soft: var(--ds-shadow-soft);
   --shadow-float: var(--ds-shadow-float);
+
+  /* E2: surfaces and states */
+  --color-sunken: var(--ds-sunken);
+  --color-hover: var(--ds-hover);
+  --color-selected: var(--ds-selected);
+  --color-scrim: var(--ds-scrim);
+  --color-bubble-own: var(--ds-bubble-own);
+  --color-bubble-own-line: var(--ds-bubble-own-line);
+
+  /* E2: meaning. Shared = the whole team sees it, private = only you,
+     decision = pinned for the team, AI = the assistant. (The old --color-shared
+     tokens above stay for the old screens until the rollout.) */
+  --color-team: var(--ds-shared);
+  --color-team-soft: var(--ds-shared-soft);
+  --color-team-line: var(--ds-shared-line);
+  --color-private: var(--ds-private);
+  --color-private-soft: var(--ds-private-soft);
+  --color-private-line: var(--ds-private-line);
+  --color-decision: var(--ds-decision);
+  --color-decision-soft: var(--ds-decision-soft);
+  --color-decision-line: var(--ds-decision-line);
+  --color-ai: var(--ds-ai);
+  --color-ai-soft: var(--ds-ai-soft);
+  --color-ai-from: var(--ds-ai-from);
+  --color-ai-to: var(--ds-ai-to);
+
+  --shadow-raised: var(--ds-shadow-raised);
+  --shadow-overlay: var(--ds-shadow-overlay);
 }
 
 @theme {
+  /* E2: type scale. New names, so old screens using text-sm and friends are unchanged. */
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1.125rem;
+  --text-body-sm: 0.875rem;
+  --text-body-sm--line-height: 1.375rem;
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.65;
+  --text-body-lg: 1.0625rem;
+  --text-body-lg--line-height: 1.65;
+  --text-title: 1.125rem;
+  --text-title--line-height: 1.5rem;
+  --text-heading: 1.5rem;
+  --text-heading--line-height: 1.25;
+  --text-heading--letter-spacing: -0.015em;
+  --text-display-sm: 2rem;
+  --text-display-sm--line-height: 1.15;
+  --text-display-sm--letter-spacing: -0.02em;
+  --text-display: 2.75rem;
+  --text-display--line-height: 1.08;
+  --text-display--letter-spacing: -0.025em;
+  --text-display-lg: 3.75rem;
+  --text-display-lg--line-height: 1.03;
+  --text-display-lg--letter-spacing: -0.03em;
+
+  /* E2: layout sizes. The 4px spacing grid stays Tailwind's default --spacing. */
+  --spacing-header: 3.5rem;
+  --spacing-sidebar: 16.5rem;
+  --spacing-panel: 22rem;
+  --container-measure: 46rem;
+
+  /* E2: radius */
+  --radius-control: 0.625rem;
+  --radius-card: 0.875rem;
+  --radius-bubble: 1.125rem;
+  --radius-sheet: 1.25rem;
+
+  /* E2: motion. Only transform and opacity animate; see the reduced-motion rule. */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-snappy: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
   --animate-rise: rise 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-fade: fade 360ms ease-out both;
+  --animate-pop: pop 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-enter: enter 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-caret: caret 1s steps(2, jump-none) infinite;
+  --animate-typing: typing 1.2s ease-in-out infinite;
+
+  @keyframes pop {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes enter {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes caret {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  @keyframes typing {
+    0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+    30% { opacity: 1; transform: translateY(-2px); }
+  }
 
   @keyframes rise {
     from { opacity: 0; transform: translateY(10px); }
@@ -109,6 +201,32 @@
   --ds-panel:         #111230;
   --ds-shadow-soft:   0 1px 2px rgb(16 17 35 / 0.06), 0 1px 1px rgb(16 17 35 / 0.03);
   --ds-shadow-float:  0 1px 2px rgb(16 17 35 / 0.08), 0 24px 48px -16px rgb(16 17 35 / 0.35);
+
+  /* E2 additions (text colors checked for 4.5:1 on --ds-card and their soft fills) */
+  --ds-sunken:          #F1F2F6;
+  --ds-hover:           #ECEDF2;
+  --ds-selected:        #E4E6EE;
+  --ds-scrim:           rgb(12 13 24 / 0.42);
+  --ds-bubble-own:      #EEF0FF;
+  --ds-bubble-own-line: #DADDFB;
+  --ds-shared:          #0F766E;
+  --ds-shared-soft:     #EBF7F5;
+  --ds-shared-line:     #B7E2DB;
+  --ds-private:         #4B5064;
+  --ds-private-soft:    #F1F2F6;
+  --ds-private-line:    #D9DBE3;
+  --ds-decision:        #9A4A08;
+  --ds-decision-soft:   #FEF6E7;
+  --ds-decision-line:   #F3D39B;
+  --ds-ai:              #4F46E5;
+  --ds-ai-soft:         #EEF0FF;
+  --ds-ai-from:         #6366F1;
+  --ds-ai-to:           #A855F7;
+  --ds-shadow-raised:   0 1px 2px rgb(16 17 35 / 0.06), 0 8px 24px -12px rgb(16 17 35 / 0.22);
+  --ds-shadow-overlay:  0 2px 6px rgb(16 17 35 / 0.08), 0 32px 64px -20px rgb(16 17 35 / 0.4);
+  --ds-duration-fast:   150ms;
+  --ds-duration-base:   220ms;
+  --ds-duration-slow:   320ms;
 }
 
 /* ─── Dark Mode ─────────────────────────────────── */
@@ -153,6 +271,28 @@
   --ds-panel:         #0E0F24;
   --ds-shadow-soft:   0 1px 2px rgb(0 0 0 / 0.4);
   --ds-shadow-float:  0 1px 2px rgb(0 0 0 / 0.5), 0 24px 48px -16px rgb(0 0 0 / 0.7);
+
+  --ds-sunken:          #0D0E14;
+  --ds-hover:           #1A1B24;
+  --ds-selected:        #22242F;
+  --ds-scrim:           rgb(0 0 0 / 0.6);
+  --ds-bubble-own:      #1C1E3C;
+  --ds-bubble-own-line: #2D3063;
+  --ds-shared:          #5EEAD4;
+  --ds-shared-soft:     #0C2522;
+  --ds-shared-line:     #1D4A44;
+  --ds-private:         #B4B8C8;
+  --ds-private-soft:    #171821;
+  --ds-private-line:    #2A2C38;
+  --ds-decision:        #FCD34D;
+  --ds-decision-soft:   #261D09;
+  --ds-decision-line:   #574213;
+  --ds-ai:              #A5B4FC;
+  --ds-ai-soft:         #1B1C3A;
+  --ds-ai-from:         #818CF8;
+  --ds-ai-to:           #C084FC;
+  --ds-shadow-raised:   0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.6);
+  --ds-shadow-overlay:  0 2px 6px rgb(0 0 0 / 0.5), 0 32px 64px -20px rgb(0 0 0 / 0.8);
 }
 
 /* ─── Base ──────────────────────────────────────── */
@@ -203,4 +343,94 @@ body {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* ─── E2: new-design focus ring ─────────────────────────── */
+/* Screens in the new design mark their root with data-ds, so focus rings use the
+   indigo ring token instead of the old blue accent. */
+[data-ds] :focus-visible,
+[data-ds]:focus-visible {
+  outline-color: var(--ds-ring);
+}
+
+/* ─── E2: dialogs and sheets (native <dialog>, see components/ui) ─── */
+@layer components {
+  .ds-overlay {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--ds-fg);
+    max-width: none;
+    max-height: none;
+    opacity: 0;
+    transition-property: opacity, transform, overlay, display;
+    transition-duration: 140ms;
+    transition-timing-function: var(--ease-exit);
+    transition-behavior: allow-discrete;
+  }
+  .ds-overlay[open] {
+    opacity: 1;
+    transform: none;
+    transition-duration: var(--ds-duration-base);
+    transition-timing-function: var(--ease-out-expo);
+  }
+  .ds-overlay::backdrop {
+    background: var(--ds-scrim);
+    opacity: 0;
+    transition-property: opacity, overlay, display;
+    transition-duration: 140ms;
+    transition-behavior: allow-discrete;
+  }
+  .ds-overlay[open]::backdrop {
+    opacity: 1;
+  }
+
+  .ds-dialog {
+    inset: 0;
+    margin: auto;
+    width: min(100% - 2rem, var(--ds-dialog-width, 32rem));
+    transform: translateY(8px) scale(0.98);
+  }
+
+  .ds-sheet {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    height: 100dvh;
+    width: min(100vw, var(--ds-sheet-width, 22rem));
+  }
+  .ds-sheet[data-side="left"] { left: 0; right: auto; transform: translateX(-100%); }
+  .ds-sheet[data-side="right"] { right: 0; left: auto; transform: translateX(100%); }
+  .ds-sheet[data-side="bottom"] {
+    top: auto;
+    left: 0;
+    height: auto;
+    max-height: 85dvh;
+    width: 100vw;
+    transform: translateY(100%);
+  }
+  .ds-overlay.ds-dialog[open],
+  .ds-overlay.ds-sheet[open] {
+    transform: none;
+  }
+}
+
+@starting-style {
+  .ds-overlay[open] { opacity: 0; }
+  .ds-overlay[open]::backdrop { opacity: 0; }
+  .ds-dialog[open] { transform: translateY(8px) scale(0.98); }
+  .ds-sheet[data-side="left"][open] { transform: translateX(-100%); }
+  .ds-sheet[data-side="right"][open] { transform: translateX(100%); }
+  .ds-sheet[data-side="bottom"][open] { transform: translateY(100%); }
+}
+
+/* ─── Reduced motion ─────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after, *::backdrop {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }
