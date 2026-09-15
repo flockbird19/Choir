@@ -2,6 +2,7 @@ import os
 from typing import Any, cast
 
 from dotenv import load_dotenv
+from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 load_dotenv()
@@ -16,6 +17,39 @@ def get_db() -> Client:
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise ValueError("Supabase environment variables are missing.")
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+# Every table the backend or frontend reads. Keep in sync with supabase/migrations.
+REQUIRED_TABLES = [
+    "teams",
+    "team_members",
+    "projects",
+    "threads",
+    "messages",
+    "user_api_keys",
+    "team_invitations",
+    "thread_reads",
+    "ai_request_log",
+]
+
+# PostgREST: table not in schema cache / Postgres: undefined table.
+MISSING_TABLE_CODES = {"PGRST205", "42P01"}
+
+
+def find_missing_tables(db: Client) -> list[str]:
+    """
+    Return the required tables that don't exist. Any other error (bad key,
+    network) is raised, so it isn't mistaken for missing tables.
+    """
+    missing = []
+    for table in REQUIRED_TABLES:
+        try:
+            db.table(table).select("*").limit(0).execute()
+        except APIError as exc:
+            if exc.code in MISSING_TABLE_CODES:
+                missing.append(table)
+            else:
+                raise
+    return missing
 
 def verify_thread_access(user_id: str, thread_id: str) -> bool:
     """

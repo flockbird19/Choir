@@ -1,5 +1,8 @@
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import json
+import logging
+import os
 import re
 from typing import Any, cast
 
@@ -9,7 +12,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.auth import get_current_user
-from backend.db import get_db, verify_thread_access
+from backend.db import find_missing_tables, get_db, verify_thread_access
+from backend.errors import ErrorMiddleware, safe_sse_stream
 from backend.keys import (
     delete_api_key,
     list_saved_providers,
@@ -17,12 +21,38 @@ from backend.keys import (
 )
 from backend.llm import NoApiKeyError, generate_digest, stream_ai_response
 
-app = FastAPI(title="Choir AI Backend")
+logging.basicConfig(level=logging.INFO)
 
-# Allow Next.js frontend to communicate with this backend
+DEFAULT_ALLOWED_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000"
+
+
+def parse_allowed_origins(value: str | None) -> list[str]:
+    """Comma-separated list of frontend origins allowed to call this backend."""
+    return [origin.strip().rstrip("/") for origin in (value or DEFAULT_ALLOWED_ORIGINS).split(",") if origin.strip()]
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Refuse to start against a database that is missing tables, instead of
+    # failing later on the first request that touches them.
+    missing = find_missing_tables(get_db())
+    if missing:
+        raise RuntimeError(
+            "Supabase is missing required tables: "
+            + ", ".join(missing)
+            + ". Apply the pending migrations in supabase/migrations before starting the backend."
+        )
+    yield
+
+
+app = FastAPI(title="Choir AI Backend", lifespan=lifespan)
+
+# Order matters: the last middleware added runs first. ErrorMiddleware is added
+# before CORSMiddleware so CORS wraps it and error responses keep CORS headers.
+app.add_middleware(ErrorMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=parse_allowed_origins(os.getenv("ALLOWED_ORIGINS")),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -150,7 +180,9 @@ def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
         )
 
     return StreamingResponse(
-        stream_ai_response(body.thread_id, user_id, body.model_provider, body.model_name, body.user_name),
+        safe_sse_stream(
+            stream_ai_response(body.thread_id, user_id, body.model_provider, body.model_name, body.user_name)
+        ),
         media_type="text/event-stream",
         headers={
             # Prevent buffering in proxies / Next.js dev server
