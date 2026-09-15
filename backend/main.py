@@ -19,7 +19,7 @@ from backend.keys import (
     list_saved_providers,
     store_api_key,
 )
-from backend.llm import NoApiKeyError, generate_digest, stream_ai_response
+from backend.llm import NoApiKeyError, generate_digest, sender_label, stream_ai_response, team_names_for_thread
 
 logging.basicConfig(level=logging.INFO)
 
@@ -270,11 +270,12 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
         .execute()
     )
     messages = cast(list[dict[str, Any]], msg_resp.data)
+    names = team_names_for_thread(thread)
 
     if format == "json":
         export_data = {
             "thread": thread,
-            "messages": messages,
+            "messages": [{**msg, "sender_name": sender_label(msg, names)} for msg in messages],
             "exported_at": datetime.utcnow().isoformat()
         }
         filename = f"{_safe_filename(thread_name)}_export.json"
@@ -297,9 +298,9 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
     md_lines.append("")
 
     for msg in messages:
-        sender = "User" if msg["sender_type"] == "user" else "AI"
+        sender = sender_label(msg, names)
         model = msg.get("model_name")
-        if model and sender == "AI":
+        if model and msg["sender_type"] == "assistant":
             sender += f" ({model})"
 
         md_lines.append(f"**{sender}:**")

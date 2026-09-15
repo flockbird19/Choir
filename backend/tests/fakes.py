@@ -30,6 +30,10 @@ class FakeQuery:
     def limit(self, _count: int) -> "FakeQuery":
         return self
 
+    def order(self, column: str, desc: bool = False) -> "FakeQuery":
+        self._data.sort(key=lambda row: row.get(column) or "", reverse=desc)
+        return self
+
     def _matches(self, row: dict[str, Any]) -> bool:
         return all(row.get(k) == v for k, v in self._filters.items())
 

@@ -9,6 +9,8 @@ Handles:
 """
 
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Generator, cast
 
@@ -144,35 +146,127 @@ def _save_assistant_message(
 
 
 # ---------------------------------------------------------------------------
+# Team roster — who is on the team, so the AI knows who said what
+# ---------------------------------------------------------------------------
+
+_NAME_CACHE_TTL_SECONDS = 300
+_name_cache: dict[str, tuple[str, float]] = {}
+
+FORMER_MEMBER = "Former member"
+
+
+def _display_name(user: Any) -> str:
+    """Same order as the frontend's getDisplayName: saved name, Google name, email prefix."""
+    metadata = getattr(user, "user_metadata", None) or {}
+    for key in ("full_name", "name"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    email = getattr(user, "email", None) or ""
+    return email.split("@")[0] or "Teammate"
+
+
+def _fetch_user_name(user_id: str) -> str | None:
+    cached = _name_cache.get(user_id)
+    if cached and time.monotonic() - cached[1] < _NAME_CACHE_TTL_SECONDS:
+        return cached[0]
+    try:
+        user = get_db().auth.admin.get_user_by_id(user_id).user
+    except Exception:
+        return None
+    if not user:
+        return None
+    name = _display_name(user)
+    _name_cache[user_id] = (name, time.monotonic())
+    return name
+
+
+def _fetch_team_roster(team_id: str) -> list[dict[str, str]]:
+    """Team members in join order: [{user_id, name, role}]."""
+    resp = (
+        get_db()
+        .table("team_members")
+        .select("user_id, role, joined_at")
+        .eq("team_id", team_id)
+        .order("joined_at")
+        .execute()
+    )
+    rows = cast(list[dict[str, Any]], resp.data)
+    user_ids = [row["user_id"] for row in rows]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        names = list(pool.map(_fetch_user_name, user_ids))
+    return [
+        {"user_id": row["user_id"], "name": name or FORMER_MEMBER, "role": row.get("role") or "member"}
+        for row, name in zip(rows, names)
+    ]
+
+
+def team_names_for_thread(thread: dict[str, Any]) -> dict[str, str]:
+    """{user_id: display name} for the team that owns a thread."""
+    project = _fetch_project(thread["project_id"])
+    if not project or not project.get("team_id"):
+        return {}
+    return {member["user_id"]: member["name"] for member in _fetch_team_roster(project["team_id"])}
+
+
+def _format_roster(roster: list[dict[str, str]], current_user_id: str) -> str:
+    if not roster:
+        return "TEAM MEMBERS: unknown."
+    people = []
+    for member in roster:
+        entry = f"{member['name']} ({member['role']})"
+        if member["user_id"] == current_user_id:
+            entry += " - the person you are talking to"
+        people.append(entry)
+    return f"TEAM MEMBERS ({len(roster)}): " + "; ".join(people) + "."
+
+
+def sender_label(msg: dict[str, Any], names: dict[str, str]) -> str:
+    if msg["sender_type"] == "assistant":
+        return "Choir AI"
+    return names.get(msg.get("sender_id") or "", FORMER_MEMBER)
+
+
+# ---------------------------------------------------------------------------
 # Context assembly
 # ---------------------------------------------------------------------------
 
 
-def _to_chat_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Convert DB message rows into the OpenAI-style [{role, content}] format."""
+def _to_chat_messages(
+    messages: list[dict[str, Any]], names: dict[str, str] | None = None
+) -> list[dict[str, str]]:
+    """
+    Convert DB message rows into the OpenAI-style [{role, content}] format.
+    With `names`, each person's message is prefixed with who wrote it, since
+    several people share the "user" role in a team thread.
+    """
     result = []
     for msg in messages:
         role = "assistant" if msg["sender_type"] == "assistant" else "user"
         content = msg["content"]
-        if msg.get("shared_by"):
+        if role == "user" and names is not None:
+            label = sender_label(msg, names)
+            if msg.get("shared_by"):
+                content = f"[{label}, shared from their private thread]\n{content}"
+            else:
+                content = f"[{label}]: {content}"
+        elif msg.get("shared_by"):
             content = f"[Shared from private exploration]\n{content}"
         result.append({"role": role, "content": content})
     return result
 
 
-def _format_shared_as_system_context(messages: list[dict[str, Any]], current_user_id: str, current_user_name: str) -> str:
-    """Render the shared thread as a plain-text context block for the system prompt."""
+def _format_shared_as_system_context(
+    messages: list[dict[str, Any]], names: dict[str, str], current_user_id: str | None = None
+) -> str:
+    """Render the shared thread as a plain-text context block, labelled by sender name."""
     if not messages:
         return "[No shared team context yet]"
     lines = ["--- SHARED THREAD (Read-Only) ---"]
     for msg in messages:
-        if msg["sender_type"] == "assistant":
-            label = "AI"
-        else:
-            if msg.get("sender_id") == current_user_id:
-                label = current_user_name
-            else:
-                label = "Team Member"
+        label = sender_label(msg, names)
+        if current_user_id and msg["sender_type"] != "assistant" and msg.get("sender_id") == current_user_id:
+            label += " (you)"
         lines.append(f"{label}: {msg['content']}")
     lines.append("--- END SHARED ---")
     return "\n".join(lines)
@@ -276,22 +370,13 @@ def stream_ai_response(
 
     # ── Assemble context ──────────────────────────────────────────────────────
     project = _fetch_project(thread["project_id"])
-    role = "member"
-    if project:
-        db = get_db()
-        role_resp = (
-            db.table("team_members")
-            .select("role")
-            .eq("team_id", project["team_id"])
-            .eq("user_id", user_id)
-            .execute()
-        )
-        role_data = cast(list[dict[str, Any]], role_resp.data)
-        if role_data:
-            role = role_data[0].get("role", "member")
+    roster = _fetch_team_roster(project["team_id"]) if project and project.get("team_id") else []
+    names = {member["user_id"]: member["name"] for member in roster}
+    me = next((member for member in roster if member["user_id"] == user_id), None)
 
-    role_ctx = "a Team Owner" if role == "owner" else "a Team Member"
-    user_name_ctx = user_name or "the User"
+    # Prefer the server's own record of the caller's name over what the client sent.
+    user_name_ctx = (me["name"] if me and me["name"] != FORMER_MEMBER else None) or user_name or "the User"
+    role_ctx = "a Team Owner" if me and me["role"] == "owner" else "a Team Member"
 
     # ── Fetch Workspace (Team) and Project names ─────────────────────────────
     db = get_db()
@@ -304,10 +389,15 @@ def stream_ai_response(
             team_name = str(team_data[0]["name"])
 
     workspace_context = f"Workspace: '{team_name}' | Project: '{project_name}'"
+    team_context = (
+        _format_roster(roster, user_id)
+        + "\nThis is everyone on the team, including people who haven't posted yet. "
+        "Messages from people are prefixed with the sender's name in square brackets; "
+        "do not add such a prefix to your own replies."
+    )
 
     if thread["type"] == "private":
         # Find the shared thread for this project
-        db = get_db()
         shared_resp = (
             db.table("threads")
             .select("id")
@@ -322,11 +412,13 @@ def stream_ai_response(
 
         system_prompt = (
             f"You are Choir, an AI in a private scratchpad for {workspace_context}. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
+            + team_context + "\n"
             "ROLE: Brainstorming partner. Help explore, stress-test, and refine ideas before they are shared with the team.\n"
             "STYLE: Exploratory, direct, creative, yet concise. Do NOT use emojis. Provide enough detail to be genuinely helpful, but avoid exhaustively long or overly verbose responses.\n"
             "CONTEXT: The team's shared thread is below for alignment. Only answer the user's immediate private questions.\n\n"
-            + _format_shared_as_system_context(shared_msgs, user_id, user_name_ctx)
+            + _format_shared_as_system_context(shared_msgs, names, user_id)
         )
+        # Only the owner writes in a private thread, so no sender labels are needed.
         chat_messages = _to_chat_messages(_fetch_messages(thread_id))
 
     else:
@@ -342,10 +434,11 @@ def stream_ai_response(
 
         system_prompt = (
             f"You are Choir, the central AI for {workspace_context}. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
+            + team_context + "\n"
             "ROLE: Synthesizer, facilitator, and collective intelligence for the team.\n"
             "STYLE: Objective, concise, collaborative. Do NOT use emojis. Provide enough detail to be genuinely helpful, but avoid exhaustively long or overly verbose responses. Do not hallucinate private context."
         )
-        chat_messages = _to_chat_messages(_fetch_messages(thread_id))
+        chat_messages = _to_chat_messages(_fetch_messages(thread_id), names)
 
     # ── Stream from LLM ───────────────────────────────────────────────────────
     full_response = ""
@@ -474,7 +567,10 @@ def generate_digest(thread_id: str, user_id: str) -> dict[str, Any]:
             "message_count": 0,
         }
 
-    context_block = _format_shared_as_system_context(new_messages, user_id, "You")
+    project = _fetch_project(thread["project_id"])
+    roster = _fetch_team_roster(project["team_id"]) if project and project.get("team_id") else []
+    names = {member["user_id"]: member["name"] for member in roster}
+    context_block = _format_shared_as_system_context(new_messages, names, user_id)
     user_prompt = f"Here are the new messages since your last check:\n\n{context_block}"
 
     try:
