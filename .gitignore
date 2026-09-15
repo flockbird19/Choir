@@ -18,8 +18,9 @@ wheels/
 # Customizations
 .agents/
 
-# Internal Planning Docs
-PROJECT_CONTEXT.md
+# Markdown docs stay local, except READMEs
+*.md
+!README.md
 
 # Ignore PDFs
 *.pdf
