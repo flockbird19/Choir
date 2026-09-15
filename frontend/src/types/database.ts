@@ -25,6 +25,9 @@ export interface Thread {
   model_provider?: string;
   model_name?: string;
   created_at: string;
+  // Private threads: the AI answers every message unless muted. Missing until the
+  // schema.sql re-run adds the column, so treat undefined as true.
+  ai_auto_reply?: boolean;
 }
 
 export interface Message {

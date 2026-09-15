@@ -30,6 +30,8 @@ interface MessageListProps {
   isSharedThread?: boolean;
   onTogglePin?: (id: string, currentlyPinned: boolean) => void;
   highlightedMessageId?: string | null;
+  /** Private thread with AI auto-replies on (changes the empty-state hint). */
+  aiAutoReply?: boolean;
 }
 
 const EMPTY_NAMES: Record<string, string> = {};
@@ -255,6 +257,7 @@ export function MessageList({
   isSharedThread = false,
   onTogglePin,
   highlightedMessageId,
+  aiAutoReply = false,
 }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -272,11 +275,17 @@ export function MessageList({
           <span className="text-graphite text-lg leading-none">✦</span>
         </div>
         <p className="text-base font-medium text-ink mb-1">Start the conversation</p>
-        <p className="text-sm text-graphite max-w-xs leading-relaxed">
-          Send a message below. Use{" "}
-          <span className="font-mono text-accent bg-accent/8 px-1 rounded">@AI</span>
-          {" "}to bring the assistant into the conversation.
-        </p>
+        {aiAutoReply ? (
+          <p className="text-sm text-graphite max-w-xs leading-relaxed">
+            Send a message below. The AI replies to every message in this private thread.
+          </p>
+        ) : (
+          <p className="text-sm text-graphite max-w-xs leading-relaxed">
+            Send a message below. Use{" "}
+            <span className="font-mono text-accent bg-accent/8 px-1 rounded">@AI</span>
+            {" "}to bring the assistant into the conversation.
+          </p>
+        )}
       </div>
     );
   }

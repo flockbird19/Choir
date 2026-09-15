@@ -5,7 +5,8 @@
 -- This file is the source of truth for the live database. To change the
 -- database: edit this file, paste the whole script into the Supabase SQL Editor
 -- ("Choir schema" snippet) and run it. Last applied to live: 2026-09-15 (before the
--- Haiku default and message column permissions were added — pending re-run).
+-- Haiku default, message column permissions and threads.ai_auto_reply with its update
+-- rule and column permission were added — pending re-run).
 -- ============================================================================
 
 begin;
@@ -65,6 +66,8 @@ alter table public.messages add column if not exists shared_by uuid references a
 alter table public.messages add column if not exists is_decision boolean not null default false;
 alter table public.messages add column if not exists pinned_by uuid references auth.users(id);
 alter table public.messages add column if not exists pinned_at timestamptz;
+-- Private threads: the AI replies to every message unless the owner mutes it
+alter table public.threads add column if not exists ai_auto_reply boolean not null default true;
 
 create table if not exists public.user_api_keys (
   id uuid primary key default gen_random_uuid(),
@@ -215,6 +218,10 @@ create policy "Members can create own private threads" on public.threads
   );
 create policy "Owners can delete own private threads" on public.threads
   for delete using (type = 'private' and owner_id = auth.uid());
+create policy "Owners can update own private threads" on public.threads
+  for update
+  using (type = 'private' and owner_id = auth.uid())
+  with check (type = 'private' and owner_id = auth.uid());
 
 -- Messages: only in threads the user can access; users post as themselves;
 -- pinning (update) only in shared threads. AI replies are saved by the backend.
@@ -258,5 +265,10 @@ create policy "Manage own read state" on public.thread_reads
 -- sender. The rule above decides *which* messages; this decides *which columns*.
 revoke update on public.messages from anon, authenticated;
 grant update (is_decision, pinned_by, pinned_at) on public.messages to authenticated;
+
+-- Signed-in users may only change a thread's AI auto-reply setting (mute), never its
+-- type, owner, project or name. The rule above limits this to their own private threads.
+revoke update on public.threads from anon, authenticated;
+grant update (ai_auto_reply) on public.threads to authenticated;
 
 commit;

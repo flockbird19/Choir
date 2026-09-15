@@ -6,13 +6,14 @@ import { ChatInput } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles } from "lucide-react";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Bot, BotOff } from "lucide-react";
 import { DecisionsSinceBanner } from "./DecisionsSinceBanner";
 import {
   postToSharedThread,
   getSessionToken,
   pinMessage,
   unpinMessage,
+  setThreadAutoReply,
 } from "../../app/(main)/thread/[id]/actions";
 import { useToast } from "../Toast";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
@@ -276,6 +277,29 @@ export function ThreadView({
     void handleCatchMeUp();
   }, [autoCatchUp, isPrivate, handleCatchMeUp]);
 
+  // ── AI auto-replies (private threads) ──────────────────────────────────────
+  // A missing column (schema.sql not re-run yet) reads as undefined, so replies stay on.
+  const [autoReply, setAutoReply] = useState(thread.ai_auto_reply !== false);
+  const [savingAutoReply, setSavingAutoReply] = useState(false);
+
+  const handleToggleAutoReply = useCallback(async () => {
+    const next = !autoReply;
+    setAutoReply(next);
+    setSavingAutoReply(true);
+    try {
+      const res = await setThreadAutoReply(thread.id, next);
+      if (res.error) {
+        setAutoReply(!next);
+        toastError(res.error);
+      }
+    } catch {
+      setAutoReply(!next);
+      toastError("Couldn't save the AI reply setting. Please try again.");
+    } finally {
+      setSavingAutoReply(false);
+    }
+  }, [autoReply, thread.id, toastError]);
+
   // ── "Team decided since you started" (private threads) ─────────────────────
   // Decisions pinned in the Team Space after this thread's last activity before this
   // visit. It stays put while you work; dismissing hides everything pinned so far.
@@ -369,11 +393,19 @@ export function ThreadView({
     });
   }, [thread.id]);
 
+  const missingKeyToastShown = useRef(false);
   const handleStreamError = useCallback((error: string) => {
     setIsStreaming(false);
     setStreamingContent(null);
+    if (isPrivate && isMissingKeyError(error)) {
+      // Every private message calls the AI, so say this once per visit, not on every send.
+      if (missingKeyToastShown.current) return;
+      missingKeyToastShown.current = true;
+      toastError("AI replies need your own API key. Add one in Settings, or mute AI replies for this thread.");
+      return;
+    }
     toastError(error);
-  }, [toastError]);
+  }, [isPrivate, toastError]);
 
   return (
     <div className="flex-1 flex w-full h-full relative overflow-hidden">
@@ -404,7 +436,9 @@ export function ThreadView({
               </h2>
               <p className="text-xs text-graphite leading-tight mt-0.5">
                 {isPrivate
-                  ? "Only visible to you · AI has team context"
+                  ? autoReply
+                    ? "Only visible to you · AI replies to every message"
+                    : "Only visible to you · AI replies muted, use @AI"
                   : "Visible to the entire team · use @AI to collaborate"}
               </p>
             </div>
@@ -487,6 +521,25 @@ export function ThreadView({
               </button>
             )}
 
+            {/* AI auto-reply toggle — only for private threads */}
+            {isPrivate && (
+              <button
+                onClick={handleToggleAutoReply}
+                disabled={savingAutoReply}
+                title={autoReply ? "Mute AI replies in this thread" : "Turn AI replies back on"}
+                aria-label="AI replies to every message"
+                aria-pressed={autoReply}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border disabled:opacity-60
+                  ${autoReply
+                    ? "bg-accent/10 text-accent border-accent/20"
+                    : "bg-surface text-graphite border-border hover:border-graphite/40 hover:text-ink"
+                  }`}
+              >
+                {autoReply ? <Bot size={15} /> : <BotOff size={15} />}
+                <span className="hidden sm:inline">{autoReply ? "AI replies on" : "AI muted"}</span>
+              </button>
+            )}
+
             {/* Select mode toggle — only for private threads */}
             {isPrivate && sharedThread && (
               <button
@@ -555,6 +608,7 @@ export function ThreadView({
           isSharedThread={!isPrivate}
           onTogglePin={handleTogglePin}
           highlightedMessageId={highlightedMessageId}
+          aiAutoReply={isPrivate && autoReply}
         />
 
         {/* Chat Input or Selection Action Bar */}
@@ -611,6 +665,7 @@ export function ThreadView({
             onStreamChunk={handleStreamChunk}
             onStreamEnd={handleStreamEnd}
             onStreamError={handleStreamError}
+            aiMode={isPrivate ? (autoReply ? "auto" : "muted") : "mention"}
           />
         )}
       </div>

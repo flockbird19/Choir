@@ -246,6 +246,45 @@ export async function unpinMessage(
   return { success: true };
 }
 
+// ── AI auto-replies — mute/unmute in a private thread ─────────────────────────
+
+export async function setThreadAutoReply(
+  threadId: string,
+  enabled: boolean
+): Promise<{ success?: boolean; error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not logged in" };
+
+  const thread = await getAccessibleThread(user.id, threadId);
+  if (!thread || thread.type !== "private" || thread.owner_id !== user.id) {
+    return { error: "AI replies can only be muted in your own private threads." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("threads")
+    .update({ ai_auto_reply: enabled })
+    .eq("id", threadId)
+    .eq("owner_id", user.id)
+    .select("id");
+
+  // Postgres 42703 / PostgREST PGRST204: the column isn't there yet (schema.sql not re-run).
+  if (error?.code === "42703" || error?.code === "PGRST204") {
+    console.error("Error saving AI reply setting (database update pending):", error);
+    return { error: "Couldn't save this setting yet: the database update for AI replies hasn't been applied." };
+  }
+  if (error) {
+    console.error("Error saving AI reply setting:", error);
+    return { error: "Couldn't save the AI reply setting. Please try again." };
+  }
+  // No row changed: the access rule allowing this update isn't in place.
+  if (!data || data.length === 0) {
+    return { error: "Couldn't save the AI reply setting. Please try again." };
+  }
+
+  return { success: true };
+}
+
 export async function createThread(projectId: string, name: string) {
   const supabase = await createClient();
   const user = await getCurrentUser();

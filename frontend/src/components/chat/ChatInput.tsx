@@ -17,6 +17,11 @@ interface ChatInputProps {
   onMessageSent?: (id: string, content: string) => void;
   onMessageFailed?: (id: string) => void;
   disabled?: boolean;
+  /**
+   * How messages reach the AI: "mention" (shared threads) only on @AI; "auto" (private
+   * threads) on every message; "muted" (private, AI replies muted) only on @AI.
+   */
+  aiMode?: "mention" | "auto" | "muted";
 }
 
 const AVAILABLE_MODELS = [
@@ -32,6 +37,12 @@ const AVAILABLE_MODELS = [
   { provider: "groq", id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
 ];
 
+const PLACEHOLDERS: Record<NonNullable<ChatInputProps["aiMode"]>, string> = {
+  mention: "Message… type @AI to call the assistant",
+  auto: "Message the AI… it replies to every message here",
+  muted: "Message… AI replies are muted · type @AI to ask anyway",
+};
+
 export function ChatInput({
   threadId,
   userName,
@@ -42,6 +53,7 @@ export function ChatInput({
   onMessageSent,
   onMessageFailed,
   disabled,
+  aiMode = "mention",
 }: ChatInputProps) {
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -190,7 +202,7 @@ export function ChatInput({
     setIsSubmitting(true);
 
     const textToSend = content;
-    const aiTriggered = hasAITrigger;
+    const aiTriggered = aiMode === "auto" || hasAITrigger;
     setContent("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
@@ -213,7 +225,7 @@ export function ChatInput({
 
     setIsSubmitting(false);
 
-    // 2. If @AI was mentioned, kick off streaming
+    // 2. If @AI was mentioned (or this thread auto-replies), kick off streaming
     if (aiTriggered) {
       await triggerAIStream(threadId);
     }
@@ -274,7 +286,7 @@ export function ChatInput({
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
             aria-label="Message"
-            placeholder="Message… type @AI to call the assistant"
+            placeholder={PLACEHOLDERS[aiMode]}
             className="flex-1 max-h-[200px] bg-transparent resize-none outline-none py-1.5 text-ink placeholder:text-graphite/50 text-sm leading-relaxed"
             rows={1}
             disabled={isSubmitting || disabled}
