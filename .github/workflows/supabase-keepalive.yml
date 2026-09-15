@@ -1,0 +1,33 @@
+name: Supabase keep-alive
+
+# Free Supabase projects pause after a week without activity. One small read a
+# day keeps the project awake. Needs repository secrets SUPABASE_URL and
+# SUPABASE_ANON_KEY (Settings → Secrets and variables → Actions).
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # daily, 03:17 UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::Add SUPABASE_URL and SUPABASE_ANON_KEY as repository secrets."
+            exit 1
+          fi
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/teams?select=id&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          echo "Supabase responded with HTTP $status"
+          # Any HTTP answer (including 401 once RLS is on) means the project handled a request.
+          if [ "$status" = "000" ] || [ "$status" -ge 500 ]; then
+            exit 1
+          fi
