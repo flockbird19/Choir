@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/client";
 import { Message } from "@/types/database";
 
@@ -9,6 +10,10 @@ import { Message } from "@/types/database";
  * forwards each row to the caller. INSERT covers new messages arriving from other
  * clients; UPDATE covers pin/unpin (`is_decision`) changes so the Decisions panel
  * stays in sync across everyone viewing the thread.
+ *
+ * The login token is handed to Realtime before joining. Otherwise the channel can
+ * join before supabase-js has loaded the session, as the anonymous role, and RLS
+ * on `messages` then filters out every event.
  */
 export function useRealtimeMessages(
   threadId: string | null | undefined,
@@ -28,22 +33,55 @@ export function useRealtimeMessages(
     if (!threadId) return;
 
     const supabase = createClient();
-    const channel = supabase
-      .channel(`messages:${threadId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `thread_id=eq.${threadId}` },
-        (payload) => onInsertRef.current(payload.new as Message)
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "messages", filter: `thread_id=eq.${threadId}` },
-        (payload) => onUpdateRef.current(payload.new as Message)
-      )
-      .subscribe();
+    let channel: RealtimeChannel | null = null;
+    let cancelled = false;
+    let hasSubscribed = false;
+
+    // After a dropped connection, pick up anything sent while we were away.
+    const catchUp = async () => {
+      const { data } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("thread_id", threadId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (cancelled || !data) return;
+      for (const message of [...data].reverse()) onInsertRef.current(message as Message);
+    };
+
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (session) await supabase.realtime.setAuth(session.access_token);
+      if (cancelled) return;
+
+      channel = supabase
+        .channel(`messages:${threadId}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "messages", filter: `thread_id=eq.${threadId}` },
+          (payload) => onInsertRef.current(payload.new as Message)
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "messages", filter: `thread_id=eq.${threadId}` },
+          (payload) => onUpdateRef.current(payload.new as Message)
+        )
+        .subscribe((status, err) => {
+          if (status === "SUBSCRIBED") {
+            if (hasSubscribed) void catchUp();
+            hasSubscribed = true;
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            console.error(`Live updates for thread ${threadId} failed (${status})`, err);
+          }
+        });
+    })();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
     };
   }, [threadId]);
 }
