@@ -39,6 +39,15 @@ export function ThreadView({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const isPrivate = thread.type === "private";
 
+  // ── Local Messages State (Optimistic UI) ───────────────────────────────────
+  const [localMessages, setLocalMessages] = useState<Message[]>(messages);
+
+  // Sync when navigating between threads
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLocalMessages(messages);
+  }, [messages]);
+
   // ── Selection State (for Post to Shared) ───────────────────────────────────
   const [selectMode, setSelectMode] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
@@ -58,10 +67,11 @@ export function ThreadView({
     setIsPosting(true);
 
     // Compile messages into a markdown block
-    const selectedMsgs = messages.filter((m) => selectedMessageIds.has(m.id));
+    // localMessages, not the page-load `messages`: it includes this visit's messages and AI replies.
+    const selectedMsgs = localMessages.filter((m) => selectedMessageIds.has(m.id));
     let compiledMarkdown = "";
     for (const msg of selectedMsgs) {
-      const sender = msg.sender_type === "user" ? "User" : "AI";
+      const sender = msg.sender_type === "user" ? currentUserName : "Choir AI";
       compiledMarkdown += `**${sender}:** ${msg.content}\n\n`;
     }
 
@@ -109,15 +119,6 @@ export function ThreadView({
       setIsExporting(false);
     }
   };
-
-  // ── Local Messages State (Optimistic UI) ───────────────────────────────────
-  const [localMessages, setLocalMessages] = useState<Message[]>(messages);
-
-  // Sync when navigating between threads
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLocalMessages(messages);
-  }, [messages]);
 
   // ── Live sync (Realtime) ────────────────────────────────────────────────────
   // Pushes new/changed messages from other clients into this thread's view without
