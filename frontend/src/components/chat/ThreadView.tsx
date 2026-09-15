@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
@@ -20,6 +20,11 @@ import { useMemberNames } from "@/hooks/useMemberNames";
 
 import { Thread, Message } from "@/types/database";
 
+// Backend wording when the caller has no usable key: "No API key found…" / "Could not retrieve API key…".
+function isMissingKeyError(message: unknown): boolean {
+  return typeof message === "string" && /no api key found|could not retrieve api key/i.test(message);
+}
+
 export function ThreadView({
   thread,
   messages,
@@ -27,6 +32,7 @@ export function ThreadView({
   sharedMessages,
   currentUserId,
   currentUserName,
+  autoCatchUp = false,
 }: {
   thread: Thread;
   messages: Message[];
@@ -34,6 +40,7 @@ export function ThreadView({
   sharedMessages?: Message[];
   currentUserId: string;
   currentUserName: string;
+  autoCatchUp?: boolean;
 }) {
   const { error: toastError, success: toastSuccess } = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -216,12 +223,14 @@ export function ThreadView({
   const [catchUpLoading, setCatchUpLoading] = useState(false);
   const [catchUpSummary, setCatchUpSummary] = useState<string | null>(null);
   const [catchUpCount, setCatchUpCount] = useState<number | null>(null);
+  const [catchUpNeedsKey, setCatchUpNeedsKey] = useState(false);
 
   const handleCatchMeUp = useCallback(async () => {
     setCatchUpOpen(true);
     setCatchUpLoading(true);
     setCatchUpSummary(null);
     setCatchUpCount(null);
+    setCatchUpNeedsKey(false);
     try {
       const token = await getSessionToken();
       if (!token) throw new Error("No session token");
@@ -234,6 +243,12 @@ export function ThreadView({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        // The digest runs on the viewer's own API key; people who just joined often have
+        // none. Show a friendly state in the modal instead of an error toast.
+        if (res.status === 400 && isMissingKeyError(err.detail)) {
+          setCatchUpNeedsKey(true);
+          return;
+        }
         throw new Error(err.detail || "Failed to generate digest.");
       }
 
@@ -247,6 +262,18 @@ export function ThreadView({
       setCatchUpLoading(false);
     }
   }, [thread.id, toastError]);
+
+  // Invite flow: open Catch Me Up once on arrival, then drop ?catchup=1 from the address
+  // so a refresh doesn't run the digest again.
+  const autoCatchUpDone = useRef(false);
+  useEffect(() => {
+    if (!autoCatchUp || isPrivate || autoCatchUpDone.current) return;
+    autoCatchUpDone.current = true;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("catchup");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    void handleCatchMeUp();
+  }, [autoCatchUp, isPrivate, handleCatchMeUp]);
 
   const handleMessageSent = useCallback((id: string, content: string) => {
     setLocalMessages((prev) => {
@@ -571,6 +598,8 @@ export function ThreadView({
           isLoading={catchUpLoading}
           summary={catchUpSummary}
           messageCount={catchUpCount}
+          needsApiKey={catchUpNeedsKey}
+          decisions={decisions}
         />
       )}
     </div>

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowRight } from "lucide-react";
+import { FormAlert, Spinner, primaryButtonClass } from "@/components/auth/fields";
 import { acceptInvite } from "./actions";
 
 export function AcceptInviteForm({ token }: { token: string }) {
@@ -14,14 +16,15 @@ export function AcceptInviteForm({ token }: { token: string }) {
     setError(null);
     try {
       const res = await acceptInvite(token);
-      if (res?.error) {
+      if ("error" in res) {
         setError(res.error);
         setLoading(false);
-      } else {
-        // refresh() forces the server layout to re-fetch team membership
-        router.push("/");
-        router.refresh();
+        return;
       }
+      // Land in the Team Space with Catch Me Up open, so newcomers see what they missed.
+      // refresh() forces the server layout to re-fetch team membership.
+      router.push(res.sharedThreadId ? `/thread/${res.sharedThreadId}?catchup=1` : "/");
+      router.refresh();
     } catch {
       setError("An unexpected error occurred.");
       setLoading(false);
@@ -30,17 +33,18 @@ export function AcceptInviteForm({ token }: { token: string }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {error && (
-        <div role="alert" className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm text-left">
-          {error}
-        </div>
-      )}
-      <button
-        onClick={handleAccept}
-        disabled={loading}
-        className="w-full py-2.5 px-4 bg-accent text-white font-medium rounded-xl hover:bg-accent/90 focus:ring-2 focus:ring-offset-2 focus:ring-accent disabled:opacity-50 transition-all"
-      >
-        {loading ? "Joining…" : "Join Team Space"}
+      {error && <FormAlert tone="error">{error}</FormAlert>}
+      <button type="button" onClick={handleAccept} disabled={loading} className={primaryButtonClass}>
+        {loading ? (
+          <>
+            <Spinner />
+            <span>Joining…</span>
+          </>
+        ) : (
+          <>
+            Join Team Space <ArrowRight size={17} aria-hidden="true" />
+          </>
+        )}
       </button>
     </div>
   );

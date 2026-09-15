@@ -23,11 +23,13 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 }
 
 export default async function ThreadPage({
-  params
+  params,
+  searchParams,
 }: {
-  params: Promise<{ id: string }>
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ catchup?: string | string[] }>;
 }) {
-  const { id } = await params;
+  const [{ id }, { catchup }] = await Promise.all([params, searchParams]);
 
   const user = await getCurrentUser();
   if (!user) redirect("/login");
@@ -57,12 +59,16 @@ export default async function ThreadPage({
 
   return (
     <ThreadView
+      // A fresh view per thread, so per-thread state (mute, banners, drafts) never leaks across.
+      key={thread.id}
       thread={thread}
       messages={messages}
       sharedThread={sharedThread}
       sharedMessages={sharedMessages}
       currentUserId={user.id}
       currentUserName={getDisplayName(user)}
+      // Set by the invite flow (?catchup=1) so newcomers get a digest of what they missed.
+      autoCatchUp={thread.type === "shared" && catchup === "1"}
     />
   );
 }
