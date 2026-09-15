@@ -1,6 +1,13 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// The signed-in home. `/` is the public landing page; signed-in visitors skip it.
+export const APP_HOME = '/home'
+
+function isPublicPath(pathname: string) {
+  return pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/auth')
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -31,17 +38,24 @@ export async function updateSession(request: NextRequest) {
   // against the project's signing keys (no Auth server round trip).
   const { data } = await supabase.auth.getClaims()
   const user = data?.claims
+  const { pathname } = request.nextUrl
 
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth')
-  ) {
+  // Existing links and redirects to `/` (after sign-in, invites, deletes) keep landing in the app.
+  if (user && pathname === '/') {
     const url = request.nextUrl.clone()
-    const requestedPath = request.nextUrl.pathname + request.nextUrl.search
+    url.pathname = APP_HOME
+    const redirect = NextResponse.redirect(url)
+    // Keep any refreshed session cookies on the redirect.
+    supabaseResponse.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie))
+    return redirect
+  }
+
+  if (!user && !isPublicPath(pathname)) {
+    const url = request.nextUrl.clone()
+    const requestedPath = pathname + request.nextUrl.search
     url.pathname = '/login'
     url.search = ''
-    if (requestedPath !== '/') {
+    if (requestedPath !== APP_HOME) {
       url.searchParams.set('next', requestedPath)
     }
     return NextResponse.redirect(url)

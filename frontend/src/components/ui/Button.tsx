@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn, focusRing } from "./cn";
 import { Spinner } from "./Spinner";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "danger";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "danger" | "inverse" | "inverseGhost";
 export type ButtonSize = "sm" | "md" | "lg";
 
 const VARIANTS: Record<ButtonVariant, string> = {
@@ -11,6 +11,9 @@ const VARIANTS: Record<ButtonVariant, string> = {
   ghost: "text-fg-muted hover:bg-hover hover:text-fg",
   subtle: "bg-sunken text-fg hover:bg-selected",
   danger: "bg-danger text-white shadow-soft hover:opacity-90 dark:text-bg",
+  // For dark brand panels that stay dark in both themes.
+  inverse: "bg-white text-[#111230] shadow-soft hover:bg-white/90",
+  inverseGhost: "text-white/85 hover:bg-white/10 hover:text-white",
 };
 
 // Mobile sizes are taller so every control is comfortable to tap.
