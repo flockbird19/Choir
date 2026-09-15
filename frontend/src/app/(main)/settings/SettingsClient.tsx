@@ -18,7 +18,7 @@ const PROVIDERS: Provider[] = [
     label: "Anthropic (Claude)",
     placeholder: "sk-ant-api03-…",
     docsUrl: "https://console.anthropic.com/settings/keys",
-    hint: "Powers claude-sonnet-4-5 and other Claude models.",
+    hint: "Powers Claude Haiku 4.5 and other Claude models.",
   },
   {
     id: "openai",

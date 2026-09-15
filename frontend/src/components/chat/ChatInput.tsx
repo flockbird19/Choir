@@ -19,8 +19,8 @@ interface ChatInputProps {
 }
 
 const AVAILABLE_MODELS = [
-  { provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
   { provider: "anthropic", id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
+  { provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
   { provider: "anthropic", id: "claude-opus-4-5", name: "Claude Opus 4.5" },
   { provider: "openai", id: "gpt-4o", name: "GPT-4o" },
   { provider: "openai", id: "gpt-4o-mini", name: "GPT-4o Mini" },

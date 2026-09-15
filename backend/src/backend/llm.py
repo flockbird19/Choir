@@ -40,7 +40,7 @@ OPENAI_COMPAT_PROVIDERS: dict[str, dict[str, str]] = {
     },
 }
 
-ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-5"
+ANTHROPIC_DEFAULT_MODEL = "claude-haiku-4-5"
 
 ALL_PROVIDERS = ["anthropic", "openai", "google", "groq"]
 
