@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Settings, Lock, Plus, Hash, Trash2 } from "lucide-react";
-import { User } from "@supabase/supabase-js";
+import type { SessionUser } from "@/utils/supabase/access";
 import { getDisplayName } from "@/utils/display-name";
 import { Team, Project, Thread } from "@/types/database";
 import { useEffect, useState } from "react";
@@ -21,7 +21,7 @@ const STATUS_COLORS: Record<StatusId, string> = {
 };
 
 interface SecondarySidebarProps {
-  user: User | null;
+  user: SessionUser | null;
   team: Team | null;
   project: Project | null;
   sharedThread: Thread | null;

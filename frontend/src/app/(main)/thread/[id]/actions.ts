@@ -1,7 +1,8 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
-import { getAccessibleThread, getCurrentUser, isTeamMember } from "@/utils/supabase/access";
+import { getAccessibleThread, getCurrentUser } from "@/utils/supabase/access";
+import { getWorkspace } from "@/utils/supabase/queries";
 import { getTeamMemberNames } from "@/utils/supabase/member-names";
 import { getDisplayName } from "@/utils/display-name";
 import { revalidatePath } from "next/cache";
@@ -22,12 +23,7 @@ export async function getThreadMemberNames(threadId: string): Promise<Record<str
   const self = { [user.id]: getDisplayName(user) };
   if (thread.type === "private") return self;
 
-  const supabase = await createClient();
-  const { data: project } = await supabase
-    .from("projects")
-    .select("team_id")
-    .eq("id", thread.project_id)
-    .maybeSingle();
+  const project = (await getWorkspace(user.id)).projects.find((p) => p.id === thread.project_id);
   if (!project) return self;
 
   // Your own name comes from your session so a rename shows up immediately.
@@ -36,9 +32,7 @@ export async function getThreadMemberNames(threadId: string): Promise<Record<str
 
 export async function sendMessage(threadId: string, content: string, messageId?: string) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return { error: "Not logged in" };
@@ -156,9 +150,7 @@ export async function postToSharedThread(
   content: string
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return { error: "Not logged in" };
@@ -199,9 +191,7 @@ export async function pinMessage(
   messageId: string
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return { error: "Not logged in" };
@@ -231,9 +221,7 @@ export async function unpinMessage(
   messageId: string
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return { error: "Not logged in" };
@@ -260,17 +248,11 @@ export async function unpinMessage(
 
 export async function createThread(projectId: string, name: string) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { error: "Not logged in" };
 
-  const { data: project } = await supabase
-    .from("projects")
-    .select("team_id")
-    .eq("id", projectId)
-    .maybeSingle();
-  if (!project || !(await isTeamMember(user.id, project.team_id))) {
+  const { projects } = await getWorkspace(user.id);
+  if (!projects.some((p) => p.id === projectId)) {
     return { error: "You don't have access to this project." };
   }
 
@@ -292,9 +274,7 @@ export async function createThread(projectId: string, name: string) {
 
 export async function deleteThread(threadId: string) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { error: "Not logged in" };
 
   const { error } = await supabase.from("threads")

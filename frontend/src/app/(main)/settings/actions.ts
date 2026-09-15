@@ -1,11 +1,10 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
-import { isTeamMember } from "@/utils/supabase/access";
+import { getCurrentUser, isTeamMember } from "@/utils/supabase/access";
 
 export async function generateInviteLink(teamId: string) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return { error: "Not authenticated" };
@@ -15,7 +14,7 @@ export async function generateInviteLink(teamId: string) {
     return { error: "You can only create invite links for a workspace you belong to." };
   }
 
-  // Insert into team_invitations
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("team_invitations")
     .insert({ team_id: teamId, created_by: user.id })
@@ -32,13 +31,13 @@ export async function generateInviteLink(teamId: string) {
 }
 
 export async function deleteTeam(teamId: string) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return { error: "Not authenticated" };
   }
 
+  const supabase = await createClient();
   // Double check the user is the owner
   const { data: team } = await supabase.from("teams").select("created_by").eq("id", teamId).single();
   

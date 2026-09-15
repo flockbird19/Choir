@@ -14,8 +14,10 @@ export const metadata: Metadata = {
 
 export default async function SettingsPage() {
   const user = await getCurrentUser();
-  const savedProviders = await getSavedProviders();
-  const teams = user ? (await getWorkspace(user.id)).teams : [];
+  const [savedProviders, teams] = await Promise.all([
+    getSavedProviders(),
+    user ? getWorkspace(user.id).then((workspace) => workspace.teams) : Promise.resolve([]),
+  ]);
 
   return (
     <main className="h-full overflow-y-auto bg-canvas">

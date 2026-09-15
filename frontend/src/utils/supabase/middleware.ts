@@ -27,10 +27,10 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // refreshing the auth token
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Refreshes the session cookie when needed and verifies the token locally
+  // against the project's signing keys (no Auth server round trip).
+  const { data } = await supabase.auth.getClaims()
+  const user = data?.claims
 
   if (
     !user &&

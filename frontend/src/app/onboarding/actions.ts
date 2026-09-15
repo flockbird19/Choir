@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/utils/supabase/server";
+import { getCurrentUser } from "@/utils/supabase/access";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { redirect } from "next/navigation";
 
@@ -11,8 +11,7 @@ export async function createTeamSetup(formData: FormData) {
     return { error: "Team name is required." };
   }
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     return { error: "Not authenticated" };

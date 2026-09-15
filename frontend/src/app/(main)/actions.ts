@@ -2,6 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { getWorkspace } from "@/utils/supabase/queries";
+import { getCurrentUser } from "@/utils/supabase/access";
 
 export interface GlobalSearchThread {
   id: string;
@@ -28,13 +29,14 @@ export interface GlobalSearchResult {
 export async function globalSearch(query: string): Promise<GlobalSearchResult> {
   if (!query || query.trim().length < 2) return { threads: [], messages: [] };
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return { threads: [], messages: [], error: "Unauthorized" };
 
   const { threads: accessibleThreads } = await getWorkspace(user.id);
   const threadIds = accessibleThreads.map((t) => t.id);
   if (threadIds.length === 0) return { threads: [], messages: [] };
+
+  const supabase = await createClient();
 
   const { data: threads } = await supabase
     .from("threads")

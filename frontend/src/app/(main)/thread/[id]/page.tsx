@@ -1,4 +1,4 @@
-import { getMessages, getSharedThread } from "@/utils/supabase/queries";
+import { getMessages, getWorkspace } from "@/utils/supabase/queries";
 import { getAccessibleThread, getCurrentUser } from "@/utils/supabase/access";
 import { getDisplayName } from "@/utils/display-name";
 import { ThreadView } from "@/components/chat/ThreadView";
@@ -42,18 +42,18 @@ export default async function ThreadPage({
     );
   }
 
-  const messages = await getMessages(id);
+  // Same request-scoped workspace the layout and access check already loaded.
+  const sharedThread: Thread | null =
+    thread.type === "private"
+      ? (await getWorkspace(user.id)).threads.find(
+          (t) => t.project_id === thread.project_id && t.type === "shared"
+        ) ?? null
+      : null;
 
-  let sharedThread: Thread | null = null;
-  let sharedMessages: Message[] = [];
-
-  if (thread.type === "private") {
-    const candidate = await getSharedThread(thread.project_id);
-    if (candidate && (await getAccessibleThread(user.id, candidate.id))) {
-      sharedThread = candidate;
-      sharedMessages = await getMessages(candidate.id);
-    }
-  }
+  const [messages, sharedMessages]: [Message[], Message[]] = await Promise.all([
+    getMessages(id),
+    sharedThread ? getMessages(sharedThread.id) : Promise.resolve([]),
+  ]);
 
   return (
     <ThreadView

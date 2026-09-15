@@ -1,4 +1,4 @@
-import { createClient } from "@/utils/supabase/server";
+import { getCurrentUser } from "@/utils/supabase/access";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { redirect } from "next/navigation";
 import { AcceptInviteForm } from "./AcceptInviteForm";
@@ -11,8 +11,7 @@ export default async function InvitePage({
   const resolvedParams = await params;
   const { token } = resolvedParams;
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     redirect(`/login?next=/invite/${token}`);

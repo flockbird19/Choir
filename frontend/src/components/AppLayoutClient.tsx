@@ -4,12 +4,12 @@ import { useState } from "react";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { PrimarySidebar } from "./PrimarySidebar";
 import { SecondarySidebar } from "./SecondarySidebar";
-import { User } from "@supabase/supabase-js";
+import type { SessionUser } from "@/utils/supabase/access";
 import { Team, Project, Thread } from "@/types/database";
 import { usePathname } from "next/navigation";
 
 interface AppLayoutClientProps {
-  user: User | null;
+  user: SessionUser | null;
   teams: Team[];
   projects: Project[];
   threads: Thread[];

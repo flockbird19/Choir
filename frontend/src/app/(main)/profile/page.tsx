@@ -1,4 +1,4 @@
-import { createClient } from "@/utils/supabase/server";
+import { getCurrentUser } from "@/utils/supabase/access";
 import { redirect } from "next/navigation";
 import { User as UserIcon } from "lucide-react";
 import { ProfileClient } from "./ProfileClient";
@@ -11,8 +11,7 @@ export const metadata: Metadata = {
 };
 
 export default async function ProfilePage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const displayName = getDisplayName(user);
