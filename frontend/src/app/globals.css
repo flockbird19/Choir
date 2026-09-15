@@ -1,9 +1,11 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-inter: var(--font-inter);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-sans);
+  /* Text is DM Sans; code and model names are JetBrains Mono. Screens still using
+     font-inter get DM Sans too, so Inter no longer downloads (L8). */
+  --font-sans: var(--font-dm-sans);
+  --font-inter: var(--font-dm-sans);
+  --font-mono: var(--font-jetbrains-mono);
   --color-canvas: var(--color-canvas);
   --color-surface: var(--color-surface);
   --color-surface-hover: var(--color-surface-hover);
@@ -181,14 +183,19 @@ body {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* ─── Smooth transitions for theme switching ────────────── */
-*, *::before, *::after {
-  transition-property: background-color, border-color, color;
-  transition-duration: 150ms;
-  transition-timing-function: ease;
+/* ─── Interactive transitions ───────────────────────────── */
+/* Only controls animate their colors; a global `*` rule animated every element on
+   every render (C5). Kept in the base layer so a component's own transition-*
+   utilities still win. Theme switches don't animate (disableTransitionOnChange). */
+@layer base {
+  a, button, input, select, textarea, summary,
+  [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="switch"] {
+    transition-property: color, background-color, border-color, outline-color, box-shadow, opacity;
+    transition-duration: 150ms;
+    transition-timing-function: ease;
+  }
 }
 
-/* Don't animate layout/transform by default */
 [data-no-transition] { transition: none !important; }
 
 /* ─── Focus Ring ────────────────────────────────── */
