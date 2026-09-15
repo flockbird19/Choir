@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Settings, Lock, Plus, Hash, Trash2 } from "lucide-react";
 import { User } from "@supabase/supabase-js";
+import { getDisplayName } from "@/utils/display-name";
 import { Team, Project, Thread } from "@/types/database";
 import { useEffect, useState } from "react";
 import { createThread, deleteThread } from "@/app/(main)/thread/[id]/actions";
@@ -99,10 +100,7 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  const displayName =
-    user?.user_metadata?.full_name ||
-    user?.email?.split("@")[0] ||
-    "User";
+  const displayName = getDisplayName(user);
 
   const initials = displayName
     .split(" ")

@@ -9,6 +9,7 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:800
 
 interface ChatInputProps {
   threadId: string;
+  userName: string;
   onStreamStart?: () => void;
   onStreamChunk?: (text: string) => void;
   onStreamEnd?: (aiMessageId?: string) => void;
@@ -33,6 +34,7 @@ const AVAILABLE_MODELS = [
 
 export function ChatInput({
   threadId,
+  userName,
   onStreamStart,
   onStreamChunk,
   onStreamEnd,
@@ -96,8 +98,6 @@ export function ChatInput({
       onStreamError?.("Not authenticated.");
       return;
     }
-
-    const userName = session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || "User";
 
     onStreamStart?.();
 

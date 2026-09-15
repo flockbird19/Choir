@@ -1,5 +1,6 @@
 import { getWorkspace } from "@/utils/supabase/queries";
 import { getCurrentUser } from "@/utils/supabase/access";
+import { getDisplayName } from "@/utils/display-name";
 import { Logo } from "@/components/Logo";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -21,10 +22,7 @@ export default async function Home() {
     (t: Thread) => t.type === "private" && t.owner_id === user.id
   );
 
-  const firstName =
-    user?.user_metadata?.full_name?.split(" ")[0] ||
-    user?.email?.split("@")[0] ||
-    "there";
+  const firstName = getDisplayName(user).split(" ")[0];
 
   return (
     <div className="h-full flex flex-col items-center justify-center bg-canvas p-8 overflow-y-auto">

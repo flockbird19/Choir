@@ -2,6 +2,7 @@ import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import { User as UserIcon } from "lucide-react";
 import { ProfileClient } from "./ProfileClient";
+import { getDisplayName } from "@/utils/display-name";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -14,7 +15,7 @@ export default async function ProfilePage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const displayName = user.user_metadata?.full_name || user.email?.split("@")[0] || "User";
+  const displayName = getDisplayName(user);
   const email = user.email || "";
   const initials = displayName
     .split(" ")

@@ -1,5 +1,6 @@
 import { getMessages, getSharedThread } from "@/utils/supabase/queries";
 import { getAccessibleThread, getCurrentUser } from "@/utils/supabase/access";
+import { getDisplayName } from "@/utils/display-name";
 import { ThreadView } from "@/components/chat/ThreadView";
 import { redirect } from "next/navigation";
 import { Thread, Message } from "@/types/database";
@@ -60,6 +61,7 @@ export default async function ThreadPage({
       messages={messages}
       sharedThread={sharedThread}
       sharedMessages={sharedMessages}
+      currentUserName={getDisplayName(user)}
     />
   );
 }

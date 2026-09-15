@@ -24,11 +24,13 @@ export function ThreadView({
   messages,
   sharedThread,
   sharedMessages,
+  currentUserName,
 }: {
   thread: Thread;
   messages: Message[];
   sharedThread?: Thread | null;
   sharedMessages?: Message[];
+  currentUserName: string;
 }) {
   const { error: toastError, success: toastSuccess } = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -157,7 +159,7 @@ export function ThreadView({
   );
 
   // ── Presence — who else currently has this thread open ─────────────────────
-  const presentUsers = useThreadPresence(thread.id);
+  const presentUsers = useThreadPresence(thread.id, currentUserName);
 
   // ── Global Decisions — pin/unpin shared-thread messages ─────────────────────
   const [decisionsOpen, setDecisionsOpen] = useState(false);
@@ -506,6 +508,7 @@ export function ThreadView({
         ) : (
           <ChatInput
             threadId={thread.id}
+            userName={currentUserName}
             disabled={isStreaming}
             onMessageSent={handleMessageSent}
             onMessageFailed={(failedId) => {

@@ -12,10 +12,9 @@ export interface PresentUser {
 /**
  * Tracks who else currently has a given thread open, via Supabase Realtime Presence.
  * Presence state is ephemeral (in-memory on Supabase's side) — nothing is persisted.
- * Resolves the current user from the browser session itself, so callers don't need
- * to thread user info down as props.
+ * `selfName` comes from the server: the browser session token can hold a stale name.
  */
-export function useThreadPresence(threadId: string | null | undefined): PresentUser[] {
+export function useThreadPresence(threadId: string | null | undefined, selfName: string): PresentUser[] {
   const [others, setOthers] = useState<PresentUser[]>([]);
 
   useEffect(() => {
@@ -36,8 +35,6 @@ export function useThreadPresence(threadId: string | null | undefined): PresentU
       if (cancelled || !session) return;
 
       const selfId = session.user.id;
-      const selfName =
-        session.user.user_metadata?.full_name || session.user.email?.split("@")[0] || "User";
 
       channel = supabase.channel(`presence:${threadId}`, {
         config: { presence: { key: selfId } },
@@ -65,7 +62,7 @@ export function useThreadPresence(threadId: string | null | undefined): PresentU
       cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [threadId]);
+  }, [threadId, selfName]);
 
   return others;
 }

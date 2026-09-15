@@ -1,4 +1,4 @@
-﻿'use server'
+'use server'
 
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
@@ -10,7 +10,9 @@ export async function updateDisplayName(name: string) {
     data: { full_name: name.trim() }
   })
   if (error) return { error: error.message }
-  revalidatePath('/profile')
+  // Re-issue the session so the browser's token carries the new name too.
+  await supabase.auth.refreshSession()
+  revalidatePath('/', 'layout')
   return { success: true }
 }
 
