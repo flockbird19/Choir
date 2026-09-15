@@ -1,44 +1,51 @@
 # Choir
 
-Choir is a collaborative, real-time AI platform that bridges the gap between individual AI experimentation and team-wide intelligence sharing. It features a Slack-like interface where users can have private conversations with LLMs (Claude, GPT-4) and seamlessly promote valuable insights to a shared team space.
+**A team chat where your whole team and AI share the same context.**
 
-## Architecture
+Today, AI is single-player. Everyone on a team opens their own private chat with an AI, gets somewhere
+useful, and then has to copy-paste transcripts or re-explain everything to bring teammates up to speed.
+Context gets lost, work gets repeated, and decisions never become truly shared.
 
-Choir is built with a modern, separated stack:
+Choir makes AI collaboration a team sport. Think privately, share deliberately, and keep every decision
+visible to everyone.
 
-- **Frontend (`/frontend`)**: Next.js 15 (App Router), React, Tailwind CSS. Provides a highly responsive, single-pane and sliding-drawer UI.
-- **Backend (`/backend`)**: Python FastAPI. Handles LLM orchestration, streaming text generation, and secure operations.
-- **Database & Auth**: Supabase (PostgreSQL). Powers user authentication, Row-Level Security (RLS), and Realtime pub/sub for chat streaming.
+## How it works
 
-## Core Features
+Every project in Choir has two kinds of conversations:
 
-- **Private & Shared Contexts**: Explore ideas in private threads, then selectively post the best results to a unified team thread.
-- **Bring Your Own Key (BYOK)**: Secure, encrypted storage of user-provided Anthropic/OpenAI API keys in the database.
-- **Realtime Streaming**: AI responses are streamed directly from the Python backend to the database and broadcasted to the frontend via Supabase Realtime.
-- **Team Isolation**: Projects and threads are securely isolated by organization/team boundaries.
+- **The shared thread** — one conversation the whole team sees. Anyone can bring in the AI with `@AI`,
+  and it answers with the full team context.
+- **Private threads** — personal spaces where each member explores ideas with the AI without cluttering
+  the team's conversation. The AI in a private thread already knows everything in the shared thread, so
+  nobody starts from zero.
 
-## Getting Started
+Context flows one way: **shared → private**. Nothing from a private thread reaches the team unless you
+choose to share it. When you find something worth sharing, **Post to Shared** turns the messages you
+pick into a clean update in the shared thread.
 
-### 1. Database Setup
-Execute the SQL statements from `schema.sql` in your Supabase SQL Editor to create the necessary tables and policies.
+## Features
 
-### 2. Backend (FastAPI)
-Navigate to the `/backend` directory.
-Create a `.env` file based on `.env.example`.
-Run the server using `uv`:
-```bash
-cd backend
-uv run uvicorn main:app --reload
-```
+- **Shared and private AI threads** with one-way context flow
+- **Post to Shared** — publish the best of a private exploration to the team in a few clicks
+- **Live team sync** — new messages appear for everyone instantly, with avatars showing who's viewing a thread
+- **Global Decisions** — pin any shared message as a Decision, collected in one panel the whole team can see
+- **Catch me up** — an AI summary of the decisions, updates and open questions you missed since your last visit
+- **Bring your own key** — use your own Claude, OpenAI, Gemini or Groq API keys, stored encrypted
+- **Export** — download any thread as Markdown or JSON to share outside the workspace
+- **Quick search** — find threads and messages instantly with Cmd+K
+- **Light and dark themes**
 
-### 3. Frontend (Next.js)
-Navigate to the `/frontend` directory.
-Create a `.env.local` file with your Supabase keys.
-Run the development server:
-```bash
-cd frontend
-npm install
-npm run dev
-```
+## Who it's for
 
-Open [http://localhost:3000](http://localhost:3000) to view the application.
+Small, fast-moving technical teams: hackathon teams, game jams, startup founding teams, dev agency
+sprints, open-source contributors, and student project groups. Teams that come together quickly, move
+fast, and need everyone working from the same context.
+
+## Built with
+
+Next.js, React, TypeScript and Tailwind CSS on the frontend; Python and FastAPI on the backend; and
+Supabase for the database, authentication and realtime updates.
+
+## Status
+
+Choir is in active development.
