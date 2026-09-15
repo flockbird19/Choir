@@ -61,6 +61,7 @@ export default async function ThreadPage({
       messages={messages}
       sharedThread={sharedThread}
       sharedMessages={sharedMessages}
+      currentUserId={user.id}
       currentUserName={getDisplayName(user)}
     />
   );

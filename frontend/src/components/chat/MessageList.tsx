@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useRef, memo, useState, isValidElement, type ReactNode } from "react";
-import { User, Bot, ArrowUpRight, Copy, Check, Pin, PinOff } from "lucide-react";
+import { Bot, ArrowUpRight, Copy, Check, Pin, PinOff } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { getInitials } from "@/utils/display-name";
 
 interface Message {
   id: string;
   sender_type: string;
+  sender_id?: string | null;
   content: string;
   created_at: string;
   shared_by?: string | null;
@@ -17,6 +19,9 @@ interface Message {
 
 interface MessageListProps {
   messages: Message[];
+  currentUserId?: string;
+  memberNames?: Record<string, string>;
+  namesLoaded?: boolean;
   streamingContent?: string | null;
   isStreaming?: boolean;
   selectMode?: boolean;
@@ -26,6 +31,9 @@ interface MessageListProps {
   onTogglePin?: (id: string, currentlyPinned: boolean) => void;
   highlightedMessageId?: string | null;
 }
+
+const EMPTY_NAMES: Record<string, string> = {};
+const EMPTY_SELECTION = new Set<string>();
 
 // react-markdown always renders a fenced code block as <pre><code>...</code></pre>,
 // with `children` here being that nested <code> element — walk it to get the raw
@@ -89,6 +97,9 @@ export const markdownComponents: Components = {
 
 const MessageItem = memo(function MessageItem({
   msg,
+  isOwn,
+  senderName,
+  showSender,
   selectMode,
   isSelected,
   onToggleSelect,
@@ -97,6 +108,9 @@ const MessageItem = memo(function MessageItem({
   isHighlighted,
 }: {
   msg: Message;
+  isOwn: boolean;
+  senderName: string;
+  showSender: boolean;
   selectMode: boolean;
   isSelected: boolean;
   onToggleSelect?: (id: string) => void;
@@ -104,7 +118,7 @@ const MessageItem = memo(function MessageItem({
   onTogglePin?: (id: string, currentlyPinned: boolean) => void;
   isHighlighted?: boolean;
 }) {
-  const isUser = msg.sender_type === "user";
+  const isAI = msg.sender_type === "assistant";
   const isSharedFrom = !!msg.shared_by;
   const isPinned = !!msg.is_decision;
 
@@ -116,14 +130,25 @@ const MessageItem = memo(function MessageItem({
       }`}
     >
       {isSharedFrom && (
-        <div className="flex items-center gap-1.5 text-[11px] text-shared-fg font-medium mb-1.5 ml-10">
+        <div
+          className={`flex items-center gap-1.5 text-[11px] text-shared-fg font-medium mb-1.5 ${
+            isOwn ? "justify-end mr-10" : "ml-10"
+          }`}
+        >
           <ArrowUpRight size={11} className="shrink-0" />
-          <span>Shared from private exploration</span>
+          <span>{isOwn ? "You shared" : `${senderName} shared`} from a private thread</span>
         </div>
       )}
 
+      {showSender && !isOwn && (
+        <p className="text-[11px] font-semibold text-graphite mb-1 ml-10">
+          {senderName}
+          {isAI && msg.model_name && <span className="ml-1.5 font-normal font-mono text-graphite/50">{msg.model_name}</span>}
+        </p>
+      )}
+
       <div
-        className={`flex gap-3 group ${isUser ? "flex-row-reverse max-w-[85%] ml-auto" : "max-w-[85%] mr-auto"} ${
+        className={`flex gap-3 group ${isOwn ? "flex-row-reverse max-w-[85%] ml-auto" : "max-w-[85%] mr-auto"} ${
           selectMode ? "cursor-pointer" : ""
         }`}
         onClick={() => {
@@ -131,7 +156,7 @@ const MessageItem = memo(function MessageItem({
         }}
       >
         {selectMode && (
-          <div className={`flex items-center justify-center shrink-0 mt-2 ${isUser ? "order-first ml-3" : "mr-3"}`}>
+          <div className={`flex items-center justify-center shrink-0 mt-2 ${isOwn ? "order-first ml-3" : "mr-3"}`}>
             <div
               className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
                 isSelected
@@ -149,17 +174,20 @@ const MessageItem = memo(function MessageItem({
         )}
 
         <div
-          className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5
-            ${isUser ? "bg-accent/12 text-accent" : "bg-ink/6 text-graphite"}`}
+          aria-hidden="true"
+          title={senderName}
+          className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold select-none
+            ${isOwn ? "bg-accent/12 text-accent" : isAI ? "bg-ink/6 text-graphite" : "bg-shared/12 text-shared-fg"}
+            ${showSender || isOwn ? "" : "invisible"}`}
         >
-          {isUser ? <User size={13} /> : <Bot size={13} />}
+          {isAI ? <Bot size={13} /> : getInitials(senderName)}
         </div>
 
-        <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
+        <div className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
           <div
             className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed
               ${
-                isUser
+                isOwn
                   ? "bg-accent text-white rounded-tr-sm shadow-sm shadow-accent/20"
                   : isSharedFrom
                   ? "bg-shared-muted border border-shared/25 text-ink rounded-tl-sm"
@@ -181,7 +209,7 @@ const MessageItem = memo(function MessageItem({
                 Decision
               </span>
             )}
-            {msg.model_name && !isUser && (
+            {msg.model_name && isAI && !showSender && (
               <span className="text-[10px] text-graphite/40 font-mono">{msg.model_name}</span>
             )}
             <span className="text-[10px] text-graphite/50">
@@ -210,12 +238,19 @@ const MessageItem = memo(function MessageItem({
   );
 });
 
+function senderKey(msg: Message) {
+  return msg.sender_type === "assistant" ? "assistant" : `user:${msg.sender_id ?? ""}`;
+}
+
 export function MessageList({
   messages,
+  currentUserId,
+  memberNames = EMPTY_NAMES,
+  namesLoaded = false,
   streamingContent,
   isStreaming,
   selectMode = false,
-  selectedMessageIds = new Set(),
+  selectedMessageIds = EMPTY_SELECTION,
   onToggleSelect,
   isSharedThread = false,
   onTogglePin,
@@ -248,10 +283,25 @@ export function MessageList({
 
   return (
     <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-3 font-inter">
-      {messages.map((msg) => (
+      {messages.map((msg, index) => {
+        const isAI = msg.sender_type === "assistant";
+        // Optimistic messages have no sender_id yet; only the current user creates those.
+        const isOwn = !isAI && (!msg.sender_id || msg.sender_id === currentUserId);
+        const senderName = isAI
+          ? "Choir AI"
+          : isOwn
+            ? (currentUserId && memberNames[currentUserId]) || "You"
+            : memberNames[msg.sender_id ?? ""] ?? (namesLoaded ? "Former member" : "Teammate");
+        const previous = messages[index - 1];
+        const showSender = !previous || senderKey(previous) !== senderKey(msg) || !!msg.shared_by;
+
+        return (
         <MessageItem
           key={msg.id}
           msg={msg}
+          isOwn={isOwn}
+          senderName={senderName}
+          showSender={showSender}
           selectMode={selectMode}
           isSelected={selectedMessageIds.has(msg.id)}
           onToggleSelect={onToggleSelect}
@@ -259,7 +309,8 @@ export function MessageList({
           onTogglePin={onTogglePin}
           isHighlighted={highlightedMessageId === msg.id}
         />
-      ))}
+        );
+      })}
 
       {(showTypingBubble || showStreamingBubble) && (
         <div className="flex gap-3 max-w-[85%] mr-auto">

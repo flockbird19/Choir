@@ -16,6 +16,7 @@ import {
 import { useToast } from "../Toast";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useThreadPresence } from "@/hooks/useThreadPresence";
+import { useMemberNames } from "@/hooks/useMemberNames";
 
 import { Thread, Message } from "@/types/database";
 
@@ -24,12 +25,14 @@ export function ThreadView({
   messages,
   sharedThread,
   sharedMessages,
+  currentUserId,
   currentUserName,
 }: {
   thread: Thread;
   messages: Message[];
   sharedThread?: Thread | null;
   sharedMessages?: Message[];
+  currentUserId: string;
   currentUserName: string;
 }) {
   const { error: toastError, success: toastSuccess } = useToast();
@@ -158,6 +161,16 @@ export function ThreadView({
     handleSharedRealtimeUpdate
   );
 
+  // ── Sender names — who wrote each message ─────────────────────────────────
+  const threadNames = useMemberNames(
+    thread.id,
+    localMessages.map((m) => m.sender_id ?? "")
+  );
+  const sharedNames = useMemberNames(
+    isPrivate ? sharedThread?.id : undefined,
+    localSharedMessages.map((m) => m.sender_id ?? "")
+  );
+
   // ── Presence — who else currently has this thread open ─────────────────────
   const presentUsers = useThreadPresence(thread.id, currentUserName);
 
@@ -243,13 +256,13 @@ export function ThreadView({
           id,
           thread_id: thread.id,
           sender_type: "user",
-          sender_id: "", // Optimistic, doesn't matter for rendering usually
+          sender_id: currentUserId,
           content,
           created_at: new Date().toISOString(),
         } as Message,
       ];
     });
-  }, [thread.id]);
+  }, [thread.id, currentUserId]);
 
   // ── Streaming state ────────────────────────────────────────────────────────
   const [isStreaming, setIsStreaming] = useState(false);
@@ -454,6 +467,9 @@ export function ThreadView({
         {/* Messages */}
         <MessageList
           messages={localMessages}
+          currentUserId={currentUserId}
+          memberNames={threadNames.names}
+          namesLoaded={threadNames.loaded}
           streamingContent={streamingContent}
           isStreaming={isStreaming}
           selectMode={selectMode}
@@ -529,6 +545,9 @@ export function ThreadView({
           onClose={() => setDrawerOpen(false)}
           sharedThread={sharedThread}
           sharedMessages={localSharedMessages}
+          currentUserId={currentUserId}
+          memberNames={sharedNames.names}
+          namesLoaded={sharedNames.loaded}
         />
       )}
 

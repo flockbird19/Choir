@@ -1,13 +1,38 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
-import { getAccessibleThread, isTeamMember } from "@/utils/supabase/access";
+import { getAccessibleThread, getCurrentUser, isTeamMember } from "@/utils/supabase/access";
+import { getTeamMemberNames } from "@/utils/supabase/member-names";
+import { getDisplayName } from "@/utils/display-name";
 import { revalidatePath } from "next/cache";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
 
 const NO_THREAD_ACCESS = "You don't have access to this thread.";
 const SHARED_THREAD_ONLY = "This action is only available in a shared thread you belong to.";
+
+// Display names of everyone who can post in a thread, keyed by user id.
+export async function getThreadMemberNames(threadId: string): Promise<Record<string, string>> {
+  const user = await getCurrentUser();
+  if (!user) return {};
+
+  const thread = await getAccessibleThread(user.id, threadId);
+  if (!thread) return {};
+
+  const self = { [user.id]: getDisplayName(user) };
+  if (thread.type === "private") return self;
+
+  const supabase = await createClient();
+  const { data: project } = await supabase
+    .from("projects")
+    .select("team_id")
+    .eq("id", thread.project_id)
+    .maybeSingle();
+  if (!project) return self;
+
+  // Your own name comes from your session so a rename shows up immediately.
+  return { ...(await getTeamMemberNames(project.team_id)), ...self };
+}
 
 export async function sendMessage(threadId: string, content: string, messageId?: string) {
   const supabase = await createClient();

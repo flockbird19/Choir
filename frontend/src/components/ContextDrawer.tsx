@@ -11,6 +11,9 @@ interface ContextDrawerProps {
   onClose: () => void;
   sharedThread?: Thread | null;
   sharedMessages: Message[];
+  currentUserId?: string;
+  memberNames?: Record<string, string>;
+  namesLoaded?: boolean;
 }
 
 export function ContextDrawer({
@@ -18,6 +21,9 @@ export function ContextDrawer({
   onClose,
   sharedThread,
   sharedMessages,
+  currentUserId,
+  memberNames,
+  namesLoaded,
 }: ContextDrawerProps) {
   const dialogRef = useDialogA11y(isOpen, onClose);
 
@@ -82,7 +88,12 @@ export function ContextDrawer({
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
-          <MessageList messages={sharedMessages} />
+          <MessageList
+            messages={sharedMessages}
+            currentUserId={currentUserId}
+            memberNames={memberNames}
+            namesLoaded={namesLoaded}
+          />
         </div>
 
         {/* Footer */}
