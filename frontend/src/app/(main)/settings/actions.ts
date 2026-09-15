@@ -2,6 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { getCurrentUser, isTeamMember } from "@/utils/supabase/access";
+import { siteOrigin } from "@/utils/site-origin";
 
 export async function generateInviteLink(teamId: string) {
   const user = await getCurrentUser();
@@ -26,7 +27,7 @@ export async function generateInviteLink(teamId: string) {
   }
 
   // Generate link
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const baseUrl = await siteOrigin();
   return { link: `${baseUrl}/invite/${data.token}` };
 }
 
