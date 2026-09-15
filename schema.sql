@@ -4,7 +4,8 @@
 --
 -- This file is the source of truth for the live database. To change the
 -- database: edit this file, paste the whole script into the Supabase SQL Editor
--- ("Choir schema" snippet) and run it. Last applied to live: 2026-09-15.
+-- ("Choir schema" snippet) and run it. Last applied to live: 2026-09-15 (before the
+-- Haiku default and message column permissions were added — pending re-run).
 -- ============================================================================
 
 begin;
@@ -32,7 +33,7 @@ create table if not exists public.projects (
   name text not null,
   created_by uuid references auth.users(id),
   shared_model_provider text default 'anthropic',
-  shared_model_name text default 'claude-sonnet-5',
+  shared_model_name text default 'claude-haiku-4-5',
   shared_model_key_id uuid,
   created_at timestamptz default now()
 );
@@ -99,6 +100,14 @@ create table if not exists public.ai_request_log (
 
 create index if not exists ai_request_log_user_time_idx
   on public.ai_request_log (user_id, requested_at);
+
+-- Shared threads default to Claude Haiku 4.5 (cheapest; decided 2026-09-15).
+alter table public.projects alter column shared_model_name set default 'claude-haiku-4-5';
+-- One-time switch of existing Anthropic projects to Haiku (2026-09-15). Remove this line once
+-- projects can choose their own shared model, or re-running the script will reset that choice.
+update public.projects
+  set shared_model_name = 'claude-haiku-4-5'
+  where shared_model_provider = 'anthropic' and shared_model_name is distinct from 'claude-haiku-4-5';
 
 -- ── 2. Realtime (live sync) ──────────────────────────────────────────────────
 
@@ -242,5 +251,12 @@ create policy "Manage own read state" on public.thread_reads
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 -- ai_request_log: no rules on purpose — only the backend touches it.
+
+-- ── 6. Column permissions ────────────────────────────────────────────────────
+
+-- Signed-in users may only change a message's pin fields, never its content or
+-- sender. The rule above decides *which* messages; this decides *which columns*.
+revoke update on public.messages from anon, authenticated;
+grant update (is_decision, pinned_by, pinned_at) on public.messages to authenticated;
 
 commit;

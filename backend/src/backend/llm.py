@@ -272,6 +272,22 @@ def _format_shared_as_system_context(
     return "\n".join(lines)
 
 
+def _resolve_owner_key(project: dict[str, Any] | None) -> tuple[str, str, str] | None:
+    """(provider, model, api_key) from the project owner's saved key, or None if they have none."""
+    if not project or not project.get("created_by"):
+        return None
+    provider = project.get("shared_model_provider") or "anthropic"
+    if provider != "anthropic" and provider not in OPENAI_COMPAT_PROVIDERS:
+        return None
+    default_model = (
+        ANTHROPIC_DEFAULT_MODEL if provider == "anthropic" else OPENAI_COMPAT_PROVIDERS[provider]["default_model"]
+    )
+    owner_key = get_api_key(project["created_by"], provider)
+    if not owner_key:
+        return None
+    return provider, project.get("shared_model_name") or default_model, owner_key
+
+
 def _resolve_provider_and_model(
     thread: dict[str, Any], user_id: str, override_provider: str | None = None, override_model: str | None = None
 ) -> tuple[str, str] | None:
@@ -349,27 +365,36 @@ def stream_ai_response(
         yield _sse({"error": "Thread not found."})
         return
 
-    # ── Resolve provider / model ──────────────────────────────────────────────
-    resolved = _resolve_provider_and_model(thread, user_id, override_provider, override_model)
-    if not resolved:
-        yield _sse(
-            {
-                "error": (
-                    "No API key found. Please add one in Settings → API Keys "
-                    "before using @AI."
-                )
-            }
-        )
-        return
+    project = _fetch_project(thread["project_id"])
 
-    provider, model = resolved
-    api_key = get_api_key(user_id, provider)
-    if not api_key:
-        yield _sse({"error": f"Could not retrieve API key for {provider}."})
-        return
+    # ── Resolve provider / model ──────────────────────────────────────────────
+    # The shared thread runs on the project owner's key and model, so teammates
+    # without keys of their own can still use @AI. Private threads (and shared
+    # threads whose owner has no key) use the caller's own keys.
+    owner_choice = _resolve_owner_key(project) if thread["type"] == "shared" else None
+    if owner_choice:
+        provider, model, api_key = owner_choice
+    else:
+        resolved = _resolve_provider_and_model(thread, user_id, override_provider, override_model)
+        if not resolved:
+            yield _sse(
+                {
+                    "error": (
+                        "No API key found. Please add one in Settings → API Keys "
+                        "before using @AI."
+                    )
+                }
+            )
+            return
+
+        provider, model = resolved
+        caller_key = get_api_key(user_id, provider)
+        if not caller_key:
+            yield _sse({"error": f"Could not retrieve API key for {provider}."})
+            return
+        api_key = caller_key
 
     # ── Assemble context ──────────────────────────────────────────────────────
-    project = _fetch_project(thread["project_id"])
     roster = _fetch_team_roster(project["team_id"]) if project and project.get("team_id") else []
     names = {member["user_id"]: member["name"] for member in roster}
     me = next((member for member in roster if member["user_id"] == user_id), None)
@@ -422,16 +447,6 @@ def stream_ai_response(
         chat_messages = _to_chat_messages(_fetch_messages(thread_id))
 
     else:
-        # Shared thread — use the project owner's key if possible
-        if project:
-            proj_provider = project.get("shared_model_provider") or "anthropic"
-            proj_model = project.get("shared_model_name") or ANTHROPIC_DEFAULT_MODEL
-            owner_id = project.get("created_by")
-            if owner_id:
-                owner_key = get_api_key(owner_id, proj_provider)
-                if owner_key:
-                    provider, model, api_key = proj_provider, proj_model, owner_key
-
         system_prompt = (
             f"You are Choir, the central AI for {workspace_context}. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
             + team_context + "\n"
