@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 from typing import Any, cast
 
 from dotenv import load_dotenv
@@ -13,12 +14,15 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
+@lru_cache(maxsize=1)
 def get_db() -> Client:
+    # One client per process: reuses its HTTP connections instead of opening new
+    # ones (and a new TLS handshake) for every query.
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise ValueError("Supabase environment variables are missing.")
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-# Every table the backend or frontend reads. Keep in sync with supabase/migrations.
+# Every table the backend or frontend reads. Keep in sync with schema.sql.
 REQUIRED_TABLES = [
     "teams",
     "team_members",
