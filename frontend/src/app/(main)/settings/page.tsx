@@ -3,9 +3,8 @@ import { SettingsClient } from "./SettingsClient";
 import { InviteSection } from "./InviteSection";
 import { DangerZone } from "./DangerZone";
 import { KeyRound } from "lucide-react";
-import { getUserTeams } from "@/utils/supabase/queries";
-import { createClient } from "@/utils/supabase/server";
-import { Team } from "@/types/database";
+import { getWorkspace } from "@/utils/supabase/queries";
+import { getCurrentUser } from "@/utils/supabase/access";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -14,10 +13,9 @@ export const metadata: Metadata = {
 };
 
 export default async function SettingsPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   const savedProviders = await getSavedProviders();
-  const teams = (await getUserTeams()) as Team[];
+  const teams = user ? (await getWorkspace(user.id)).teams : [];
 
   return (
     <main className="h-full overflow-y-auto bg-canvas">

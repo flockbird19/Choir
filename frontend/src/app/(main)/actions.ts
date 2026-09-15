@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
+import { getWorkspace } from "@/utils/supabase/queries";
 
 export interface GlobalSearchThread {
   id: string;
@@ -31,14 +32,17 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { threads: [], messages: [], error: "Unauthorized" };
 
-  // Search Threads
+  const { threads: accessibleThreads } = await getWorkspace(user.id);
+  const threadIds = accessibleThreads.map((t) => t.id);
+  if (threadIds.length === 0) return { threads: [], messages: [] };
+
   const { data: threads } = await supabase
     .from("threads")
     .select("id, name, type")
+    .in("id", threadIds)
     .ilike("name", `%${query}%`)
     .limit(5);
 
-  // Search Messages
   const { data: messages } = await supabase
     .from("messages")
     .select(`
@@ -51,6 +55,7 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
         type
       )
     `)
+    .in("thread_id", threadIds)
     .ilike("content", `%${query}%`)
     .limit(10);
 

@@ -1,20 +1,14 @@
-import { createClient } from "@/utils/supabase/server";
-import { getMessages, getThreads } from "@/utils/supabase/queries";
+import { getMessages, getSharedThread } from "@/utils/supabase/queries";
+import { getAccessibleThread, getCurrentUser } from "@/utils/supabase/access";
 import { ThreadView } from "@/components/chat/ThreadView";
 import { redirect } from "next/navigation";
 import { Thread, Message } from "@/types/database";
 import type { Metadata } from "next";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
-  const resolvedParams = await params;
-  const { id } = resolvedParams;
-  
-  const supabase = await createClient();
-  const { data: thread } = await supabase
-    .from("threads")
-    .select("name, type")
-    .eq("id", id)
-    .single();
+  const { id } = await params;
+  const user = await getCurrentUser();
+  const thread = user ? await getAccessibleThread(user.id, id) : null;
 
   if (!thread) {
     return { title: "Thread Not Found — Choir" };
@@ -27,27 +21,19 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   };
 }
 
-export default async function ThreadPage({ 
-  params 
-}: { 
-  params: Promise<{ id: string }> 
+export default async function ThreadPage({
+  params
+}: {
+  params: Promise<{ id: string }>
 }) {
-  const resolvedParams = await params;
-  const { id } = resolvedParams;
-  
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { id } = await params;
 
+  const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  // Fetch current thread
-  const { data: thread, error } = await supabase
-    .from("threads")
-    .select("*")
-    .eq("id", id)
-    .single();
+  const thread = await getAccessibleThread(user.id, id);
 
-  if (error || !thread) {
+  if (!thread) {
     return (
       <div className="h-full flex items-center justify-center bg-canvas text-ink p-8">
         <p>Thread not found or access denied.</p>
@@ -55,23 +41,21 @@ export default async function ThreadPage({
     );
   }
 
-  // Fetch messages
-  const messages = await getMessages(id) || [];
+  const messages = await getMessages(id);
 
-  let sharedThread = null;
+  let sharedThread: Thread | null = null;
   let sharedMessages: Message[] = [];
 
   if (thread.type === "private") {
-    // Need to find the shared thread for the same project
-    const allProjectThreads = await getThreads(thread.project_id) as Thread[] || [];
-    sharedThread = allProjectThreads.find((t: Thread) => t.type === "shared") || null;
-    if (sharedThread) {
-      sharedMessages = await getMessages(sharedThread.id) || [];
+    const candidate = await getSharedThread(thread.project_id);
+    if (candidate && (await getAccessibleThread(user.id, candidate.id))) {
+      sharedThread = candidate;
+      sharedMessages = await getMessages(candidate.id);
     }
   }
 
   return (
-    <ThreadView 
+    <ThreadView
       thread={thread}
       messages={messages}
       sharedThread={sharedThread}

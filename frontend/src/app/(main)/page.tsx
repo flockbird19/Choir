@@ -1,29 +1,24 @@
-import { createClient } from "@/utils/supabase/server";
-import { getUserTeams, getProjects, getThreads } from "@/utils/supabase/queries";
+import { getWorkspace } from "@/utils/supabase/queries";
+import { getCurrentUser } from "@/utils/supabase/access";
 import { Logo } from "@/components/Logo";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Users, Lock, ArrowRight } from "lucide-react";
-import { Project, Thread, Team } from "@/types/database";
+import { Thread } from "@/types/database";
 
 export default async function Home() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
 
-  // Reuse the layout's already-fetched data via server-side re-fetch
-  // (Next.js deduplicates fetch calls with the same cache key)
-  const teams = await getUserTeams() as Team[] || [];
-  const activeTeam = teams[0] || null;
-  const projects = activeTeam ? (await getProjects(activeTeam.id) as Project[] || []) : [];
+  const workspace = await getWorkspace(user.id);
+  const activeTeam = workspace.teams[0] || null;
+  const projects = workspace.projects.filter((p) => p.team_id === activeTeam?.id);
   const activeProject = projects[0] || null;
-
-  // A team can have more than one project — aggregate threads across all of
-  // them instead of only ever reading the first project's threads.
-  const threadsArrays = await Promise.all(projects.map((p: Project) => getThreads(p.id)));
-  const threads = threadsArrays.flat() as Thread[];
+  const threads = workspace.threads.filter((t) => projects.some((p) => p.id === t.project_id));
 
   const sharedThread = threads.find((t: Thread) => t.type === "shared") || null;
   const privateThreads = threads.filter(
-    (t: Thread) => t.type === "private" && t.owner_id === user?.id
+    (t: Thread) => t.type === "private" && t.owner_id === user.id
   );
 
   const firstName =

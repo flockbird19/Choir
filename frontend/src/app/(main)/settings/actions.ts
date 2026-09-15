@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
+import { isTeamMember } from "@/utils/supabase/access";
 
 export async function generateInviteLink(teamId: string) {
   const supabase = await createClient();
@@ -8,6 +9,10 @@ export async function generateInviteLink(teamId: string) {
 
   if (!user) {
     return { error: "Not authenticated" };
+  }
+
+  if (!(await isTeamMember(user.id, teamId))) {
+    return { error: "You can only create invite links for a workspace you belong to." };
   }
 
   // Insert into team_invitations

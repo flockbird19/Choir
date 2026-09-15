@@ -1,9 +1,13 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
+import { getAccessibleThread, isTeamMember } from "@/utils/supabase/access";
 import { revalidatePath } from "next/cache";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
+
+const NO_THREAD_ACCESS = "You don't have access to this thread.";
+const SHARED_THREAD_ONLY = "This action is only available in a shared thread you belong to.";
 
 export async function sendMessage(threadId: string, content: string, messageId?: string) {
   const supabase = await createClient();
@@ -13,6 +17,10 @@ export async function sendMessage(threadId: string, content: string, messageId?:
 
   if (!user) {
     return { error: "Not logged in" };
+  }
+
+  if (!(await getAccessibleThread(user.id, threadId))) {
+    return { error: NO_THREAD_ACCESS };
   }
 
   const insertData: {
@@ -131,6 +139,11 @@ export async function postToSharedThread(
     return { error: "Not logged in" };
   }
 
+  const target = await getAccessibleThread(user.id, sharedThreadId);
+  if (!target || target.type !== "shared") {
+    return { error: SHARED_THREAD_ONLY };
+  }
+
   // Insert the compiled markdown block into the shared thread.
   // We set `shared_by` to the current user's ID so the frontend can display
   // the "Shared from private exploration" banner.
@@ -169,6 +182,11 @@ export async function pinMessage(
     return { error: "Not logged in" };
   }
 
+  const thread = await getAccessibleThread(user.id, threadId);
+  if (!thread || thread.type !== "shared") {
+    return { error: SHARED_THREAD_ONLY };
+  }
+
   const { error } = await supabase
     .from("messages")
     .update({ is_decision: true, pinned_by: user.id, pinned_at: new Date().toISOString() })
@@ -196,6 +214,11 @@ export async function unpinMessage(
     return { error: "Not logged in" };
   }
 
+  const thread = await getAccessibleThread(user.id, threadId);
+  if (!thread || thread.type !== "shared") {
+    return { error: SHARED_THREAD_ONLY };
+  }
+
   const { error } = await supabase
     .from("messages")
     .update({ is_decision: false, pinned_by: null, pinned_at: null })
@@ -216,6 +239,15 @@ export async function createThread(projectId: string, name: string) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not logged in" };
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("team_id")
+    .eq("id", projectId)
+    .maybeSingle();
+  if (!project || !(await isTeamMember(user.id, project.team_id))) {
+    return { error: "You don't have access to this project." };
+  }
 
   const { data, error } = await supabase.from("threads").insert({
     type: "private",
