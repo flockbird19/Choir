@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
 import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles } from "lucide-react";
+import { DecisionsSinceBanner } from "./DecisionsSinceBanner";
 import {
   postToSharedThread,
   getSessionToken,
@@ -275,6 +276,45 @@ export function ThreadView({
     void handleCatchMeUp();
   }, [autoCatchUp, isPrivate, handleCatchMeUp]);
 
+  // ── "Team decided since you started" (private threads) ─────────────────────
+  // Decisions pinned in the Team Space after this thread's last activity before this
+  // visit. It stays put while you work; dismissing hides everything pinned so far.
+  const [lastActivityAt] = useState(() =>
+    Math.max(Date.parse(thread.created_at) || 0, ...messages.map((m) => Date.parse(m.created_at) || 0))
+  );
+  const dismissKey = `choir:decisions-banner-dismissed:${thread.id}`;
+  // null until the saved dismissal is read after mount, so a dismissed banner never flashes.
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isPrivate) return;
+    let saved = 0;
+    try {
+      saved = Number(window.localStorage.getItem(dismissKey)) || 0;
+    } catch {
+      // Storage unavailable (e.g. blocked) — the banner just can't stay dismissed.
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDismissedAt(saved);
+  }, [isPrivate, dismissKey]);
+
+  const newDecisions = useMemo(() => {
+    if (!isPrivate || dismissedAt === null) return [];
+    const since = Math.max(lastActivityAt, dismissedAt);
+    return localSharedMessages
+      .filter((m) => m.is_decision && m.pinned_at && Date.parse(m.pinned_at) > since)
+      .sort((a, b) => Date.parse(b.pinned_at!) - Date.parse(a.pinned_at!));
+  }, [isPrivate, localSharedMessages, lastActivityAt, dismissedAt]);
+
+  const handleDismissDecisions = useCallback(() => {
+    const latest = Math.max(...newDecisions.map((m) => Date.parse(m.pinned_at!)));
+    setDismissedAt(latest);
+    try {
+      window.localStorage.setItem(dismissKey, String(latest));
+    } catch {
+      // Ignore — the dismissal still applies for this visit.
+    }
+  }, [newDecisions, dismissKey]);
+
   const handleMessageSent = useCallback((id: string, content: string) => {
     setLocalMessages((prev) => {
       if (prev.some(m => m.id === id)) return prev; // Prevent React Strict Mode duplicates
@@ -490,6 +530,15 @@ export function ThreadView({
         {/* Shared thread — thin blue accent bar below header */}
         {!isPrivate && (
           <div className="h-px bg-gradient-to-r from-transparent via-shared/40 to-transparent" />
+        )}
+
+        {/* Decisions pinned in the Team Space since this thread was last active */}
+        {isPrivate && sharedThread && newDecisions.length > 0 && (
+          <DecisionsSinceBanner
+            decisions={newDecisions}
+            onView={() => setDrawerOpen(true)}
+            onDismiss={handleDismissDecisions}
+          />
         )}
 
         {/* Messages */}
