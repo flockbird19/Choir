@@ -11,6 +11,24 @@
 
 begin;
 
+-- ── 0. Locks ─────────────────────────────────────────────────────────────────
+-- Take every table lock up front, messages first (the order the live app reads
+-- them), so the script can't deadlock with app traffic halfway through. Give up
+-- after 15 seconds instead of waiting forever; if that happens, just run it again.
+set local lock_timeout = '15s';
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['messages', 'threads', 'projects', 'team_members', 'teams',
+                           'team_invitations', 'user_api_keys', 'thread_reads', 'ai_request_log']
+  loop
+    if to_regclass('public.' || t) is not null then
+      execute format('lock table public.%I in access exclusive mode', t);
+    end if;
+  end loop;
+end $$;
+
 -- ── 1. Tables ────────────────────────────────────────────────────────────────
 
 create table if not exists public.teams (
