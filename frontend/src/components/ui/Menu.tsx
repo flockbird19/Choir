@@ -27,6 +27,10 @@ export interface MenuTriggerProps {
 
 const ITEM_SELECTOR = '[role="menuitem"]:not([disabled]), [role="menuitemradio"]:not([disabled])';
 
+function visibleItems(menu: HTMLElement | null) {
+  return Array.from(menu?.querySelectorAll<HTMLElement>(ITEM_SELECTOR) ?? []).filter((el) => el.getClientRects().length > 0);
+}
+
 /**
  * Dropdown menu (WAI-ARIA menu button). Arrow keys, Home/End and first-letter typeahead move
  * focus; Enter/Space activate; Escape or Tab closes and returns focus to the trigger.
@@ -38,6 +42,7 @@ export function Menu({
   align = "start",
   side = "bottom",
   className,
+  wrapperClassName,
 }: {
   trigger: (props: MenuTriggerProps) => ReactNode;
   children: ReactNode;
@@ -45,6 +50,8 @@ export function Menu({
   align?: "start" | "end";
   side?: "top" | "bottom";
   className?: string;
+  /** Classes for the wrapper around the trigger, e.g. "min-w-0 flex-1" to let it fill a row. */
+  wrapperClassName?: string;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -52,7 +59,8 @@ export function Menu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [focusTarget, setFocusTarget] = useState<"first" | "last">("first");
 
-  const items = () => Array.from(menuRef.current?.querySelectorAll<HTMLElement>(ITEM_SELECTOR) ?? []);
+  // Only items that are actually shown (some can be hidden at certain breakpoints).
+  const items = () => visibleItems(menuRef.current);
 
   const close = useCallback((restoreFocus = true) => {
     setOpen(false);
@@ -61,7 +69,7 @@ export function Menu({
 
   useEffect(() => {
     if (!open) return;
-    const list = Array.from(menuRef.current?.querySelectorAll<HTMLElement>(ITEM_SELECTOR) ?? []);
+    const list = visibleItems(menuRef.current);
     const checked = list.find((el) => el.getAttribute("aria-checked") === "true");
     (checked ?? (focusTarget === "last" ? list[list.length - 1] : list[0]))?.focus();
 
@@ -130,7 +138,7 @@ export function Menu({
   };
 
   return (
-    <span ref={rootRef} className="relative inline-flex">
+    <span ref={rootRef} className={cn("relative inline-flex", wrapperClassName)}>
       {trigger(triggerProps)}
       {open && (
         <MenuContext.Provider value={{ close }}>
@@ -232,8 +240,8 @@ export function MenuRadioItem({
       <span aria-hidden="true" className="flex w-4 justify-center text-primary">
         {checked && <Check />}
       </span>
-      <span className="min-w-0 flex-1 truncate">{children}</span>
-      {hint && <span className="ml-3 shrink-0 font-mono text-[11px] text-fg-subtle">{hint}</span>}
+      <span className="shrink-0">{children}</span>
+      {hint && <span className="ml-auto min-w-0 truncate pl-3 font-mono text-[11px] text-fg-subtle">{hint}</span>}
     </button>
   );
 }
