@@ -87,7 +87,7 @@ export function Tooltip({
         >
           {content}
           {shortcut && (
-            <kbd className="rounded border border-bg/25 px-1 font-mono text-[10px] leading-4 text-bg/80">{shortcut}</kbd>
+            <kbd className="rounded border border-bg/25 px-1 font-mono text-caption leading-4 text-bg/80">{shortcut}</kbd>
           )}
         </span>
       )}

@@ -21,8 +21,8 @@ function colorFor(key: string) {
 }
 
 const SIZES = {
-  xs: "size-5 text-[9px] [&_svg]:size-3",
-  sm: "size-7 text-[11px] [&_svg]:size-3.5",
+  xs: "size-5 text-caption [&_svg]:size-3",
+  sm: "size-7 text-caption [&_svg]:size-3.5",
   md: "size-8 text-xs [&_svg]:size-4",
   lg: "size-10 text-sm [&_svg]:size-5",
 } as const;
@@ -56,7 +56,7 @@ export function Avatar({ name, colorKey, kind = "person", size = "sm", online, d
         className
       )}
     >
-      {kind === "ai" ? <Sparkles aria-hidden="true" /> : getInitials(name)}
+      {kind === "ai" ? <Sparkles aria-hidden="true" /> : size === "xs" ? getInitials(name).slice(0, 1) : getInitials(name)}
       {online && (
         <span className="absolute -bottom-px -right-px size-2.5 rounded-full bg-emerald-500 ring-2 ring-bg" />
       )}

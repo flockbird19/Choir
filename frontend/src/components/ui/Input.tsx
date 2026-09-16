@@ -6,7 +6,7 @@ import { cn } from "./cn";
 
 const controlBase =
   "w-full rounded-control border bg-field px-3.5 text-base text-fg shadow-soft outline-none sm:text-body " +
-  "placeholder:text-fg-subtle/80 transition-[border-color,box-shadow] duration-150 " +
+  "placeholder:text-fg-subtle transition-[border-color,box-shadow] duration-150 " +
   "focus:border-ring focus:ring-4 focus:ring-ring/20 focus-visible:outline-none " +
   "disabled:cursor-not-allowed disabled:opacity-60";
 
@@ -68,7 +68,7 @@ export function Input({ id, label, hideLabel, hint, error, className, ...props }
         className={cn(
           controlBase,
           "h-11 sm:h-10",
-          error ? "border-danger/70" : "border-line hover:border-line-strong",
+          error ? "border-danger/70" : "border-field-line hover:border-fg-subtle",
           className
         )}
         {...props}
@@ -134,8 +134,8 @@ export function Textarea({
       }}
       className={cn(
         bare
-          ? "w-full resize-none bg-transparent text-base text-fg outline-none placeholder:text-fg-subtle/80 focus-visible:outline-none sm:text-body"
-          : cn(controlBase, "min-h-24 py-2.5", error ? "border-danger/70" : "border-line hover:border-line-strong"),
+          ? "w-full resize-none bg-transparent text-base text-fg outline-none placeholder:text-fg-subtle focus-visible:outline-none sm:text-body"
+          : cn(controlBase, "min-h-24 py-2.5", error ? "border-danger/70" : "border-field-line hover:border-fg-subtle"),
         autoResize && "resize-none",
         className
       )}

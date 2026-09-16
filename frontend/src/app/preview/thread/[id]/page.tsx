@@ -21,8 +21,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: `${name} (preview) — Choir` };
 }
 
-export default async function PreviewThreadPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function PreviewThreadPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ catchup?: string | string[] }>;
+}) {
+  const [{ id }, { catchup }] = await Promise.all([params, searchParams]);
   const user = await getCurrentUser();
   if (!user) redirect(`/login?next=/preview/thread/${id}`);
 
@@ -68,6 +74,7 @@ export default async function PreviewThreadPage({ params }: { params: Promise<{ 
       messages={messages}
       sharedThread={sharedThread}
       sharedMessages={sharedMessages}
+      autoCatchUp={thread.type === "shared" && catchup === "1"}
     />
   );
 }

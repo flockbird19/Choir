@@ -21,11 +21,8 @@ import { useThreadPresence } from "@/hooks/useThreadPresence";
 import { useMemberNames } from "@/hooks/useMemberNames";
 
 import { Thread, Message } from "@/types/database";
+import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE } from "@/utils/ai-errors";
 
-// Backend wording when the caller has no usable key: "No API key found…" / "Could not retrieve API key…".
-function isMissingKeyError(message: unknown): boolean {
-  return typeof message === "string" && /no api key found|could not retrieve api key/i.test(message);
-}
 
 export function ThreadView({
   thread,
@@ -401,7 +398,7 @@ export function ThreadView({
       // Every private message calls the AI, so say this once per visit, not on every send.
       if (missingKeyToastShown.current) return;
       missingKeyToastShown.current = true;
-      toastError("AI replies need your own API key. Add one in Settings, or mute AI replies for this thread.");
+      toastError(MISSING_KEY_AUTO_REPLY_MESSAGE);
       return;
     }
     toastError(error);
@@ -527,7 +524,7 @@ export function ThreadView({
                 onClick={handleToggleAutoReply}
                 disabled={savingAutoReply}
                 title={autoReply ? "Mute AI replies in this thread" : "Turn AI replies back on"}
-                aria-label="AI replies to every message"
+                aria-label="AI replies"
                 aria-pressed={autoReply}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border disabled:opacity-60
                   ${autoReply
@@ -536,7 +533,7 @@ export function ThreadView({
                   }`}
               >
                 {autoReply ? <Bot size={15} /> : <BotOff size={15} />}
-                <span className="hidden sm:inline">{autoReply ? "AI replies on" : "AI muted"}</span>
+                <span className="hidden sm:inline">{autoReply ? "AI replies on" : "AI replies muted"}</span>
               </button>
             )}
 

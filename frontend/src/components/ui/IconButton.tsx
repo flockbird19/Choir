@@ -3,9 +3,9 @@ import { cn, focusRing } from "./cn";
 import { Tooltip } from "./Tooltip";
 
 const SIZES = {
-  // Visual size on desktop; on phones the hit area grows to at least 40px.
-  sm: "size-9 sm:size-8 [&_svg]:size-4",
-  md: "size-10 sm:size-9 [&_svg]:size-[18px]",
+  // Visual size on desktop; on phones every button is at least 44px so it is easy to tap.
+  sm: "size-11 sm:size-8 [&_svg]:size-4",
+  md: "size-11 sm:size-9 [&_svg]:size-[18px]",
   lg: "size-11 [&_svg]:size-5",
 } as const;
 

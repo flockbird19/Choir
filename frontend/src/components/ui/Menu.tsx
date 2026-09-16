@@ -175,7 +175,7 @@ function useMenu() {
 }
 
 const itemClass =
-  "flex min-h-10 w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 text-left text-body-sm text-fg outline-none sm:min-h-8 " +
+  "flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 text-left text-body-sm text-fg outline-none sm:min-h-8 " +
   "hover:bg-hover focus-visible:bg-hover focus:bg-hover disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0";
 
 export function MenuItem({
@@ -241,14 +241,14 @@ export function MenuRadioItem({
         {checked && <Check />}
       </span>
       <span className="shrink-0">{children}</span>
-      {hint && <span className="ml-auto min-w-0 truncate pl-3 font-mono text-[11px] text-fg-subtle">{hint}</span>}
+      {hint && <span className="ml-auto min-w-0 truncate pl-3 font-mono text-caption text-fg-subtle">{hint}</span>}
     </button>
   );
 }
 
 export function MenuLabel({ children }: { children: ReactNode }) {
   return (
-    <div role="presentation" className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">
+    <div role="presentation" className="px-2.5 pb-1 pt-2 text-caption font-semibold uppercase tracking-wider text-fg-subtle">
       {children}
     </div>
   );

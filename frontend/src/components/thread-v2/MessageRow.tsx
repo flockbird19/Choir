@@ -1,10 +1,11 @@
 "use client";
 
 import { memo, useState } from "react";
-import { ArrowUpRight, Check, Copy, Pin, PinOff } from "lucide-react";
+import { ArrowUpRight, Check, Copy, Ellipsis, Pin, PinOff } from "lucide-react";
 import type { Message } from "@/types/database";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
+import { Menu, MenuItem } from "@/components/ui/Menu";
 import { cn } from "@/components/ui/cn";
 import { Markdown } from "./Markdown";
 import { formatTime } from "./format";
@@ -25,8 +26,9 @@ interface MessageRowProps {
   onTogglePin: (id: string, pinned: boolean) => void;
 }
 
+// Pointer devices only (touch screens get the actions menu below), so 28px meets the 24px web minimum.
 const actionClass =
-  "flex size-8 cursor-pointer items-center justify-center rounded-md text-fg-subtle hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-ring sm:size-7 [&_svg]:size-3.5";
+  "flex size-7 cursor-pointer items-center justify-center rounded-md text-fg-subtle hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-ring [&_svg]:size-3.5";
 
 function MessageActions({
   message,
@@ -53,27 +55,58 @@ function MessageActions({
   };
 
   return (
-    <div
-      className={cn(
-        "flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/message:opacity-100 group-focus-within/message:opacity-100",
-        align === "end" ? "flex-row-reverse" : ""
-      )}
-    >
-      <button type="button" onClick={copy} className={actionClass} aria-label={copied ? "Copied" : "Copy message"} title={copied ? "Copied" : "Copy"}>
-        {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-      </button>
-      {canPin && (
-        <button
-          type="button"
-          onClick={() => onTogglePin(message.id, pinned)}
-          className={cn(actionClass, pinned && "text-decision")}
-          aria-label={pinned ? "Unpin decision" : "Pin as decision"}
-          title={pinned ? "Unpin decision" : "Pin as decision"}
-        >
-          {pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
+    <>
+      {/* Mouse and trackpad: inline buttons that appear on hover or keyboard focus. */}
+      <div
+        className={cn(
+          "flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/message:opacity-100 group-focus-within/message:opacity-100 pointer-coarse:hidden",
+          align === "end" ? "flex-row-reverse" : ""
+        )}
+      >
+        <button type="button" onClick={copy} className={actionClass} aria-label={copied ? "Copied" : "Copy message"} title={copied ? "Copied" : "Copy"}>
+          {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
         </button>
-      )}
-    </div>
+        {canPin && (
+          <button
+            type="button"
+            onClick={() => onTogglePin(message.id, pinned)}
+            className={cn(actionClass, pinned && "text-decision")}
+            aria-label={pinned ? "Unpin decision" : "Pin as decision"}
+            title={pinned ? "Unpin decision" : "Pin as decision"}
+          >
+            {pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
+          </button>
+        )}
+      </div>
+
+      {/* Touch screens have no hover: one always-visible, full-size button with the same actions. */}
+      <span className="hidden pointer-coarse:inline-flex">
+        <Menu
+          label="Message actions"
+          // The button sits on the far side of the bubble, so the menu opens back toward it.
+          align={align === "start" ? "end" : "start"}
+          trigger={(props) => (
+            <button
+              {...props}
+              type="button"
+              aria-label="Message actions"
+              className="flex size-11 cursor-pointer items-center justify-center rounded-md text-fg-subtle hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-ring aria-expanded:bg-hover"
+            >
+              <Ellipsis size={16} aria-hidden="true" />
+            </button>
+          )}
+        >
+          <MenuItem icon={copied ? <Check /> : <Copy />} onSelect={copy}>
+            {copied ? "Copied" : "Copy message"}
+          </MenuItem>
+          {canPin && (
+            <MenuItem icon={pinned ? <PinOff /> : <Pin />} onSelect={() => onTogglePin(message.id, pinned)}>
+              {pinned ? "Unpin decision" : "Pin as decision"}
+            </MenuItem>
+          )}
+        </Menu>
+      </span>
+    </>
   );
 }
 
@@ -162,7 +195,7 @@ export const MessageRow = memo(function MessageRow({
   return (
     <div
       id={`message-${message.id}`}
-      // Tapping a message on a touch screen focuses it, which reveals its actions.
+      // Focusable so "Jump to" and keyboard focus can land on the message.
       tabIndex={-1}
       className={cn(
         "outline-none",

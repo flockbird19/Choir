@@ -32,7 +32,7 @@ function openSearch() {
 }
 
 const rowClass =
-  "group flex h-10 w-full items-center gap-2.5 rounded-control px-2.5 text-body-sm outline-none sm:h-8 " +
+  "group flex h-11 w-full items-center gap-2.5 rounded-control px-2.5 text-body-sm outline-none sm:h-8 " +
   "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring";
 
 export function ThreadSidebar({ user, teams, projects, threads, activeThread, onNavigate }: SidebarProps) {
@@ -109,9 +109,9 @@ export function ThreadSidebar({ user, teams, projects, threads, activeThread, on
             <button
               {...props}
               type="button"
-              className="flex h-10 min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-control px-2 text-left hover:bg-hover focus-visible:outline-2 focus-visible:outline-ring aria-expanded:bg-hover"
+              className="flex h-11 min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-control px-2 sm:h-10 text-left hover:bg-hover focus-visible:outline-2 focus-visible:outline-ring aria-expanded:bg-hover"
             >
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-primary text-[11px] font-bold text-on-primary">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-[8px] bg-primary text-caption font-bold text-on-primary">
                 {(activeTeam?.name ?? "?").slice(0, 2).toUpperCase()}
               </span>
               <span className="flex min-w-0 flex-1 flex-col leading-tight">
@@ -156,11 +156,11 @@ export function ThreadSidebar({ user, teams, projects, threads, activeThread, on
       </div>
 
       <nav aria-label="Threads" className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        <p className="px-2.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Shared with the team</p>
+        <p className="px-2.5 pb-1 pt-3 text-caption font-semibold uppercase tracking-wider text-fg-muted">Shared with the team</p>
         <ul className="flex flex-col gap-0.5">{shared.map(threadLink)}</ul>
 
         <div className="flex items-center justify-between pb-1 pl-2.5 pr-1 pt-5">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">Your private threads</p>
+          <p className="text-caption font-semibold uppercase tracking-wider text-fg-muted">Your private threads</p>
           <IconButton label="New private thread" icon={<Plus />} size="sm" tooltipSide="right" onClick={() => setCreating(true)} disabled={!activeProject} />
         </div>
         {privateThreads.length > 0 ? (

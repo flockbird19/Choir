@@ -73,7 +73,7 @@ export function Tabs<T extends string>({
               "inline-flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap font-medium [&_svg]:size-4",
               variant === "pill"
                 ? cn(
-                    "h-9 rounded-[8px] px-3 text-body-sm sm:h-8",
+                    "h-11 rounded-[8px] px-3 text-body-sm sm:h-8",
                     selected ? "bg-card text-fg shadow-soft" : "text-fg-muted hover:text-fg"
                   )
                 : cn(

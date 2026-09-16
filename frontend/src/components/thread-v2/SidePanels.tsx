@@ -49,7 +49,7 @@ export function DecisionsList({
             <button
               type="button"
               onClick={() => onJumpTo(decision.id)}
-              className="flex w-full cursor-pointer flex-col gap-1.5 rounded-card p-3 pr-10 text-left hover:bg-hover focus-visible:outline-2 focus-visible:outline-ring"
+              className="flex w-full cursor-pointer flex-col gap-1.5 rounded-card p-3 pr-12 text-left hover:bg-hover sm:pr-10 focus-visible:outline-2 focus-visible:outline-ring"
             >
               <span className="flex items-center gap-1.5 text-caption text-fg-subtle">
                 <Pin size={12} className="fill-current text-decision" aria-hidden="true" />
@@ -67,7 +67,7 @@ export function DecisionsList({
               onClick={() => onUnpin(decision.id)}
               aria-label="Unpin decision"
               title="Unpin decision"
-              className="absolute right-2 top-2 flex size-8 cursor-pointer items-center justify-center rounded-md text-fg-subtle hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-ring"
+              className="absolute right-1 top-1 flex size-11 cursor-pointer sm:right-2 sm:top-2 sm:size-8 items-center justify-center rounded-md text-fg-subtle hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-ring"
             >
               <PinOff size={14} aria-hidden="true" />
             </button>

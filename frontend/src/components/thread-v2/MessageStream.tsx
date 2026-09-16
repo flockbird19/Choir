@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowDown } from "lucide-react";
 import type { Message } from "@/types/database";
 import { Avatar } from "@/components/ui/Avatar";
@@ -11,6 +11,13 @@ import { MessageRow, type SenderKind } from "./MessageRow";
 import { continuesGroup, dayKey, formatDayLabel } from "./format";
 
 const NEAR_BOTTOM_PX = 120;
+const ANNOUNCE_MAX_CHARS = 160;
+
+// Plain-text preview for screen reader announcements (drops Markdown markers).
+function spokenPreview(content: string): string {
+  const text = content.replace(/[*_`#>|~]/g, "").replace(/\s+/g, " ").trim();
+  return text.length > ANNOUNCE_MAX_CHARS ? `${text.slice(0, ANNOUNCE_MAX_CHARS)}…` : text;
+}
 
 export interface MessageStreamProps {
   messages: Message[];
@@ -69,6 +76,31 @@ export function MessageStream({
   const lastCount = useRef(messages.length);
   const [unseen, setUnseen] = useState(0);
 
+  // Screen readers hear each finished message from someone else once. The list itself is not a
+  // live region, so a streaming AI reply isn't re-read as every chunk arrives, and your own
+  // messages aren't read back to you.
+  const [announcement, setAnnouncement] = useState("");
+  const announcedCount = useRef(messages.length);
+  const latest = useRef({ messages, currentUserId, currentUserName, names, namesLoaded });
+  useEffect(() => {
+    latest.current = { messages, currentUserId, currentUserName, names, namesLoaded };
+  });
+  useEffect(() => {
+    const { messages: list, ...who } = latest.current;
+    const added = list.slice(announcedCount.current);
+    announcedCount.current = list.length;
+    const fromOthers = added
+      .map((message) => ({ message, sender: senderOf(message, who.currentUserId, who.currentUserName, who.names, who.namesLoaded) }))
+      .filter(({ sender }) => sender.kind !== "own");
+    if (fromOthers.length === 0) return;
+    const text =
+      fromOthers.length === 1
+        ? `${fromOthers[0].sender.kind === "ai" ? "Choir AI replied" : fromOthers[0].sender.name}: ${spokenPreview(fromOthers[0].message.content)}`
+        : `${fromOthers.length} new messages`;
+    // A trailing no-break space alternates so the same text is announced again.
+    setAnnouncement((previous) => (previous === text ? `${text} ` : text));
+  }, [messages.length]);
+
   const scrollToEnd = useCallback(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -115,10 +147,8 @@ export function MessageStream({
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        role="log"
+        role="region"
         aria-label={label}
-        aria-live="polite"
-        aria-relevant="additions"
         tabIndex={0}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
       >
@@ -174,9 +204,10 @@ export function MessageStream({
                       <Markdown>{streaming.text}</Markdown>
                     </div>
                   ) : (
-                    <span className="flex h-6 items-center gap-1" role="status" aria-label="Choir AI is thinking">
+                    <span className="flex h-6 items-center gap-1" role="status">
+                      <span className="sr-only">Choir AI is thinking</span>
                       {[0, 150, 300].map((delay) => (
-                        <span key={delay} className="size-1.5 animate-typing rounded-full bg-ai" style={{ animationDelay: `${delay}ms` }} />
+                        <span key={delay} aria-hidden="true" className="size-1.5 animate-typing rounded-full bg-ai" style={{ animationDelay: `${delay}ms` }} />
                       ))}
                     </span>
                   )}
@@ -185,6 +216,10 @@ export function MessageStream({
             )}
           </div>
         )}
+      </div>
+
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
       </div>
 
       {unseen > 0 && (

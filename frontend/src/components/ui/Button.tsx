@@ -18,7 +18,7 @@ const VARIANTS: Record<ButtonVariant, string> = {
 
 // Mobile sizes are taller so every control is comfortable to tap.
 const SIZES: Record<ButtonSize, string> = {
-  sm: "h-9 gap-1.5 px-3 text-label sm:h-8",
+  sm: "h-11 gap-1.5 px-3 text-label sm:h-8",
   md: "h-11 gap-2 px-4 text-body-sm sm:h-9 sm:px-3.5",
   lg: "h-12 gap-2 px-5 text-body sm:h-11",
 };

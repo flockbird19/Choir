@@ -55,6 +55,12 @@ export interface ComposerCallbacks {
   onStreamError: (error: string) => void;
 }
 
+/**
+ * How messages reach the AI: "mention" (shared threads) only with @AI; "auto" (private
+ * threads) on every message; "muted" (private, AI replies muted) only with @AI.
+ */
+export type AiMode = "mention" | "auto" | "muted";
+
 export function Composer({
   threadId,
   threadName,
@@ -62,6 +68,7 @@ export function Composer({
   userName,
   busy,
   callbacks,
+  aiMode = "mention",
 }: {
   threadId: string;
   threadName: string;
@@ -70,6 +77,7 @@ export function Composer({
   /** An AI reply is streaming; sending waits until it's done. */
   busy: boolean;
   callbacks: ComposerCallbacks;
+  aiMode?: AiMode;
 }) {
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -80,7 +88,8 @@ export function Composer({
   const storedKey = useSyncExternalStore(subscribeModel, readModelKey, () => null);
   const model = findModel(storedKey) ?? AVAILABLE_MODELS[0];
 
-  const asksAI = AI_TRIGGER.test(content);
+  const autoReply = aiMode === "auto";
+  const asksAI = autoReply || AI_TRIGGER.test(content);
   const canSend = content.trim().length > 0 && !submitting && !busy;
 
   useEffect(() => () => void readerRef.current?.cancel(), []);
@@ -202,9 +211,9 @@ export function Composer({
         <div
           className={cn(
             "rounded-sheet border bg-card shadow-raised transition-[border-color,box-shadow] duration-200",
-            asksAI
+            asksAI && !autoReply
               ? "border-primary/50 ring-4 ring-primary/10"
-              : "border-line focus-within:border-line-strong"
+              : "border-field-line focus-within:border-fg-subtle"
           )}
         >
           <label htmlFor={`composer-${threadId}`} className="sr-only">
@@ -226,18 +235,32 @@ export function Composer({
               }
             }}
             aria-describedby={hintId}
-            placeholder={isPrivate ? `Think out loud in ${threadName}…` : `Message ${threadName}…`}
+            placeholder={
+              aiMode === "auto"
+                ? `Think out loud in ${threadName}… the AI replies to every message`
+                : aiMode === "muted"
+                  ? `Message ${threadName}… AI replies are muted, type @AI to ask`
+                  : isPrivate
+                    ? `Think out loud in ${threadName}…`
+                    : `Message ${threadName}…`
+            }
             className="block max-h-[220px] px-4 pb-1 pt-3.5 leading-relaxed"
           />
 
           <div className="flex items-center gap-1.5 px-2 pb-2 pt-1">
+            {autoReply ? (
+              <span className="inline-flex h-11 items-center gap-1 rounded-full bg-primary-soft px-3 text-label font-medium text-primary sm:h-8 sm:px-2.5">
+                <AtSign size={14} aria-hidden="true" />
+                AI replies on
+              </span>
+            ) : (
             <Tooltip content={asksAI ? "The AI will reply to this message" : "Ask the AI to reply"} side="top">
               <button
                 type="button"
                 onClick={toggleAI}
                 aria-pressed={asksAI}
                 className={cn(
-                  "inline-flex h-9 cursor-pointer items-center gap-1 rounded-full border px-2.5 text-label font-medium sm:h-8",
+                  "inline-flex h-11 cursor-pointer items-center gap-1 rounded-full border px-3 text-label font-medium sm:h-8 sm:px-2.5",
                   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                   asksAI
                     ? "border-primary/30 bg-primary-soft text-primary"
@@ -248,6 +271,7 @@ export function Composer({
                 AI
               </button>
             </Tooltip>
+            )}
 
             <Menu
               label="AI model"
@@ -258,7 +282,7 @@ export function Composer({
                   {...props}
                   type="button"
                   aria-label={`AI model: ${model.name}`}
-                  className="inline-flex h-9 max-w-[11rem] cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-label font-medium text-fg-muted hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-expanded:bg-hover sm:h-8"
+                  className="inline-flex h-11 max-w-[11rem] cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-label font-medium text-fg-muted hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring aria-expanded:bg-hover sm:h-8"
                 >
                   <span className="truncate">{model.name}</span>
                   <ChevronDown size={14} aria-hidden="true" className="shrink-0" />
@@ -284,7 +308,12 @@ export function Composer({
             </Menu>
 
             <p id={hintId} className="ml-auto hidden text-caption text-fg-subtle md:block">
-              {asksAI ? `${model.name} will reply` : "Type @AI to ask the assistant"} · Enter to send
+              {autoReply
+                ? `${model.name} replies to every message`
+                : asksAI
+                  ? `${model.name} will reply`
+                  : "Type @AI to ask the assistant"}{" "}
+              · Enter to send
             </p>
 
             <button
@@ -293,7 +322,7 @@ export function Composer({
               disabled={!canSend}
               aria-label={busy ? "Waiting for the AI to finish" : asksAI ? "Send and ask the AI" : "Send message"}
               className={cn(
-                "ml-auto flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full md:ml-2 sm:size-9",
+                "ml-auto flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full md:ml-2 sm:size-9",
                 "transition-[background-color,color,transform] duration-150 active:scale-95",
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                 canSend ? "bg-primary text-on-primary shadow-soft hover:bg-primary-hover" : "cursor-not-allowed bg-sunken text-fg-subtle"

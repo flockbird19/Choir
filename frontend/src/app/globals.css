@@ -33,6 +33,7 @@
   --color-fg-subtle: var(--ds-fg-subtle);
   --color-line: var(--ds-line);
   --color-line-strong: var(--ds-line-strong);
+  --color-field-line: var(--ds-field-line);
   --color-primary: var(--ds-primary);
   --color-primary-hover: var(--ds-primary-hover);
   --color-on-primary: var(--ds-on-primary);
@@ -185,9 +186,11 @@
   --ds-field:         #FFFFFF;
   --ds-fg:            #12131F;
   --ds-fg-muted:      #525769;
-  --ds-fg-subtle:     #6B7083;
+  --ds-fg-subtle:     #616677;
   --ds-line:          #E3E4EB;
   --ds-line-strong:   #CDD0DA;
+  /* Borders that identify a text field: 3:1 against the field and page (WCAG 1.4.11). */
+  --ds-field-line:    #878C9E;
   --ds-primary:       #4F46E5;
   --ds-primary-hover: #4338CA;
   --ds-on-primary:    #FFFFFF;
@@ -258,6 +261,7 @@
   --ds-fg-subtle:     #8B90A3;
   --ds-line:          #23252F;
   --ds-line-strong:   #343746;
+  --ds-field-line:    #5F6374;
   --ds-primary:       #818CF8;
   --ds-primary-hover: #A5B4FC;
   --ds-on-primary:    #0A0B10;

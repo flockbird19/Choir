@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
+  Bot,
+  BotOff,
   CheckSquare,
   Download,
   Ellipsis,
@@ -17,7 +19,14 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { Message, Project, Team, Thread } from "@/types/database";
-import { getSessionToken, pinMessage, postToSharedThread, unpinMessage } from "@/app/(main)/thread/[id]/actions";
+import {
+  getSessionToken,
+  pinMessage,
+  postToSharedThread,
+  setThreadAutoReply,
+  unpinMessage,
+} from "@/app/(main)/thread/[id]/actions";
+import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE } from "@/utils/ai-errors";
 import { useMemberNames } from "@/hooks/useMemberNames";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useThreadPresence } from "@/hooks/useThreadPresence";
@@ -31,8 +40,9 @@ import { IconButton } from "@/components/ui/IconButton";
 import { Menu, MenuItem, MenuSeparator } from "@/components/ui/Menu";
 import { cn } from "@/components/ui/cn";
 import { useMediaQuery } from "@/components/ui/useMediaQuery";
-import { CatchUpDialog, type CatchUpState } from "./CatchUpDialog";
+import { CatchUpDialog, CLOSED_CATCH_UP, type CatchUpState } from "./CatchUpDialog";
 import { Composer, type ComposerCallbacks } from "./Composer";
+import { DecisionsSince } from "./DecisionsSince";
 import { MessageStream } from "./MessageStream";
 import { BACKEND_URL, type ModelOption } from "./models";
 import { DecisionsList, TeamSpacePeek } from "./SidePanels";
@@ -49,6 +59,8 @@ export interface ThreadScreenProps {
   messages: Message[];
   sharedThread: Thread | null;
   sharedMessages: Message[];
+  /** Set by the invite flow (?catchup=1): open Catch me up once on arrival. */
+  autoCatchUp?: boolean;
 }
 
 function upsert(list: Message[], incoming: Message) {
@@ -59,7 +71,17 @@ function merge(list: Message[], incoming: Message) {
   return list.map((m) => (m.id === incoming.id ? { ...m, ...incoming } : m));
 }
 
-export function ThreadScreen({ user, teams, projects, threads, thread, messages, sharedThread, sharedMessages }: ThreadScreenProps) {
+export function ThreadScreen({
+  user,
+  teams,
+  projects,
+  threads,
+  thread,
+  messages,
+  sharedThread,
+  sharedMessages,
+  autoCatchUp = false,
+}: ThreadScreenProps) {
   const router = useRouter();
   const toast = useToast();
   const isPrivate = thread.type === "private";
@@ -130,6 +152,70 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
     [isWide]
   );
 
+  // ── AI auto-replies (private threads, D1) ───────────────────────────────
+  // A missing column (schema not applied) reads as undefined, so replies stay on.
+  const [autoReply, setAutoReply] = useState(thread.ai_auto_reply !== false);
+  const [savingAutoReply, setSavingAutoReply] = useState(false);
+  const toggleAutoReply = async () => {
+    const next = !autoReply;
+    setAutoReply(next);
+    setSavingAutoReply(true);
+    try {
+      const res = await setThreadAutoReply(thread.id, next);
+      if (res.error) {
+        setAutoReply(!next);
+        toast.error(res.error);
+      } else {
+        toast.success(next ? "The AI will reply to every message here." : "AI replies muted. Type @AI to ask.");
+      }
+    } catch {
+      setAutoReply(!next);
+      toast.error("Couldn't save the AI reply setting. Please try again.");
+    } finally {
+      setSavingAutoReply(false);
+    }
+  };
+  const aiMode = isPrivate ? (autoReply ? "auto" : "muted") : "mention";
+
+  // ── "Team decided since you were last here" (private threads, K4) ─────────
+  // Decisions pinned in the shared thread after this thread's last activity before this
+  // visit. Dismissing hides everything pinned so far (remembered per thread).
+  const [lastActivityAt] = useState(() =>
+    Math.max(Date.parse(thread.created_at) || 0, ...messages.map((m) => Date.parse(m.created_at) || 0))
+  );
+  const dismissKey = `choir:decisions-banner-dismissed:${thread.id}`;
+  // null until the saved dismissal is read after mount, so a dismissed banner never flashes.
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (!isPrivate) return;
+    let saved = 0;
+    try {
+      saved = Number(window.localStorage.getItem(dismissKey)) || 0;
+    } catch {
+      // Storage blocked: the banner just can't stay dismissed.
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDismissedAt(saved);
+  }, [isPrivate, dismissKey]);
+
+  const newTeamDecisions = useMemo(() => {
+    if (!isPrivate || dismissedAt === null) return [];
+    const since = Math.max(lastActivityAt, dismissedAt);
+    return localShared
+      .filter((m) => m.is_decision && m.pinned_at && Date.parse(m.pinned_at) > since)
+      .sort((a, b) => Date.parse(b.pinned_at!) - Date.parse(a.pinned_at!));
+  }, [isPrivate, localShared, lastActivityAt, dismissedAt]);
+
+  const dismissTeamDecisions = () => {
+    const latest = Math.max(...newTeamDecisions.map((m) => Date.parse(m.pinned_at!)));
+    setDismissedAt(latest);
+    try {
+      window.localStorage.setItem(dismissKey, String(latest));
+    } catch {
+      // The dismissal still applies for this visit.
+    }
+  };
+
   // ── Streaming (text is flushed once per animation frame) ──────────────────
   const [streaming, setStreaming] = useState<{ text: string | null; model: string } | null>(null);
   const streamBuffer = useRef("");
@@ -141,6 +227,7 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
     if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
   }, []);
 
+  const missingKeyToastShown = useRef(false);
   const composerCallbacks = useMemo<ComposerCallbacks>(
     () => ({
       onMessageSent: (id, content) => {
@@ -193,11 +280,18 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
         if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
         streamFrame.current = null;
         setStreaming(null);
+        if (isPrivate && isMissingKeyError(error)) {
+          // Every private message calls the AI, so say this once per visit.
+          if (missingKeyToastShown.current) return;
+          missingKeyToastShown.current = true;
+          toast.error(MISSING_KEY_AUTO_REPLY_MESSAGE);
+          return;
+        }
         toast.error(error);
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [thread.id, user.id]
+    [thread.id, user.id, isPrivate]
   );
 
   // ── Post to Shared ───────────────────────────────────────────────────────
@@ -264,9 +358,9 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
     }
   };
 
-  const [catchUp, setCatchUp] = useState<CatchUpState>({ open: false, loading: false, summary: null, count: null });
-  const runCatchUp = async () => {
-    setCatchUp({ open: true, loading: true, summary: null, count: null });
+  const [catchUp, setCatchUp] = useState<CatchUpState>(CLOSED_CATCH_UP);
+  const runCatchUp = useCallback(async () => {
+    setCatchUp({ ...CLOSED_CATCH_UP, open: true, loading: true });
     try {
       const token = await getSessionToken();
       if (!token) throw new Error("You're signed out.");
@@ -276,15 +370,33 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        // The summary uses the viewer's own key; people who just joined often have none.
+        if (res.status === 400 && isMissingKeyError(body.detail)) {
+          setCatchUp({ ...CLOSED_CATCH_UP, open: true, needsKey: true });
+          return;
+        }
         throw new Error(body.detail || "Couldn't write the summary.");
       }
       const data = await res.json();
-      setCatchUp({ open: true, loading: false, summary: data.summary, count: data.message_count });
+      setCatchUp({ ...CLOSED_CATCH_UP, open: true, summary: data.summary, count: data.message_count });
     } catch (err) {
-      setCatchUp({ open: false, loading: false, summary: null, count: null });
+      setCatchUp(CLOSED_CATCH_UP);
       toast.error(err instanceof Error ? err.message : "Couldn't write the summary.");
     }
-  };
+    // toast functions are recreated each render by the provider; only error is used.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread.id]);
+
+  // Invite flow: open Catch me up once, then drop ?catchup=1 so a refresh doesn't repeat it.
+  const autoCatchUpDone = useRef(false);
+  useEffect(() => {
+    if (!autoCatchUp || isPrivate || autoCatchUpDone.current) return;
+    autoCatchUpDone.current = true;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("catchup");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    void runCatchUp();
+  }, [autoCatchUp, isPrivate, runCatchUp]);
 
   // ── Rendering ────────────────────────────────────────────────────────────
   const panelTitle = panel === "decisions" ? "Decisions" : `${sharedName} (shared)`;
@@ -318,8 +430,15 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
       title="Your private thread"
       description={
         <>
-          Only you can see this. Type <span className="font-mono text-primary">@AI</span> to think it through with the
-          assistant; it already knows what&rsquo;s in {sharedName}.
+          Only you can see this.{" "}
+          {autoReply ? (
+            <>The AI replies to every message here</>
+          ) : (
+            <>
+              AI replies are muted; type <span className="font-mono text-primary">@AI</span> to ask
+            </>
+          )}
+          , and it already knows what&rsquo;s in {sharedName}.
         </>
       }
     />
@@ -373,7 +492,7 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
             </div>
             <p className="hidden truncate text-caption text-fg-subtle lg:block">
               {isPrivate
-                ? `Only you can see this · the AI also reads ${sharedName}`
+                ? `Only you can see this · ${autoReply ? "the AI replies to every message" : "AI replies muted, use @AI"} · it also reads ${sharedName}`
                 : `Everyone on ${team?.name ?? "your team"} sees this${names.loaded && memberCount > 0 ? ` · ${memberCount} member${memberCount === 1 ? "" : "s"}` : ""}`}
             </p>
           </div>
@@ -405,6 +524,21 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
                   )}
                 </Button>
               </>
+            )}
+            {isPrivate && (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-pressed={autoReply}
+                title={autoReply ? "Mute AI replies in this thread" : "Turn AI replies back on"}
+                onClick={toggleAutoReply}
+                disabled={savingAutoReply}
+                leadingIcon={autoReply ? <Bot size={15} aria-hidden="true" /> : <BotOff size={15} aria-hidden="true" />}
+                className="aria-pressed:bg-selected aria-pressed:text-fg"
+              >
+                AI replies
+                <span aria-hidden="true" className="text-fg-subtle">{autoReply ? "on" : "muted"}</span>
+              </Button>
             )}
             {isPrivate && sharedThread && (
               <>
@@ -442,6 +576,11 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
                   <MenuItem icon={<Pin />} onSelect={() => setPanel("decisions")} hint={decisions.length || undefined}>Decisions</MenuItem>
                 </>
               )}
+              {isPrivate && (
+                <MenuItem icon={autoReply ? <BotOff /> : <Bot />} onSelect={() => void toggleAutoReply()} disabled={savingAutoReply}>
+                  {autoReply ? "Mute AI replies" : "Turn AI replies on"}
+                </MenuItem>
+              )}
               {isPrivate && sharedThread && (
                 <>
                   <MenuItem icon={<CheckSquare />} onSelect={() => setSelectMode(true)}>Post to Shared</MenuItem>
@@ -462,6 +601,15 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
             <ArrowUpRight size={14} aria-hidden="true" />
             <span className="flex-1">Pick the messages to post to {sharedName}. Your teammates will see them as one update.</span>
           </div>
+        )}
+
+        {isPrivate && sharedThread && newTeamDecisions.length > 0 && (
+          <DecisionsSince
+            decisions={newTeamDecisions}
+            sharedName={sharedName}
+            onView={() => setPanel("team")}
+            onDismiss={dismissTeamDecisions}
+          />
         )}
 
         <MessageStream
@@ -505,6 +653,7 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
             userName={user.name}
             busy={streaming !== null}
             callbacks={composerCallbacks}
+            aiMode={aiMode}
           />
         )}
       </div>
@@ -525,7 +674,7 @@ export function ThreadScreen({ user, teams, projects, threads, thread, messages,
         </Sheet>
       )}
 
-      <CatchUpDialog state={catchUp} onClose={() => setCatchUp((s) => ({ ...s, open: false }))} />
+      <CatchUpDialog state={catchUp} decisions={decisions} onClose={() => setCatchUp((s) => ({ ...s, open: false }))} />
     </div>
   );
 }

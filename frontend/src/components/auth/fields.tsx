@@ -5,7 +5,7 @@ import { AlertCircle, CheckCircle2, Eye, EyeOff, Info } from "lucide-react";
 
 const fieldBase =
   "h-11 w-full rounded-[10px] border bg-field px-3.5 text-base text-fg shadow-soft outline-none " +
-  "placeholder:text-fg-subtle/70 transition-[border-color,box-shadow] duration-150 sm:text-[15px] " +
+  "placeholder:text-fg-subtle transition-[border-color,box-shadow] duration-150 sm:text-[15px] " +
   "focus:border-ring focus:ring-4 focus:ring-ring/20 focus-visible:outline-none";
 
 export const primaryButtonClass =
@@ -78,7 +78,7 @@ export const TextField = forwardRef<HTMLInputElement, FieldProps>(function TextF
         id={id}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(id, hint, error)}
-        className={`${fieldBase} ${error ? "border-danger/70" : "border-line hover:border-line-strong"} ${className}`}
+        className={`${fieldBase} ${error ? "border-danger/70" : "border-field-line hover:border-fg-subtle"} ${className}`}
         {...inputProps}
       />
       <FieldMessages id={id} hint={hint} error={error} />
@@ -102,7 +102,7 @@ export const PasswordField = forwardRef<HTMLInputElement, Omit<FieldProps, "type
           type={visible ? "text" : "password"}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy(id, hint, error)}
-          className={`${fieldBase} pr-12 ${error ? "border-danger/70" : "border-line hover:border-line-strong"} ${className}`}
+          className={`${fieldBase} pr-12 ${error ? "border-danger/70" : "border-field-line hover:border-fg-subtle"} ${className}`}
           {...inputProps}
         />
         <button

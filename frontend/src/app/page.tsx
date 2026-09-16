@@ -93,7 +93,8 @@ export default function LandingPage() {
           <Link href="/login" className={buttonClasses({ variant: "ghost", size: "sm", className: "hidden sm:inline-flex" })}>
             Sign in
           </Link>
-          <Link href={SIGN_UP} className={buttonClasses({ variant: "primary", size: "sm" })}>
+          {/* Secondary here so the hero's "Create a workspace" is the one primary action on screen. */}
+          <Link href={SIGN_UP} className={buttonClasses({ variant: "secondary", size: "sm" })}>
             Get started
           </Link>
         </nav>
@@ -114,7 +115,7 @@ export default function LandingPage() {
           />
           <div className="relative mx-auto flex max-w-6xl flex-col items-center px-4 pb-16 pt-14 text-center sm:px-6 sm:pt-20 lg:pb-24">
             <p className="inline-flex animate-rise items-center gap-2 rounded-full border border-line bg-card px-3 py-1 text-label font-medium text-fg-muted shadow-soft motion-reduce:animate-none">
-              <span className="size-1.5 rounded-full bg-team" aria-hidden="true" />
+              <span className="size-1.5 rounded-full bg-fg-subtle" aria-hidden="true" />
               Multiplayer AI for small, fast-moving teams
             </p>
             <h1

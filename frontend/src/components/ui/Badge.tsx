@@ -27,7 +27,7 @@ export function Badge({ tone = "neutral", icon, mono, size = "sm", className, ch
     <span
       className={cn(
         "inline-flex max-w-full shrink-0 items-center gap-1 whitespace-nowrap rounded-full border font-medium [&_svg]:shrink-0",
-        size === "sm" ? "h-5 px-1.5 text-[11px] [&_svg]:size-3" : "h-6 px-2 text-caption [&_svg]:size-3.5",
+        size === "sm" ? "h-5 px-1.5 text-caption [&_svg]:size-3" : "h-6 px-2 text-caption [&_svg]:size-3.5",
         mono && "font-mono tracking-tight",
         TONES[tone],
         className
@@ -44,7 +44,7 @@ export function Kbd({ children, className }: { children: ReactNode; className?: 
   return (
     <kbd
       className={cn(
-        "inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-card px-1 font-mono text-[11px] text-fg-muted shadow-soft",
+        "inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-card px-1 font-mono text-caption text-fg-muted shadow-soft",
         className
       )}
     >

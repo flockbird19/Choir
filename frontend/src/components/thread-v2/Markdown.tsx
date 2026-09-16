@@ -31,13 +31,13 @@ const CodeBlock: Components["pre"] = ({ node: _node, children, ...props }) => {
 
   return (
     <div className="group/code my-3 overflow-hidden rounded-control border border-line bg-sunken first:mt-0 last:mb-0">
-      <div className="flex h-8 items-center justify-between border-b border-line pl-3 pr-1">
-        <span className="font-mono text-[11px] text-fg-subtle">{language ?? "code"}</span>
+      <div className="flex h-11 items-center justify-between border-b border-line pl-3 pr-1 sm:h-8">
+        <span className="font-mono text-caption text-fg-subtle">{language ?? "code"}</span>
         <button
           type="button"
           onClick={copy}
           aria-label={copied ? "Copied" : "Copy code"}
-          className="flex h-6 cursor-pointer items-center gap-1 rounded-md px-1.5 text-[11px] text-fg-subtle hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-ring"
+          className="flex h-11 cursor-pointer items-center gap-1 rounded-md px-2.5 sm:h-6 sm:px-1.5 text-caption text-fg-subtle hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-ring"
         >
           {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
           {copied ? "Copied" : "Copy"}

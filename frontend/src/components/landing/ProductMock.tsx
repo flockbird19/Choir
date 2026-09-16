@@ -18,7 +18,7 @@ export function ProductMock({ className }: { className?: string }) {
         <span className="size-2.5 rounded-full bg-line-strong" />
         <span className="size-2.5 rounded-full bg-line-strong" />
         <span className="size-2.5 rounded-full bg-line-strong" />
-        <span className="mx-auto hidden items-center gap-1.5 rounded-md border border-line bg-card px-2.5 py-0.5 text-[11px] text-fg-subtle sm:flex">
+        <span className="mx-auto hidden items-center gap-1.5 rounded-md border border-line bg-card px-2.5 py-0.5 text-caption text-fg-subtle sm:flex">
           <Search size={11} /> Search threads and messages <span className="font-mono">⌘K</span>
         </span>
       </div>
@@ -27,17 +27,17 @@ export function ProductMock({ className }: { className?: string }) {
         {/* Sidebar */}
         <div className="hidden w-48 shrink-0 flex-col gap-4 border-r border-line bg-sunken p-3 md:flex">
           <div className="flex items-center gap-2 px-1">
-            <span className="flex size-6 items-center justify-center rounded-md bg-primary text-[10px] font-bold text-on-primary">HT</span>
+            <span className="flex size-6 items-center justify-center rounded-md bg-primary text-caption font-bold text-on-primary">HT</span>
             <span className="truncate text-label font-semibold text-fg">Hackathon team</span>
           </div>
           <div className="flex flex-col gap-1">
-            <p className="px-1 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">Shared</p>
+            <p className="px-1 text-caption font-semibold uppercase tracking-wider text-fg-subtle">Shared</p>
             <span className="flex items-center gap-2 rounded-md bg-card px-2 py-1.5 text-label font-medium text-fg shadow-soft">
               <Users size={13} className="text-team" /> Team Space
             </span>
           </div>
           <div className="flex flex-col gap-1">
-            <p className="px-1 text-[10px] font-semibold uppercase tracking-wider text-fg-subtle">Your private threads</p>
+            <p className="px-1 text-caption font-semibold uppercase tracking-wider text-fg-subtle">Your private threads</p>
             {["Auth ideas", "Pitch draft", "Schema"].map((name) => (
               <span key={name} className="flex items-center gap-2 px-2 py-1.5 text-label text-fg-muted">
                 <Lock size={12} className="text-private" /> {name}
@@ -116,7 +116,7 @@ export function ProductMock({ className }: { className?: string }) {
           <div className="px-4 pb-4">
             <div className="flex items-center gap-2 rounded-card border border-primary/40 bg-card px-3 py-2 shadow-soft ring-4 ring-primary/10">
               <span className="min-w-0 flex-1 truncate text-body-sm text-fg-subtle">Message Team Space</span>
-              <span className="hidden items-center gap-1 rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-primary sm:inline-flex">
+              <span className="hidden items-center gap-1 rounded-full bg-primary-soft px-2 py-0.5 text-caption font-medium text-primary sm:inline-flex">
                 <AtSign size={11} /> AI
               </span>
               <span className="flex size-7 items-center justify-center rounded-full bg-primary text-on-primary">
