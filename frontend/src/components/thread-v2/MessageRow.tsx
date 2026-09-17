@@ -1,8 +1,9 @@
 "use client";
 
 import { memo, useState } from "react";
-import { ArrowUpRight, Check, Copy, Ellipsis, Pin, PinOff } from "lucide-react";
+import { ArrowUpRight, Check, Copy, Ellipsis, MessageSquareLock, Pin, PinOff } from "lucide-react";
 import type { Message } from "@/types/database";
+import { publishedLabel } from "@/utils/display-name";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Menu, MenuItem } from "@/components/ui/Menu";
@@ -24,6 +25,8 @@ interface MessageRowProps {
   highlighted: boolean;
   onToggleSelect: (id: string) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
+  /** Shared threads only: start a private thread about this message. */
+  onDiscussPrivately?: (id: string) => void;
 }
 
 // Pointer devices only (touch screens get the actions menu below), so 28px meets the 24px web minimum.
@@ -34,11 +37,13 @@ function MessageActions({
   message,
   canPin,
   onTogglePin,
+  onDiscussPrivately,
   align,
 }: {
   message: Message;
   canPin: boolean;
   onTogglePin: (id: string, pinned: boolean) => void;
+  onDiscussPrivately?: (id: string) => void;
   align: "start" | "end";
 }) {
   const [copied, setCopied] = useState(false);
@@ -77,6 +82,17 @@ function MessageActions({
             {pinned ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
           </button>
         )}
+        {onDiscussPrivately && (
+          <button
+            type="button"
+            onClick={() => onDiscussPrivately(message.id)}
+            className={actionClass}
+            aria-label="Discuss privately"
+            title="Discuss privately"
+          >
+            <MessageSquareLock aria-hidden="true" />
+          </button>
+        )}
       </div>
 
       {/* Touch screens have no hover: one always-visible, full-size button with the same actions. */}
@@ -102,6 +118,11 @@ function MessageActions({
           {canPin && (
             <MenuItem icon={pinned ? <PinOff /> : <Pin />} onSelect={() => onTogglePin(message.id, pinned)}>
               {pinned ? "Unpin decision" : "Pin as decision"}
+            </MenuItem>
+          )}
+          {onDiscussPrivately && (
+            <MenuItem icon={<MessageSquareLock />} onSelect={() => onDiscussPrivately(message.id)}>
+              Discuss privately
             </MenuItem>
           )}
         </Menu>
@@ -143,9 +164,11 @@ export const MessageRow = memo(function MessageRow({
   highlighted,
   onToggleSelect,
   onTogglePin,
+  onDiscussPrivately,
 }: MessageRowProps) {
   const pinned = !!message.is_decision;
   const sharedFromPrivate = !!message.shared_by;
+  const published = !!message.source_thread_id;
   const time = formatTime(message.created_at);
   const showHeader = !grouped || pinned;
   const isOwn = kind === "own";
@@ -161,7 +184,11 @@ export const MessageRow = memo(function MessageRow({
       {sharedFromPrivate && (
         <span className="inline-flex items-center gap-0.5 font-medium text-team">
           <ArrowUpRight size={12} aria-hidden="true" />
-          {isOwn ? "You shared from a private thread" : "shared from a private thread"}
+          {published
+            ? publishedLabel(isOwn, senderName)
+            : isOwn
+              ? "You shared from a private thread"
+              : "shared from a private thread"}
         </span>
       )}
       {pinned && (
@@ -221,7 +248,7 @@ export const MessageRow = memo(function MessageRow({
           <div className="flex max-w-[88%] items-start gap-1 sm:max-w-[78%]">
             {!selectMode && (
               <div className="pt-1">
-                <MessageActions message={message} canPin={canPin} onTogglePin={onTogglePin} align="end" />
+                <MessageActions message={message} canPin={canPin} onTogglePin={onTogglePin} onDiscussPrivately={onDiscussPrivately} align="end" />
               </div>
             )}
             {bubble}
@@ -240,7 +267,7 @@ export const MessageRow = memo(function MessageRow({
               {bubble}
               {!selectMode && (
                 <div className="pt-1">
-                  <MessageActions message={message} canPin={canPin} onTogglePin={onTogglePin} align="start" />
+                  <MessageActions message={message} canPin={canPin} onTogglePin={onTogglePin} onDiscussPrivately={onDiscussPrivately} align="start" />
                 </div>
               )}
             </div>

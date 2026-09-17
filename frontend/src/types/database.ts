@@ -28,6 +28,8 @@ export interface Thread {
   // Private threads: the AI answers every message unless muted. Missing until the
   // schema.sql re-run adds the column, so treat undefined as true.
   ai_auto_reply?: boolean;
+  // D2: set when the thread was started with "Discuss privately" on a Team Space message.
+  forked_from_message_id?: string | null;
 }
 
 export interface Message {
@@ -43,6 +45,8 @@ export interface Message {
   is_decision?: boolean;
   pinned_by?: string | null;
   pinned_at?: string | null;
+  // K2: set on a Team Space post published from the poster's own private thread.
+  source_thread_id?: string | null;
 }
 
 export interface TeamInvitation {

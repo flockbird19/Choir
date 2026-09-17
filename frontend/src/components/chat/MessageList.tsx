@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useRef, memo, useState, isValidElement, type ReactNode } from "react";
-import { Bot, ArrowUpRight, Copy, Check, Pin, PinOff } from "lucide-react";
+import { Bot, ArrowUpRight, Copy, Check, Pin, PinOff, MessageSquareLock } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { getInitials } from "@/utils/display-name";
+import { getInitials, publishedLabel } from "@/utils/display-name";
 
 interface Message {
   id: string;
@@ -15,6 +15,7 @@ interface Message {
   shared_by?: string | null;
   model_name?: string | null;
   is_decision?: boolean;
+  source_thread_id?: string | null;
 }
 
 interface MessageListProps {
@@ -29,6 +30,8 @@ interface MessageListProps {
   onToggleSelect?: (id: string) => void;
   isSharedThread?: boolean;
   onTogglePin?: (id: string, currentlyPinned: boolean) => void;
+  /** Shared threads only: start a private thread about a message. */
+  onDiscussPrivately?: (id: string) => void;
   highlightedMessageId?: string | null;
   /** Private thread with AI auto-replies on (changes the empty-state hint). */
   aiAutoReply?: boolean;
@@ -107,6 +110,7 @@ const MessageItem = memo(function MessageItem({
   onToggleSelect,
   isSharedThread,
   onTogglePin,
+  onDiscussPrivately,
   isHighlighted,
 }: {
   msg: Message;
@@ -118,6 +122,7 @@ const MessageItem = memo(function MessageItem({
   onToggleSelect?: (id: string) => void;
   isSharedThread?: boolean;
   onTogglePin?: (id: string, currentlyPinned: boolean) => void;
+  onDiscussPrivately?: (id: string) => void;
   isHighlighted?: boolean;
 }) {
   const isAI = msg.sender_type === "assistant";
@@ -138,7 +143,11 @@ const MessageItem = memo(function MessageItem({
           }`}
         >
           <ArrowUpRight size={11} className="shrink-0" />
-          <span>{isOwn ? "You shared" : `${senderName} shared`} from a private thread</span>
+          <span>
+            {msg.source_thread_id
+              ? publishedLabel(isOwn, senderName)
+              : `${isOwn ? "You shared" : `${senderName} shared`} from a private thread`}
+          </span>
         </div>
       )}
 
@@ -233,6 +242,19 @@ const MessageItem = memo(function MessageItem({
                 {isPinned ? <PinOff size={11} /> : <Pin size={11} />}
               </button>
             )}
+            {isSharedThread && onDiscussPrivately && !selectMode && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDiscussPrivately(msg.id);
+                }}
+                title="Discuss privately"
+                aria-label="Discuss privately"
+                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 min-w-[24px] min-h-[24px] pointer-coarse:min-w-11 pointer-coarse:min-h-11 flex items-center justify-center rounded-md text-graphite/50 hover:text-accent hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-accent transition-all"
+              >
+                <MessageSquareLock size={11} aria-hidden="true" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -256,6 +278,7 @@ export function MessageList({
   onToggleSelect,
   isSharedThread = false,
   onTogglePin,
+  onDiscussPrivately,
   highlightedMessageId,
   aiAutoReply = false,
 }: MessageListProps) {
@@ -316,6 +339,7 @@ export function MessageList({
           onToggleSelect={onToggleSelect}
           isSharedThread={isSharedThread}
           onTogglePin={onTogglePin}
+          onDiscussPrivately={onDiscussPrivately}
           isHighlighted={highlightedMessageId === msg.id}
         />
         );

@@ -154,9 +154,12 @@ export function CommandPalette() {
                           <MessageSquare size={16} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1 min-w-0">
+                            <span className="text-xs font-semibold text-ink shrink-0">
+                              {msg.sender_name}
+                            </span>
                             <span className="text-xs font-semibold text-graphite group-hover:text-accent transition-colors truncate">
-                              In: {msg.threads.name || "Untitled"}
+                              in {msg.threads.name || "Untitled"}
                             </span>
                           </div>
                           <p className="text-sm text-ink line-clamp-2 leading-relaxed">

@@ -10,10 +10,26 @@ interface DecisionsPanelProps {
   decisions: Message[];
   onJumpTo: (id: string) => void;
   onUnpin: (id: string) => void;
+  currentUserId: string;
+  memberNames: Record<string, string>;
+  namesLoaded: boolean;
 }
 
-export function DecisionsPanel({ isOpen, onClose, decisions, onJumpTo, onUnpin }: DecisionsPanelProps) {
+export function DecisionsPanel({
+  isOpen,
+  onClose,
+  decisions,
+  onJumpTo,
+  onUnpin,
+  currentUserId,
+  memberNames,
+  namesLoaded,
+}: DecisionsPanelProps) {
   const dialogRef = useDialogA11y(isOpen, onClose);
+
+  const personName = (userId: string | null | undefined) =>
+    userId === currentUserId ? "You" : memberNames[userId ?? ""] ?? (namesLoaded ? "Former member" : "Teammate");
+  const authorName = (msg: Message) => (msg.sender_type === "assistant" ? "Choir AI" : personName(msg.sender_id));
 
   return (
     <>
@@ -77,6 +93,10 @@ export function DecisionsPanel({ isOpen, onClose, decisions, onJumpTo, onUnpin }
             <div className="p-3 space-y-2">
               {decisions.map((msg) => (
                 <div key={msg.id} className="p-3 rounded-xl border border-border bg-canvas group">
+                  <p className="text-[11px] text-graphite mb-1">
+                    <span className="font-semibold text-ink">{authorName(msg)}</span>
+                    {msg.pinned_by && <> · pinned by {personName(msg.pinned_by)}</>}
+                  </p>
                   <p className="text-sm text-ink leading-relaxed line-clamp-4 whitespace-pre-wrap">
                     {msg.content}
                   </p>
