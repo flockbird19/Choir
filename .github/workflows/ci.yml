@@ -48,3 +48,37 @@ jobs:
           cache-dependency-glob: backend/uv.lock
       - run: uv sync --locked
       - run: uv run pytest -q
+
+  rls:
+    # Optional: live access-rule (RLS) tests against the Supabase project (backend/tests/test_rls.py).
+    # They create temporary choir.e2e.rls.* users and delete them afterwards. They run only when the
+    # repository secrets SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY are set
+    # (Settings > Secrets and variables > Actions); otherwise every step below is skipped.
+    # Pull requests from forks never receive secrets, so they skip too.
+    name: Backend (live RLS tests, optional)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      RLS_TESTS: "1"
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      HAS_SECRETS: ${{ secrets.SUPABASE_URL != '' && secrets.SUPABASE_ANON_KEY != '' && secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
+    steps:
+      - name: Skip without Supabase secrets
+        if: env.HAS_SECRETS != 'true'
+        working-directory: .
+        run: echo "::notice::Live RLS tests skipped. Add the Supabase repository secrets to run them."
+      - uses: actions/checkout@v4
+        if: env.HAS_SECRETS == 'true'
+      - uses: astral-sh/setup-uv@v6
+        if: env.HAS_SECRETS == 'true'
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - run: uv sync --locked
+        if: env.HAS_SECRETS == 'true'
+      - run: uv run pytest -q -rs tests/test_rls.py
+        if: env.HAS_SECRETS == 'true'
