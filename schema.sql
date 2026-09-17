@@ -4,9 +4,9 @@
 --
 -- This file is the source of truth for the live database. To change the
 -- database: edit this file, paste the whole script into the Supabase SQL Editor
--- ("Choir schema" snippet) and run it. Last applied to live: 2026-09-16. Pending re-run
--- (2026-09-17, Batch 1): threads.forked_from_message_id (D2), messages.source_thread_id
--- (K2), invite expiry/revoke (L5), notifications (F3), shared_keys (F4/F5).
+-- ("Choir schema" snippet) and run it. Last applied to live: 2026-09-17 (Batch 1 +
+-- permission fixes). Pending re-run (Batch 2): profiles with status (E4), thread_reads
+-- .last_read_at (E5), messages.source_message_ids (K3).
 -- ============================================================================
 
 begin;
@@ -22,7 +22,7 @@ declare
 begin
   foreach t in array array['messages', 'threads', 'projects', 'team_members', 'teams',
                            'team_invitations', 'user_api_keys', 'thread_reads', 'ai_request_log',
-                           'notifications', 'shared_keys']
+                           'notifications', 'shared_keys', 'profiles']
   loop
     if to_regclass('public.' || t) is not null then
       execute format('lock table public.%I in access exclusive mode', t);
@@ -113,6 +113,41 @@ create table if not exists public.thread_reads (
   primary key (thread_id, user_id)
 );
 
+-- E4: one row per person: the name teammates and the AI see, plus a status.
+-- Replaces looking names up through the auth admin API (also fixes L14, the 5-minute delay).
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  display_name text,
+  status text,
+  updated_at timestamptz not null default now()
+);
+
+-- Fill it for everyone who already has an account, and keep it filled for new sign-ups.
+insert into public.profiles (id, display_name)
+select u.id, coalesce(nullif(u.raw_user_meta_data->>'full_name', ''), nullif(u.raw_user_meta_data->>'name', ''), split_part(u.email, '@', 1))
+from auth.users u
+on conflict (id) do nothing;
+
+create or replace function public.create_profile_for_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id, display_name)
+  values (new.id, coalesce(nullif(new.raw_user_meta_data->>'full_name', ''), nullif(new.raw_user_meta_data->>'name', ''), split_part(new.email, '@', 1)))
+  on conflict (id) do nothing;
+  return new;
+end $$;
+
+drop trigger if exists create_profile_on_signup on auth.users;
+create trigger create_profile_on_signup
+  after insert on auth.users
+  for each row execute function public.create_profile_for_new_user();
+
+-- E5: "Seen by". Kept separate from last_seen_at, which is the Catch me up position.
+alter table public.thread_reads add column if not exists last_read_at timestamptz;
+
+-- K3: a Decision remembers which private messages it came from (the trail).
+alter table public.messages add column if not exists source_message_ids uuid[];
+
 -- AI rate limiter log (backend only)
 create table if not exists public.ai_request_log (
   id uuid primary key default gen_random_uuid(),
@@ -191,6 +226,19 @@ begin
   ) then
     alter publication supabase_realtime add table public.notifications;
   end if;
+  -- E4/E5: live status changes and seen-by updates
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'profiles'
+  ) then
+    alter publication supabase_realtime add table public.profiles;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'thread_reads'
+  ) then
+    alter publication supabase_realtime add table public.thread_reads;
+  end if;
 end $$;
 
 -- ── 3. Row Level Security: ON for every table ────────────────────────────────
@@ -206,6 +254,7 @@ alter table public.thread_reads     enable row level security;
 alter table public.ai_request_log   enable row level security;
 alter table public.notifications    enable row level security;
 alter table public.shared_keys      enable row level security;
+alter table public.profiles         enable row level security;
 
 -- ── 4. Access helpers (same rules as the app and backend access checks) ──────
 
@@ -238,6 +287,19 @@ as $$
   );
 $$;
 
+-- E4: do you and this person share a team? (Used for reading profiles.)
+create or replace function public.shares_team(p_user_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1
+    from team_members mine
+    join team_members theirs on theirs.team_id = mine.team_id
+    where mine.user_id = auth.uid() and theirs.user_id = p_user_id
+  );
+$$;
+
 -- ── 5. Access rules ──────────────────────────────────────────────────────────
 
 -- Remove every old rule on these tables so only the ones below exist
@@ -250,7 +312,7 @@ begin
     where schemaname = 'public'
       and tablename in ('teams', 'team_members', 'projects', 'threads', 'messages',
                         'user_api_keys', 'team_invitations', 'thread_reads', 'ai_request_log',
-                        'notifications', 'shared_keys')
+                        'notifications', 'shared_keys', 'profiles')
   loop
     execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
   end loop;
@@ -313,6 +375,12 @@ create policy "Send messages as yourself in accessible threads" on public.messag
     and (source_thread_id is null or public.can_access_thread(source_thread_id))
     -- B3 finding: "shared by" can only be yourself
     and (shared_by is null or shared_by = auth.uid())
+    -- K3: the trail can only point at messages you can see
+    and (
+      source_message_ids is null
+      or (select bool_and(public.can_access_thread(m.thread_id))
+          from public.messages m where m.id = any (source_message_ids))
+    )
   );
 create policy "Pin messages in accessible shared threads" on public.messages
   for update
@@ -348,6 +416,12 @@ create policy "Members delete team invitations" on public.team_invitations
 create policy "Manage own read state" on public.thread_reads
   for all using (user_id = auth.uid())
   with check (user_id = auth.uid() and public.can_access_thread(thread_id));
+
+-- Profiles: you see your own and your teammates'; you edit only your own name and status.
+create policy "View own and teammates' profiles" on public.profiles
+  for select using (id = auth.uid() or public.shares_team(id));
+create policy "Update own profile" on public.profiles
+  for update using (id = auth.uid()) with check (id = auth.uid());
 
 -- ai_request_log: no rules on purpose — only the backend touches it.
 
@@ -391,7 +465,8 @@ grant update (is_decision, pinned_by, pinned_at) on public.messages to authentic
 -- B3 finding: new messages can't arrive pre-pinned or backdated. Only these columns
 -- may be set when posting (id is sent by the app for optimistic sends).
 revoke insert on public.messages from anon, authenticated;
-grant insert (id, thread_id, sender_type, sender_id, content, shared_by, source_thread_id)
+grant insert (id, thread_id, sender_type, sender_id, content, shared_by, source_thread_id,
+              source_message_ids)
   on public.messages to authenticated;
 
 -- Signed-in users may only change a thread's AI auto-reply setting (mute), never its
@@ -413,5 +488,13 @@ grant update (read_at) on public.notifications to authenticated;
 -- F4/F5: users may only switch a lent key between fallback and pool.
 revoke update on public.shared_keys from anon, authenticated;
 grant update (mode) on public.shared_keys to authenticated;
+
+-- E4: people may only change their own display name and status, never anyone's id.
+revoke update on public.profiles from anon, authenticated;
+grant update (display_name, status, updated_at) on public.profiles to authenticated;
+
+-- E5: a read position may set both timestamps, nothing else.
+revoke update on public.thread_reads from anon, authenticated;
+grant update (last_seen_at, last_read_at) on public.thread_reads to authenticated;
 
 commit;
