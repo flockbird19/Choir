@@ -9,13 +9,18 @@ Handles:
 """
 
 import json
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Generator, cast
 
+from backend import shared_keys
 from backend.db import get_db
 from backend.keys import get_api_key
+from backend.shared_keys import KeyCandidate
+
+logger = logging.getLogger(__name__)
 
 
 class NoApiKeyError(Exception):
@@ -272,20 +277,20 @@ def _format_shared_as_system_context(
     return "\n".join(lines)
 
 
-def _resolve_owner_key(project: dict[str, Any] | None) -> tuple[str, str, str] | None:
-    """(provider, model, api_key) from the project owner's saved key, or None if they have none."""
-    if not project or not project.get("created_by"):
-        return None
-    provider = project.get("shared_model_provider") or "anthropic"
-    if provider != "anthropic" and provider not in OPENAI_COMPAT_PROVIDERS:
-        return None
-    default_model = (
-        ANTHROPIC_DEFAULT_MODEL if provider == "anthropic" else OPENAI_COMPAT_PROVIDERS[provider]["default_model"]
-    )
-    owner_key = get_api_key(project["created_by"], provider)
-    if not owner_key:
-        return None
-    return provider, project.get("shared_model_name") or default_model, owner_key
+def _default_model(provider: str) -> str:
+    return ANTHROPIC_DEFAULT_MODEL if provider == "anthropic" else OPENAI_COMPAT_PROVIDERS[provider]["default_model"]
+
+
+def _take_usable_key(candidates: list[KeyCandidate]) -> tuple[KeyCandidate, str] | None:
+    """Pop candidates until one has a saved key. Only that one key is decrypted."""
+    while candidates:
+        candidate = candidates.pop(0)
+        api_key = get_api_key(candidate.user_id, candidate.provider)
+        if api_key:
+            if candidate.shared_key_id:
+                shared_keys.mark_used(get_db(), candidate.shared_key_id)
+            return candidate, api_key
+    return None
 
 
 def _resolve_provider_and_model(
@@ -338,6 +343,40 @@ def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+def _stream_text(
+    provider: str, model: str, api_key: str, system_prompt: str, chat_messages: list[dict[str, str]]
+) -> Generator[str, None, None]:
+    """Yield text chunks from one provider call."""
+    if provider == "anthropic":
+        import anthropic  # type: ignore
+
+        client = anthropic.Anthropic(api_key=api_key)
+        with client.messages.stream(
+            model=model,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=chat_messages,  # type: ignore[arg-type]
+        ) as stream:
+            yield from stream.text_stream
+        return
+
+    import openai as openai_module  # type: ignore
+
+    config = OPENAI_COMPAT_PROVIDERS[provider]
+    base_url: str | None = config["base_url"] or None
+    client = openai_module.OpenAI(api_key=api_key, base_url=base_url)
+    all_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}, *chat_messages]
+    with client.chat.completions.create(  # type: ignore[call-overload]
+        model=model,
+        messages=all_messages,  # type: ignore[arg-type]
+        stream=True,
+    ) as stream:
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content  # type: ignore[union-attr]
+            if delta:
+                yield delta
+
+
 # ---------------------------------------------------------------------------
 # Main streaming function
 # ---------------------------------------------------------------------------
@@ -356,6 +395,7 @@ def stream_ai_response(
 
     SSE event shapes:
       { "text": "..." }        — incremental token
+      { "notice": "...", "model": "..." } — switched to a lent key after a rate limit
       { "error": "..." }       — terminal error
       { "done": true }         — stream finished successfully
     """
@@ -368,12 +408,23 @@ def stream_ai_response(
     project = _fetch_project(thread["project_id"])
 
     # ── Resolve provider / model ──────────────────────────────────────────────
-    # The shared thread runs on the project owner's key and model, so teammates
-    # without keys of their own can still use @AI. Private threads (and shared
-    # threads whose owner has no key) use the caller's own keys.
-    owner_choice = _resolve_owner_key(project) if thread["type"] == "shared" else None
-    if owner_choice:
-        provider, model, api_key = owner_choice
+    # The shared thread runs on pooled keys, then the project owner's key and model,
+    # so teammates without keys of their own can still use @AI. Keys left in
+    # `spare_keys` (other first choices, then fallback keys) are tried if the one in
+    # use hits a rate limit. Private threads (and shared threads with no usable team
+    # key) use the caller's own keys and never a lent one.
+    is_shared = thread["type"] == "shared"
+    first_keys, fallback_keys = (
+        shared_keys.plan_keys(get_db(), project, ALL_PROVIDERS) if is_shared else ([], [])
+    )
+    team_choice = _take_usable_key(first_keys)
+    spare_keys: list[KeyCandidate] = first_keys + fallback_keys if team_choice else []
+    key_owner_id: str | None = None
+    if team_choice:
+        candidate, api_key = team_choice
+        provider = candidate.provider
+        model = candidate.model or _default_model(provider)
+        key_owner_id = candidate.user_id
     else:
         resolved = _resolve_provider_and_model(thread, user_id, override_provider, override_model)
         if not resolved:
@@ -393,6 +444,7 @@ def stream_ai_response(
             yield _sse({"error": f"Could not retrieve API key for {provider}."})
             return
         api_key = caller_key
+        key_owner_id = user_id
 
     # ── Assemble context ──────────────────────────────────────────────────────
     roster = _fetch_team_roster(project["team_id"]) if project and project.get("team_id") else []
@@ -468,58 +520,45 @@ def stream_ai_response(
     # `finally` block must not attempt to yield (that raises RuntimeError while
     # a GeneratorExit is propagating), so `done` is only ever yielded after it.
     try:
-        try:
-            if provider == "anthropic":
-                import anthropic  # type: ignore
+        while True:
+            try:
+                for text in _stream_text(provider, model, api_key, system_prompt, chat_messages):
+                    full_response += text
+                    yield _sse({"text": text})
+                break
 
-                client = anthropic.Anthropic(api_key=api_key)
-                with client.messages.stream(
-                    model=model,
-                    max_tokens=4096,
-                    system=system_prompt,
-                    messages=chat_messages,  # type: ignore[arg-type]
-                ) as stream:
-                    for text in stream.text_stream:
-                        full_response += text
-                        yield _sse({"text": text})
+            except Exception as exc:
+                if not shared_keys.is_rate_limit_error(exc):
+                    stream_failed = True
+                    yield _sse({"error": f"AI error: {exc}"})
+                    break
 
-            else:
-                import openai as openai_module  # type: ignore
+                if is_shared and project and key_owner_id:
+                    try:
+                        shared_keys.notify_rate_limited(get_db(), key_owner_id, project, thread_id, provider)
+                    except Exception:
+                        logger.exception("Could not save the rate-limit notification")
 
-                config = OPENAI_COMPAT_PROVIDERS[provider]
-                base_url: str | None = config["base_url"] or None
-                client = openai_module.OpenAI(api_key=api_key, base_url=base_url)
+                # Switch keys only before any text has streamed, so a reply never mixes two models.
+                next_choice = _take_usable_key(spare_keys) if not full_response else None
+                if not next_choice:
+                    stream_failed = True
+                    yield _sse(
+                        {
+                            "error": (
+                                "Rate limit reached. Please check your API key usage limits "
+                                "or try again later."
+                            )
+                        }
+                    )
+                    break
 
-                all_messages: list[dict[str, str]] = [
-                    {"role": "system", "content": system_prompt},
-                    *chat_messages,
-                ]
-
-                with client.chat.completions.create(  # type: ignore[call-overload]
-                    model=model,
-                    messages=all_messages,  # type: ignore[arg-type]
-                    stream=True,
-                ) as stream:
-                    for chunk in stream:
-                        delta = chunk.choices[0].delta.content  # type: ignore[union-attr]
-                        if delta:
-                            full_response += delta
-                            yield _sse({"text": delta})
-
-        except Exception as exc:
-            stream_failed = True
-            err = str(exc)
-            if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
-                yield _sse(
-                    {
-                        "error": (
-                            "Rate limit reached. Please check your API key usage limits "
-                            "or try again later."
-                        )
-                    }
-                )
-            else:
-                yield _sse({"error": f"AI error: {err}"})
+                candidate, api_key = next_choice
+                provider = candidate.provider
+                model = candidate.model or _default_model(provider)
+                key_owner_id = candidate.user_id
+                lender = _fetch_user_name(candidate.user_id) or "a teammate"
+                yield _sse({"notice": f"Using {lender}'s key", "model": model})
     finally:
         # Persist whatever was generated so far — on a clean finish this is the
         # full response; on a disconnect or mid-stream provider error it's a

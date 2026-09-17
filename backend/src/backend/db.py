@@ -33,6 +33,8 @@ REQUIRED_TABLES = [
     "team_invitations",
     "thread_reads",
     "ai_request_log",
+    "notifications",
+    "shared_keys",
 ]
 
 # PostgREST: table not in schema cache / Postgres: undefined table.
