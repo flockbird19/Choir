@@ -326,7 +326,6 @@ def test_member_cannot_delete_messages(world):
 # as a reminder to delete the marker.
 
 
-@pytest.mark.xfail(strict=True, reason="hole: message inserts accept any shared_by / pin fields / created_at")
 def test_member_cannot_forge_message_metadata(world):
     b = world.b
     post = {"thread_id": world.s1, "sender_type": "user", "sender_id": b.id, "content": "forged"}
@@ -335,7 +334,6 @@ def test_member_cannot_forge_message_metadata(world):
     assert_denied(b.api.insert("messages", {**post, "created_at": "2020-01-01T00:00:00Z"}))
 
 
-@pytest.mark.xfail(strict=True, reason="hole: a pin can be credited to another member")
 def test_member_cannot_pin_in_someone_elses_name(world):
     b = world.b.api
     response = b.update("messages", {"is_decision": True, "pinned_by": world.a.id}, id=eq(world.m_s1_b))
@@ -345,12 +343,10 @@ def test_member_cannot_pin_in_someone_elses_name(world):
         world.admin.update("messages", {"is_decision": False, "pinned_by": None}, id=eq(world.m_s1_b))
 
 
-@pytest.mark.xfail(strict=True, reason="hole: invite links can be created in another member's name")
 def test_member_cannot_create_invites_as_someone_else(world):
     assert_denied(world.b.api.insert("team_invitations", {"team_id": world.t1, "created_by": world.a.id}))
 
 
-@pytest.mark.xfail(strict=True, reason="hole: read state can be saved for threads you can't open")
 def test_cannot_save_read_state_for_a_thread_you_cannot_open(world):
     assert_denied(world.b.api.insert("thread_reads", {"thread_id": world.pa, "user_id": world.b.id}))
 
