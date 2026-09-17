@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from backend.auth import get_current_user
 from backend.db import find_missing_tables, get_db, verify_thread_access
 from backend.errors import ErrorMiddleware, safe_sse_stream
+from backend.findings import draft_findings
 from backend.keys import (
     delete_api_key,
     list_saved_providers,
@@ -222,8 +223,41 @@ def get_digest(thread_id: str, user_id: str = Depends(get_current_user)):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# "Publish findings" — AI draft of a Team Space post from a private thread (K2)
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@app.post("/api/findings/{thread_id}")
+def get_findings_draft(thread_id: str, user_id: str = Depends(get_current_user)):
+    """Draft a summary / recommendation / open questions post. Nothing is posted here."""
+    _check_and_record_rate_limit(user_id)
+
+    if not verify_thread_access(user_id, thread_id):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this thread.",
+        )
+
+    try:
+        return draft_findings(thread_id, user_id)
+    except NoApiKeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Export — separate from /api/chat to avoid route shadowing
 # ──────────────────────────────────────────────────────────────────────────────
+
+
+def _published_from(msg: dict[str, Any], names: dict[str, str]) -> str | None:
+    """K2: a post published from a private thread names only its owner (who is the poster)."""
+    if not msg.get("source_thread_id"):
+        return None
+    return f"{sender_label(msg, names)}'s private thread"
 
 
 def _safe_filename(name: str) -> str:
@@ -275,7 +309,10 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
     if format == "json":
         export_data = {
             "thread": thread,
-            "messages": [{**msg, "sender_name": sender_label(msg, names)} for msg in messages],
+            "messages": [
+                {**msg, "sender_name": sender_label(msg, names), "published_from": _published_from(msg, names)}
+                for msg in messages
+            ],
             "exported_at": datetime.utcnow().isoformat()
         }
         filename = f"{_safe_filename(thread_name)}_export.json"
@@ -304,6 +341,9 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
             sender += f" ({model})"
 
         md_lines.append(f"**{sender}:**")
+        published_from = _published_from(msg, names)
+        if published_from:
+            md_lines.append(f"_Published from {published_from}_")
         md_lines.append("")
         md_lines.append(msg["content"])
         md_lines.append("")

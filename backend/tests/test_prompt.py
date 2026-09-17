@@ -96,6 +96,31 @@ def test_private_thread_context_names_shared_thread_senders(fake_backend):
     assert fake_backend["messages"] == [{"role": "user", "content": "how many members?"}]
 
 
+def test_forked_private_thread_tells_the_ai_which_message_is_the_focus(fake_backend):
+    forked = {"id": "forked", "project_id": "p1", "type": "private", "owner_id": "u-bob", "forked_from_message_id": "m-venu"}
+    shared_msg = {"id": "m-venu", "thread_id": "shared", "sender_type": "user", "sender_id": "u-owner", "content": "lets do frontend", "created_at": "1"}
+    db = FakeClient(
+        teams=DB._tables["teams"],
+        projects=DB._tables["projects"],
+        team_members=DB._tables["team_members"],
+        threads=[*DB._tables["threads"], forked],
+        messages=[shared_msg, *DB._tables["messages"][1:]],
+    )
+    with patch.object(llm, "get_db", return_value=db):
+        _run("forked", "u-bob")
+
+    system = fake_backend["system"]
+    assert "FOCUS: The user started this private thread to discuss one message from the shared thread, written by Venu:" in system
+    assert '"""\nlets do frontend\n"""' in system
+    assert "Treat that message as the focus of this conversation." in system
+
+
+def test_focus_is_skipped_for_unforked_threads_and_unknown_messages():
+    assert llm._fork_focus_context({"id": "t"}, [], NAMES) == ""
+    # A message that isn't in this project's shared thread is never pulled in.
+    assert llm._fork_focus_context({"forked_from_message_id": "elsewhere"}, [{"id": "m1", "content": "x"}], NAMES) == ""
+
+
 def test_shared_from_private_is_attributed():
     msgs = llm._to_chat_messages(
         [{"sender_type": "user", "sender_id": "u-bob", "content": "Schema draft", "shared_by": "u-bob"}], NAMES
