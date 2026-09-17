@@ -4,9 +4,9 @@
 --
 -- This file is the source of truth for the live database. To change the
 -- database: edit this file, paste the whole script into the Supabase SQL Editor
--- ("Choir schema" snippet) and run it. Last applied to live: 2026-09-15 (before the
--- Haiku default, message column permissions and threads.ai_auto_reply with its update
--- rule and column permission were added — pending re-run).
+-- ("Choir schema" snippet) and run it. Last applied to live: 2026-09-16. Pending re-run
+-- (2026-09-17, Batch 1): threads.forked_from_message_id (D2), messages.source_thread_id
+-- (K2), invite expiry/revoke (L5), notifications (F3), shared_keys (F4/F5).
 -- ============================================================================
 
 begin;
@@ -21,7 +21,8 @@ declare
   t text;
 begin
   foreach t in array array['messages', 'threads', 'projects', 'team_members', 'teams',
-                           'team_invitations', 'user_api_keys', 'thread_reads', 'ai_request_log']
+                           'team_invitations', 'user_api_keys', 'thread_reads', 'ai_request_log',
+                           'notifications', 'shared_keys']
   loop
     if to_regclass('public.' || t) is not null then
       execute format('lock table public.%I in access exclusive mode', t);
@@ -122,6 +123,50 @@ create table if not exists public.ai_request_log (
 create index if not exists ai_request_log_user_time_idx
   on public.ai_request_log (user_id, requested_at);
 
+-- D2: a private thread started from a Team Space message ("Discuss privately")
+alter table public.threads add column if not exists forked_from_message_id uuid
+  references public.messages(id) on delete set null;
+
+-- K2: a Team Space post published from a private thread ("Publish findings")
+alter table public.messages add column if not exists source_thread_id uuid
+  references public.threads(id) on delete set null;
+
+-- L5: invite links expire after 7 days and can be revoked.
+-- (Existing links get 7 days from the first run of this line.)
+alter table public.team_invitations add column if not exists expires_at timestamptz not null
+  default (now() + interval '7 days');
+alter table public.team_invitations add column if not exists revoked_at timestamptz;
+
+-- F3: in-app notifications (e.g. "your key hit its rate limit"). Written by the backend.
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  team_id uuid references public.teams(id) on delete cascade,
+  project_id uuid references public.projects(id) on delete cascade,
+  kind text not null,
+  payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  read_at timestamptz
+);
+create index if not exists notifications_user_time_idx
+  on public.notifications (user_id, created_at desc);
+
+-- F4 + F5: teammates lend a saved key to a project.
+--   mode 'fallback' = used only when the owner's key is rate-limited (F4)
+--   mode 'pool'     = shared-thread requests rotate across pooled keys (F5)
+-- Deleting the saved key removes the lending row.
+create table if not exists public.shared_keys (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  key_id uuid not null references public.user_api_keys(id) on delete cascade,
+  provider text not null,
+  mode text not null check (mode in ('fallback', 'pool')),
+  last_used_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (project_id, user_id, provider)
+);
+
 -- Shared threads default to Claude Haiku 4.5 (cheapest; decided 2026-09-15).
 alter table public.projects alter column shared_model_name set default 'claude-haiku-4-5';
 -- One-time switch of existing Anthropic projects to Haiku (2026-09-15). Remove this line once
@@ -140,6 +185,12 @@ begin
   ) then
     alter publication supabase_realtime add table public.messages;
   end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'notifications'
+  ) then
+    alter publication supabase_realtime add table public.notifications;
+  end if;
 end $$;
 
 -- ── 3. Row Level Security: ON for every table ────────────────────────────────
@@ -153,6 +204,8 @@ alter table public.user_api_keys    enable row level security;
 alter table public.team_invitations enable row level security;
 alter table public.thread_reads     enable row level security;
 alter table public.ai_request_log   enable row level security;
+alter table public.notifications    enable row level security;
+alter table public.shared_keys      enable row level security;
 
 -- ── 4. Access helpers (same rules as the app and backend access checks) ──────
 
@@ -196,7 +249,8 @@ begin
     select policyname, tablename from pg_policies
     where schemaname = 'public'
       and tablename in ('teams', 'team_members', 'projects', 'threads', 'messages',
-                        'user_api_keys', 'team_invitations', 'thread_reads', 'ai_request_log')
+                        'user_api_keys', 'team_invitations', 'thread_reads', 'ai_request_log',
+                        'notifications', 'shared_keys')
   loop
     execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
   end loop;
@@ -233,6 +287,11 @@ create policy "Members can create own private threads" on public.threads
       select 1 from public.projects p
       where p.id = project_id and public.is_team_member(p.team_id)
     )
+    -- D2: can only fork from a message you can see
+    and (forked_from_message_id is null or exists (
+      select 1 from public.messages m
+      where m.id = forked_from_message_id and public.can_access_thread(m.thread_id)
+    ))
   );
 create policy "Owners can delete own private threads" on public.threads
   for delete using (type = 'private' and owner_id = auth.uid());
@@ -250,6 +309,8 @@ create policy "Send messages as yourself in accessible threads" on public.messag
     sender_type = 'user'
     and sender_id = auth.uid()
     and public.can_access_thread(thread_id)
+    -- K2: a published post can only point back to a thread you can see
+    and (source_thread_id is null or public.can_access_thread(source_thread_id))
   );
 create policy "Pin messages in accessible shared threads" on public.messages
   for update
@@ -277,6 +338,36 @@ create policy "Manage own read state" on public.thread_reads
 
 -- ai_request_log: no rules on purpose — only the backend touches it.
 
+-- Notifications: you see and mark read only your own; the backend creates them.
+create policy "View own notifications" on public.notifications
+  for select using (user_id = auth.uid());
+create policy "Mark own notifications read" on public.notifications
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Shared keys: team members can see who lends a key to the project (never the key
+-- itself); you can only lend your own saved key, to a project in your team.
+create policy "Members view shared keys" on public.shared_keys
+  for select using (exists (
+    select 1 from public.projects p
+    where p.id = project_id and public.is_team_member(p.team_id)
+  ));
+create policy "Lend your own key" on public.shared_keys
+  for insert with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.projects p
+      where p.id = project_id and public.is_team_member(p.team_id)
+    )
+    and exists (
+      select 1 from public.user_api_keys k
+      where k.id = key_id and k.user_id = auth.uid() and k.provider = shared_keys.provider
+    )
+  );
+create policy "Change your own shared key" on public.shared_keys
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "Stop lending your own key" on public.shared_keys
+  for delete using (user_id = auth.uid());
+
 -- ── 6. Column permissions ────────────────────────────────────────────────────
 
 -- Signed-in users may only change a message's pin fields, never its content or
@@ -288,5 +379,17 @@ grant update (is_decision, pinned_by, pinned_at) on public.messages to authentic
 -- type, owner, project or name. The rule above limits this to their own private threads.
 revoke update on public.threads from anon, authenticated;
 grant update (ai_auto_reply) on public.threads to authenticated;
+
+-- L5: members may only revoke an invite link, never change its token, team or expiry.
+revoke update on public.team_invitations from anon, authenticated;
+grant update (revoked_at) on public.team_invitations to authenticated;
+
+-- F3: users may only mark a notification read.
+revoke update on public.notifications from anon, authenticated;
+grant update (read_at) on public.notifications to authenticated;
+
+-- F4/F5: users may only switch a lent key between fallback and pool.
+revoke update on public.shared_keys from anon, authenticated;
+grant update (mode) on public.shared_keys to authenticated;
 
 commit;
