@@ -95,7 +95,9 @@ export function DecisionsPanel({
                 <div key={msg.id} className="p-3 rounded-xl border border-border bg-canvas group">
                   <p className="text-[11px] text-graphite mb-1">
                     <span className="font-semibold text-ink">{authorName(msg)}</span>
-                    {msg.pinned_by && <> · pinned by {personName(msg.pinned_by)}</>}
+                    {msg.pinned_by && (
+                      <> · pinned by {msg.pinned_by === currentUserId ? "you" : personName(msg.pinned_by)}</>
+                    )}
                   </p>
                   <p className="text-sm text-ink leading-relaxed line-clamp-4 whitespace-pre-wrap">
                     {msg.content}
