@@ -2,6 +2,7 @@
 
 import { getCurrentUser } from "@/utils/supabase/access";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { EXPIRED_INVITE_MESSAGE, isInviteUsable } from "./invite-status";
 
 export type AcceptInviteResult = { error: string } | { sharedThreadId: string | null };
 
@@ -17,12 +18,17 @@ export async function acceptInvite(token: string): Promise<AcceptInviteResult> {
   // 1. Validate token
   const { data: invite, error: inviteError } = await adminClient
     .from("team_invitations")
-    .select("team_id")
+    .select("*") // "*" so this still works before schema.sql adds expires_at / revoked_at
     .eq("token", token)
     .single();
 
   if (inviteError || !invite) {
     return { error: "Invalid or expired invitation link." };
+  }
+
+  // Expired or revoked links never add anyone, even someone already in the team.
+  if (!isInviteUsable(invite)) {
+    return { error: EXPIRED_INVITE_MESSAGE };
   }
 
   const teamId = invite.team_id;

@@ -51,4 +51,6 @@ export interface TeamInvitation {
   token: string;
   created_by: string;
   created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
 }

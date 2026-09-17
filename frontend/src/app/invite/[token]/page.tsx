@@ -6,6 +6,7 @@ import { FormAlert, textLinkClass } from "@/components/auth/fields";
 import { getCurrentUser } from "@/utils/supabase/access";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { AcceptInviteForm } from "./AcceptInviteForm";
+import { isInviteUsable } from "./invite-status";
 
 export const metadata: Metadata = {
   title: "Join a team — Choir",
@@ -43,11 +44,11 @@ export default async function InvitePage({
   const adminClient = createAdminClient();
   const { data: invite } = await adminClient
     .from("team_invitations")
-    .select("team_id")
+    .select("*") // "*" so this still works before schema.sql adds expires_at / revoked_at
     .eq("token", token)
     .maybeSingle();
 
-  const { data: team } = invite
+  const { data: team } = invite && isInviteUsable(invite)
     ? await adminClient.from("teams").select("name").eq("id", invite.team_id).maybeSingle()
     : { data: null };
 
@@ -55,6 +56,8 @@ export default async function InvitePage({
     <AuthShell>
       {!invite ? (
         <InviteProblem message="Invalid or expired invitation link." />
+      ) : !isInviteUsable(invite) ? (
+        <InviteProblem message="This invite link has expired." />
       ) : !team ? (
         <InviteProblem message="The team for this invite no longer exists." />
       ) : (
