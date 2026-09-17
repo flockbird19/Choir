@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ThemeToggle } from "./ThemeToggle";
 import { Logo } from "./Logo";
+import { NotificationBell } from "./NotificationBell";
 import { Team } from "@/types/database";
 
 interface PrimarySidebarProps {
@@ -70,6 +71,7 @@ export function PrimarySidebar({ teams, activeTeamId, onSelectTeam }: PrimarySid
       </div>
 
       <div className="mt-auto pt-4 flex flex-col gap-3 items-center">
+        <NotificationBell look="classic" threadHref={(id) => `/thread/${id}`} />
         <ThemeToggle />
       </div>
     </nav>

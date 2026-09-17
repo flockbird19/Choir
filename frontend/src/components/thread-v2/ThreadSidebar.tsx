@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronsUpDown, LayoutList, Lock, Plus, Search, Settings, UserRound, Users } from "lucide-react";
 import type { Project, Team, Thread } from "@/types/database";
 import { createThread } from "@/app/(main)/thread/[id]/actions";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useToast } from "@/components/Toast";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -171,7 +172,7 @@ export function ThreadSidebar({ user, teams, projects, threads, activeThread, on
       </nav>
 
       {/* You */}
-      <div className="flex shrink-0 items-center gap-1 border-t border-line p-2">
+      <div className="relative z-30 flex shrink-0 items-center gap-1 border-t border-line p-2">
         <Menu
           label="Account"
           wrapperClassName="min-w-0 flex-1"
@@ -198,6 +199,7 @@ export function ThreadSidebar({ user, teams, projects, threads, activeThread, on
             Back to the classic view
           </MenuItem>
         </Menu>
+        <NotificationBell look="v2" threadHref={(id) => `/preview/thread/${id}`} />
         <ThemeSwitch size="sm" />
       </div>
 

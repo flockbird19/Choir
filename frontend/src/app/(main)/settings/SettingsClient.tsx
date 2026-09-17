@@ -3,6 +3,7 @@
 import { useState, useTransition, useEffect } from "react";
 import { Check, Trash2, KeyRound, ExternalLink } from "lucide-react";
 import { saveApiKey, deleteApiKey } from "@/app/(main)/thread/[id]/actions";
+import { SharedKeysPanel } from "./SharedKeysPanel";
 
 interface Provider {
   id: string;
@@ -220,16 +221,19 @@ export function SettingsClient({ initialSavedProviders }: SettingsClientProps) {
   };
 
   return (
-    <div className="space-y-3">
-      {PROVIDERS.map((provider) => (
-        <KeyCard
-          key={provider.id}
-          provider={provider}
-          isSaved={savedProviders.includes(provider.id)}
-          onSaved={() => handleProviderSaved(provider.id)}
-          onDeleted={() => handleProviderDeleted(provider.id)}
-        />
-      ))}
-    </div>
+    <>
+      <div className="space-y-3">
+        {PROVIDERS.map((provider) => (
+          <KeyCard
+            key={provider.id}
+            provider={provider}
+            isSaved={savedProviders.includes(provider.id)}
+            onSaved={() => handleProviderSaved(provider.id)}
+            onDeleted={() => handleProviderDeleted(provider.id)}
+          />
+        ))}
+      </div>
+      <SharedKeysPanel savedProviders={savedProviders} />
+    </>
   );
 }

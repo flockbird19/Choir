@@ -41,7 +41,7 @@ export function ThreadView({
   currentUserName: string;
   autoCatchUp?: boolean;
 }) {
-  const { error: toastError, success: toastSuccess } = useToast();
+  const { error: toastError, success: toastSuccess, warning: toastWarning } = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const isPrivate = thread.type === "private";
 
@@ -662,6 +662,7 @@ export function ThreadView({
             onStreamChunk={handleStreamChunk}
             onStreamEnd={handleStreamEnd}
             onStreamError={handleStreamError}
+            onStreamNotice={toastWarning}
             aiMode={isPrivate ? (autoReply ? "auto" : "muted") : "mention"}
           />
         )}
