@@ -5,8 +5,9 @@
 -- This file is the source of truth for the live database. To change the
 -- database: edit this file, paste the whole script into the Supabase SQL Editor
 -- ("Choir schema" snippet) and run it. Last applied to live: 2026-09-17 (Batch 1 +
--- permission fixes). Pending re-run (Batch 2): profiles with status (E4), thread_reads
--- .last_read_at (E5), messages.source_message_ids (K3).
+-- permission fixes). Applied 2026-09-18 (Batch 2): profiles with status (E4),
+-- thread_reads.last_read_at (E5), messages.source_message_ids (K3).
+-- Pending re-run (Batch 2b): foreign-key indexes, thread_summaries (D3).
 -- ============================================================================
 
 begin;
@@ -22,7 +23,7 @@ declare
 begin
   foreach t in array array['messages', 'threads', 'projects', 'team_members', 'teams',
                            'team_invitations', 'user_api_keys', 'thread_reads', 'ai_request_log',
-                           'notifications', 'shared_keys', 'profiles']
+                           'notifications', 'shared_keys', 'profiles', 'thread_summaries']
   loop
     if to_regclass('public.' || t) is not null then
       execute format('lock table public.%I in access exclusive mode', t);
@@ -210,6 +211,29 @@ update public.projects
   set shared_model_name = 'claude-haiku-4-5'
   where shared_model_provider = 'anthropic' and shared_model_name is distinct from 'claude-haiku-4-5';
 
+-- D3: a rolling summary of the older part of a long thread, so the prompt stays
+-- within budget instead of growing with the conversation. Written and read only by
+-- the backend (service key), like ai_request_log.
+create table if not exists public.thread_summaries (
+  thread_id uuid primary key references public.threads(id) on delete cascade,
+  summary text not null,
+  -- Messages at or before this time are covered by the summary; newer ones go in verbatim.
+  covers_through timestamptz not null,
+  message_count integer not null default 0,
+  model_provider text,
+  model_name text,
+  updated_at timestamptz not null default now()
+);
+
+-- ── 1b. Indexes on the columns the app filters by ────────────────────────────
+-- Postgres indexes primary keys and unique constraints, but never foreign keys.
+-- Without these, opening a thread scans every message and loading the sidebar scans
+-- every membership. Creating an index is safe to re-run and keeps all data.
+create index if not exists messages_thread_time_idx on public.messages (thread_id, created_at);
+create index if not exists threads_project_idx      on public.threads (project_id);
+create index if not exists projects_team_idx        on public.projects (team_id);
+create index if not exists team_members_user_idx    on public.team_members (user_id);
+
 -- ── 2. Realtime (live sync) ──────────────────────────────────────────────────
 
 do $$
@@ -255,6 +279,7 @@ alter table public.ai_request_log   enable row level security;
 alter table public.notifications    enable row level security;
 alter table public.shared_keys      enable row level security;
 alter table public.profiles         enable row level security;
+alter table public.thread_summaries enable row level security;
 
 -- ── 4. Access helpers (same rules as the app and backend access checks) ──────
 
@@ -312,7 +337,7 @@ begin
     where schemaname = 'public'
       and tablename in ('teams', 'team_members', 'projects', 'threads', 'messages',
                         'user_api_keys', 'team_invitations', 'thread_reads', 'ai_request_log',
-                        'notifications', 'shared_keys', 'profiles')
+                        'notifications', 'shared_keys', 'profiles', 'thread_summaries')
   loop
     execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
   end loop;
@@ -431,7 +456,8 @@ create policy "Update own profile" on public.profiles
 create policy "Create own profile" on public.profiles
   for insert with check (id = auth.uid());
 
--- ai_request_log: no rules on purpose — only the backend touches it.
+-- ai_request_log and thread_summaries: no rules on purpose — only the backend
+-- touches them, with the service key. RLS is on, so nobody else can read either.
 
 -- Notifications: you see and mark read only your own; the backend creates them.
 create policy "View own notifications" on public.notifications
