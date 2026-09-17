@@ -375,11 +375,15 @@ create policy "Send messages as yourself in accessible threads" on public.messag
     and (source_thread_id is null or public.can_access_thread(source_thread_id))
     -- B3 finding: "shared by" can only be yourself
     and (shared_by is null or shared_by = auth.uid())
-    -- K3: the trail can only point at messages you can see
+    -- K3: the trail can only point at messages you can see. bool_and() over an empty
+    -- array is NULL, which would block a post with an empty trail, so default to true.
     and (
       source_message_ids is null
-      or (select bool_and(public.can_access_thread(m.thread_id))
-          from public.messages m where m.id = any (source_message_ids))
+      or coalesce(
+           (select bool_and(public.can_access_thread(m.thread_id))
+            from public.messages m where m.id = any (source_message_ids)),
+           true
+         )
     )
   );
 create policy "Pin messages in accessible shared threads" on public.messages
@@ -422,6 +426,10 @@ create policy "View own and teammates' profiles" on public.profiles
   for select using (id = auth.uid() or public.shares_team(id));
 create policy "Update own profile" on public.profiles
   for update using (id = auth.uid()) with check (id = auth.uid());
+-- The sign-up trigger normally creates the row. This lets the app fill in a missing
+-- one for the signed-in person (and nobody else), so a failed trigger isn't fatal.
+create policy "Create own profile" on public.profiles
+  for insert with check (id = auth.uid());
 
 -- ai_request_log: no rules on purpose — only the backend touches it.
 
@@ -492,6 +500,9 @@ grant update (mode) on public.shared_keys to authenticated;
 -- E4: people may only change their own display name and status, never anyone's id.
 revoke update on public.profiles from anon, authenticated;
 grant update (display_name, status, updated_at) on public.profiles to authenticated;
+-- A self-created profile row sets only these columns; the rule above pins id to yourself.
+revoke insert on public.profiles from anon, authenticated;
+grant insert (id, display_name, status) on public.profiles to authenticated;
 
 -- E5: a read position may set both timestamps, nothing else.
 revoke update on public.thread_reads from anon, authenticated;
