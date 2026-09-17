@@ -53,6 +53,8 @@ export interface ComposerCallbacks {
   onStreamChunk: (text: string) => void;
   onStreamEnd: (aiMessageId?: string) => void;
   onStreamError: (error: string) => void;
+  /** e.g. "Using Ravi's key" when the reply switched to a lent key; `model` is the model now answering. */
+  onStreamNotice?: (notice: string, model?: string) => void;
 }
 
 /**
@@ -159,6 +161,10 @@ export function Composer({
           if (event.error) {
             callbacks.onStreamError(String(event.error));
             return;
+          }
+          if (event.notice) {
+            // The backend switched to a teammate's lent key after a rate limit.
+            callbacks.onStreamNotice?.(String(event.notice), typeof event.model === "string" ? event.model : undefined);
           }
           if (event.text) callbacks.onStreamChunk(String(event.text));
           if (event.done) {

@@ -14,6 +14,8 @@ interface ChatInputProps {
   onStreamChunk?: (text: string) => void;
   onStreamEnd?: (aiMessageId?: string) => void;
   onStreamError?: (error: string) => void;
+  /** e.g. "Using Ravi's key" when the reply switched to a lent key. */
+  onStreamNotice?: (notice: string) => void;
   onMessageSent?: (id: string, content: string) => void;
   onMessageFailed?: (id: string) => void;
   disabled?: boolean;
@@ -50,6 +52,7 @@ export function ChatInput({
   onStreamChunk,
   onStreamEnd,
   onStreamError,
+  onStreamNotice,
   onMessageSent,
   onMessageFailed,
   disabled,
@@ -177,6 +180,10 @@ export function ChatInput({
           if (event.error) {
             onStreamError?.(event.error as string);
             return;
+          }
+          if (event.notice) {
+            // The backend switched to a teammate's lent key after a rate limit.
+            onStreamNotice?.(String(event.notice));
           }
           if (event.text) {
             onStreamChunk?.(event.text as string);

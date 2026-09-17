@@ -299,6 +299,14 @@ export function ThreadScreen({
           setStreaming((prev) => (prev ? { ...prev, text: current } : prev));
         });
       },
+      onStreamNotice: (notice, model) => {
+        // A teammate's lent key took over after a rate limit, possibly on another model.
+        if (model) {
+          streamModel.current = model;
+          setStreaming((prev) => (prev ? { ...prev, model } : prev));
+        }
+        toast.warning(notice);
+      },
       onStreamEnd: (aiMessageId) => {
         if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
         streamFrame.current = null;
