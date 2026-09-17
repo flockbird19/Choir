@@ -311,6 +311,8 @@ create policy "Send messages as yourself in accessible threads" on public.messag
     and public.can_access_thread(thread_id)
     -- K2: a published post can only point back to a thread you can see
     and (source_thread_id is null or public.can_access_thread(source_thread_id))
+    -- B3 finding: "shared by" can only be yourself
+    and (shared_by is null or shared_by = auth.uid())
   );
 create policy "Pin messages in accessible shared threads" on public.messages
   for update
@@ -321,6 +323,8 @@ create policy "Pin messages in accessible shared threads" on public.messages
   with check (
     public.can_access_thread(thread_id)
     and exists (select 1 from public.threads t where t.id = thread_id and t.type = 'shared')
+    -- B3 finding: a pin can only be credited to yourself
+    and (pinned_by is null or pinned_by = auth.uid())
   );
 
 -- API keys: only your own (the backend reads them with the service key)
@@ -329,12 +333,21 @@ create policy "Manage own API keys" on public.user_api_keys
 
 -- Invitations: team members only — no public reading of tokens.
 -- Accepting an invite uses the server's admin client, so it still works.
-create policy "Members manage team invitations" on public.team_invitations
-  for all using (public.is_team_member(team_id)) with check (public.is_team_member(team_id));
+-- (B3 finding: split so links are created in your own name and a revoke can't be undone.)
+create policy "Members view team invitations" on public.team_invitations
+  for select using (public.is_team_member(team_id));
+create policy "Members create invitations as themselves" on public.team_invitations
+  for insert with check (public.is_team_member(team_id) and created_by = auth.uid());
+create policy "Members revoke team invitations" on public.team_invitations
+  for update using (public.is_team_member(team_id))
+  with check (public.is_team_member(team_id) and revoked_at is not null);
+create policy "Members delete team invitations" on public.team_invitations
+  for delete using (public.is_team_member(team_id));
 
--- Catch Me Up position: only your own
+-- Catch Me Up position: only your own, and only for threads you can open (B3 finding)
 create policy "Manage own read state" on public.thread_reads
-  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+  for all using (user_id = auth.uid())
+  with check (user_id = auth.uid() and public.can_access_thread(thread_id));
 
 -- ai_request_log: no rules on purpose — only the backend touches it.
 
@@ -375,6 +388,12 @@ create policy "Stop lending your own key" on public.shared_keys
 revoke update on public.messages from anon, authenticated;
 grant update (is_decision, pinned_by, pinned_at) on public.messages to authenticated;
 
+-- B3 finding: new messages can't arrive pre-pinned or backdated. Only these columns
+-- may be set when posting (id is sent by the app for optimistic sends).
+revoke insert on public.messages from anon, authenticated;
+grant insert (id, thread_id, sender_type, sender_id, content, shared_by, source_thread_id)
+  on public.messages to authenticated;
+
 -- Signed-in users may only change a thread's AI auto-reply setting (mute), never its
 -- type, owner, project or name. The rule above limits this to their own private threads.
 revoke update on public.threads from anon, authenticated;
@@ -383,6 +402,9 @@ grant update (ai_auto_reply) on public.threads to authenticated;
 -- L5: members may only revoke an invite link, never change its token, team or expiry.
 revoke update on public.team_invitations from anon, authenticated;
 grant update (revoked_at) on public.team_invitations to authenticated;
+-- B3 finding: links are created with the default 7-day expiry, never a custom one.
+revoke insert on public.team_invitations from anon, authenticated;
+grant insert (team_id, created_by) on public.team_invitations to authenticated;
 
 -- F3: users may only mark a notification read.
 revoke update on public.notifications from anon, authenticated;
