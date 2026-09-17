@@ -39,6 +39,8 @@ def _transcript(messages: list[dict[str, Any]]) -> str:
 
 
 def _complete(provider: str, model: str, api_key: str, user_prompt: str) -> str:
+    # ponytail: same one-shot call as llm.generate_digest; merge into one llm helper once
+    # Lane B's llm.py changes land (kept separate now to avoid editing their code).
     try:
         if provider == "anthropic":
             import anthropic  # type: ignore
