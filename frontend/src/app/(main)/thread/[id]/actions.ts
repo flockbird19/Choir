@@ -11,6 +11,12 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
 
 const NO_THREAD_ACCESS = "You don't have access to this thread.";
 const SHARED_THREAD_ONLY = "This action is only available in a shared thread you belong to.";
+const DATABASE_UPDATE_PENDING = "This needs a database update that hasn't been applied yet. Please try again later.";
+
+// Postgres 42703 / PostgREST PGRST204: a column isn't there yet (schema.sql not re-run).
+function isMissingColumn(error: { code?: string } | null): boolean {
+  return error?.code === "42703" || error?.code === "PGRST204";
+}
 
 // Display names of everyone who can post in a thread, keyed by user id.
 export async function getThreadMemberNames(threadId: string): Promise<Record<string, string>> {
@@ -147,7 +153,8 @@ export async function deleteApiKey(
 
 export async function postToSharedThread(
   sharedThreadId: string,
-  content: string
+  content: string,
+  sourceThreadId?: string
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
@@ -161,6 +168,15 @@ export async function postToSharedThread(
     return { error: SHARED_THREAD_ONLY };
   }
 
+  // "Publish findings" (K2) links the post to the private thread it came from. Only your
+  // own private thread in the same project can be the source.
+  if (sourceThreadId) {
+    const source = await getAccessibleThread(user.id, sourceThreadId);
+    if (!source || source.type !== "private" || source.project_id !== target.project_id) {
+      return { error: NO_THREAD_ACCESS };
+    }
+  }
+
   // Insert the compiled markdown block into the shared thread.
   // We set `shared_by` to the current user's ID so the frontend can display
   // the "Shared from private exploration" banner.
@@ -170,8 +186,13 @@ export async function postToSharedThread(
     sender_id: user.id,
     content,
     shared_by: user.id,
+    ...(sourceThreadId ? { source_thread_id: sourceThreadId } : {}),
   });
 
+  if (isMissingColumn(error)) {
+    console.error("Error posting to shared thread (database update pending):", error);
+    return { error: DATABASE_UPDATE_PENDING };
+  }
   if (error) {
     console.error("Error posting to shared thread:", error);
     return { error: error.message };
@@ -179,6 +200,88 @@ export async function postToSharedThread(
 
   revalidatePath(`/thread/${sharedThreadId}`);
   return { success: true };
+}
+
+// ── "Discuss privately" (D2): start a private thread about a Team Space message ──
+
+const FORK_NAME_MAX_CHARS = 40;
+
+function forkThreadName(content: string): string {
+  const text = content.replace(/[*_`#>|~[\]]/g, "").replace(/\s+/g, " ").trim();
+  if (!text) return "Private discussion";
+  return text.length > FORK_NAME_MAX_CHARS ? `${text.slice(0, FORK_NAME_MAX_CHARS).trimEnd()}…` : text;
+}
+
+export async function discussPrivately(
+  sharedThreadId: string,
+  messageId: string
+): Promise<{ threadId?: string; error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not logged in" };
+
+  const shared = await getAccessibleThread(user.id, sharedThreadId);
+  if (!shared || shared.type !== "shared") return { error: SHARED_THREAD_ONLY };
+
+  const supabase = await createClient();
+  const { data: message } = await supabase
+    .from("messages")
+    .select("id, sender_type, sender_id, content")
+    .eq("id", messageId)
+    .eq("thread_id", sharedThreadId)
+    .maybeSingle();
+  if (!message) return { error: "That message no longer exists." };
+
+  let author = "Choir AI";
+  if (message.sender_type !== "assistant") {
+    if (message.sender_id === user.id) {
+      author = getDisplayName(user);
+    } else {
+      const project = (await getWorkspace(user.id)).projects.find((p) => p.id === shared.project_id);
+      const names = project ? await getTeamMemberNames(project.team_id) : {};
+      author = names[message.sender_id ?? ""] ?? "Former member";
+    }
+  }
+
+  const { data: thread, error } = await supabase
+    .from("threads")
+    .insert({
+      type: "private",
+      owner_id: user.id,
+      project_id: shared.project_id,
+      name: forkThreadName(message.content),
+      forked_from_message_id: message.id,
+    })
+    .select("id")
+    .single();
+
+  if (isMissingColumn(error)) {
+    console.error("Error creating a private thread from a message (database update pending):", error);
+    return { error: DATABASE_UPDATE_PENDING };
+  }
+  if (error || !thread) {
+    console.error("Error creating a private thread from a message:", error);
+    return { error: "Couldn't start a private thread. Please try again." };
+  }
+
+  const quoted = String(message.content)
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  const { error: seedError } = await supabase.from("messages").insert({
+    thread_id: thread.id,
+    sender_type: "user",
+    sender_id: user.id,
+    content: `Let's discuss this message from ${author} in ${shared.name || "Team Space"}:\n\n${quoted}`,
+  });
+
+  if (seedError) {
+    console.error("Error seeding the new private thread:", seedError);
+    await supabase.from("threads").delete().eq("id", thread.id).eq("owner_id", user.id);
+    return { error: "Couldn't start a private thread. Please try again." };
+  }
+
+  revalidatePath("/");
+  return { threadId: thread.id };
 }
 
 // ── Global Decisions — pin/unpin a shared-thread message ──────────────────────
@@ -268,8 +371,7 @@ export async function setThreadAutoReply(
     .eq("owner_id", user.id)
     .select("id");
 
-  // Postgres 42703 / PostgREST PGRST204: the column isn't there yet (schema.sql not re-run).
-  if (error?.code === "42703" || error?.code === "PGRST204") {
+  if (isMissingColumn(error)) {
     console.error("Error saving AI reply setting (database update pending):", error);
     return { error: "Couldn't save this setting yet: the database update for AI replies hasn't been applied." };
   }

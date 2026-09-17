@@ -8,6 +8,12 @@ export function getDisplayName(user: Pick<User, "email" | "user_metadata"> | nul
   return savedName || user?.email?.split("@")[0] || "User";
 }
 
+// K2: a published post only names the private thread's owner (who is always the poster),
+// never the thread's name or contents.
+export function publishedLabel(isOwn: boolean, ownerName: string): string {
+  return isOwn ? "Published from your private thread" : `Published from ${ownerName}'s private thread`;
+}
+
 export function getInitials(name: string): string {
   return (
     name

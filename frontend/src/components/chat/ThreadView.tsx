@@ -6,9 +6,12 @@ import { ChatInput } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Bot, BotOff } from "lucide-react";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Bot, BotOff, Megaphone, MessageSquareLock } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { DecisionsSinceBanner } from "./DecisionsSinceBanner";
+import { usePublishFindings } from "../PublishFindingsDialog";
 import {
+  discussPrivately,
   postToSharedThread,
   getSessionToken,
   pinMessage,
@@ -169,9 +172,10 @@ export function ThreadView({
   );
 
   // ── Sender names — who wrote each message ─────────────────────────────────
+  // Pinners too, so the Decisions panel can name who pinned each one.
   const threadNames = useMemberNames(
     thread.id,
-    localMessages.map((m) => m.sender_id ?? "")
+    localMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
   );
   const sharedNames = useMemberNames(
     isPrivate ? sharedThread?.id : undefined,
@@ -192,7 +196,12 @@ export function ThreadView({
       setLocalMessages((prev) =>
         prev.map((m) =>
           m.id === id
-            ? { ...m, is_decision: !currentlyPinned, pinned_at: currentlyPinned ? null : new Date().toISOString() }
+            ? {
+                ...m,
+                is_decision: !currentlyPinned,
+                pinned_by: currentlyPinned ? null : currentUserId,
+                pinned_at: currentlyPinned ? null : new Date().toISOString(),
+              }
             : m
         )
       );
@@ -205,8 +214,42 @@ export function ThreadView({
         );
       }
     },
-    [thread.id, toastError]
+    [thread.id, currentUserId, toastError]
   );
+
+  // ── "Discuss privately" (D2): fork a Team Space message into a private thread ──
+  const router = useRouter();
+  const [isForking, setIsForking] = useState(false);
+  const forkingRef = useRef(false);
+  const handleDiscussPrivately = useCallback(
+    async (messageId: string) => {
+      if (forkingRef.current) return;
+      forkingRef.current = true;
+      setIsForking(true);
+      try {
+        const res = await discussPrivately(thread.id, messageId);
+        if (res.threadId) {
+          router.push(`/thread/${res.threadId}`);
+          router.refresh();
+          return;
+        }
+        toastError(res.error || "Couldn't start a private thread.");
+      } catch {
+        toastError("Couldn't start a private thread. Please try again.");
+      }
+      forkingRef.current = false;
+      setIsForking(false);
+    },
+    [thread.id, router, toastError]
+  );
+
+  // ── Publish findings (K2) ──────────────────────────────────────────────────
+  const findings = usePublishFindings({
+    threadId: thread.id,
+    sharedThreadId: sharedThread?.id,
+    sharedName: sharedThread?.name || "Team Space",
+    onPublished: () => setDrawerOpen(true),
+  });
 
   const handleJumpToDecision = useCallback((id: string) => {
     setDecisionsOpen(false);
@@ -557,6 +600,19 @@ export function ThreadView({
               </button>
             )}
 
+            {/* Publish findings — only for private threads */}
+            {isPrivate && sharedThread && (
+              <button
+                onClick={() => void findings.start()}
+                title="Publish findings to Team Space"
+                aria-label="Publish findings"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border bg-surface text-graphite border-border hover:border-accent/40 hover:text-accent"
+              >
+                <Megaphone size={15} aria-hidden="true" />
+                <span className="hidden sm:inline">Publish findings</span>
+              </button>
+            )}
+
             {/* Context drawer toggle — only for private threads */}
             {isPrivate && sharedThread && (
               <button
@@ -582,6 +638,13 @@ export function ThreadView({
           <div className="h-px bg-gradient-to-r from-transparent via-shared/40 to-transparent" />
         )}
 
+        {isForking && (
+          <div role="status" className="px-5 py-2 border-b border-border bg-surface-hover text-xs text-graphite flex items-center gap-2">
+            <MessageSquareLock size={13} aria-hidden="true" />
+            Starting a private thread about this message…
+          </div>
+        )}
+
         {/* Decisions pinned in the Team Space since this thread was last active */}
         {isPrivate && sharedThread && newDecisions.length > 0 && (
           <DecisionsSinceBanner
@@ -604,6 +667,7 @@ export function ThreadView({
           onToggleSelect={handleToggleSelect}
           isSharedThread={!isPrivate}
           onTogglePin={handleTogglePin}
+          onDiscussPrivately={isPrivate ? undefined : handleDiscussPrivately}
           highlightedMessageId={highlightedMessageId}
           aiAutoReply={isPrivate && autoReply}
         />
@@ -688,8 +752,14 @@ export function ThreadView({
           decisions={decisions}
           onJumpTo={handleJumpToDecision}
           onUnpin={(id) => handleTogglePin(id, true)}
+          currentUserId={currentUserId}
+          memberNames={threadNames.names}
+          namesLoaded={threadNames.loaded}
         />
       )}
+
+      {/* ── Publish findings dialog ─────────────────────────────────── */}
+      {isPrivate && sharedThread && findings.dialog}
 
       {/* ── Catch Me Up Modal ───────────────────────────────────────── */}
       {!isPrivate && (

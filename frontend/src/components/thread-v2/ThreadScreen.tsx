@@ -10,7 +10,9 @@ import {
   Ellipsis,
   LayoutList,
   Lock,
+  Megaphone,
   Menu as MenuIcon,
+  MessageSquareLock,
   PanelRight,
   Pin,
   Sparkles,
@@ -20,6 +22,7 @@ import {
 import { useRouter } from "next/navigation";
 import type { Message, Project, Team, Thread } from "@/types/database";
 import {
+  discussPrivately,
   getSessionToken,
   pinMessage,
   postToSharedThread,
@@ -31,6 +34,7 @@ import { useMemberNames } from "@/hooks/useMemberNames";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useThreadPresence } from "@/hooks/useThreadPresence";
 import { useToast } from "@/components/Toast";
+import { usePublishFindings } from "@/components/PublishFindingsDialog";
 import { AvatarStack } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -107,7 +111,8 @@ export function ThreadScreen({
     useCallback((m: Message) => setLocalShared((prev) => merge(prev, m)), [])
   );
 
-  const names = useMemberNames(thread.id, localMessages.map((m) => m.sender_id ?? ""));
+  // Pinners too, so the Decisions panel can name who pinned each one.
+  const names = useMemberNames(thread.id, localMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]));
   const sharedNames = useMemberNames(isPrivate ? sharedThread?.id : undefined, localShared.map((m) => m.sender_id ?? ""));
   const present = useThreadPresence(thread.id, user.name);
   const memberCount = Object.keys(names.names).length;
@@ -128,7 +133,16 @@ export function ThreadScreen({
   const togglePin = useCallback(
     async (id: string, pinned: boolean) => {
       setLocalMessages((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, is_decision: !pinned, pinned_at: pinned ? null : new Date().toISOString() } : m))
+        prev.map((m) =>
+          m.id === id
+            ? {
+                ...m,
+                is_decision: !pinned,
+                pinned_by: pinned ? null : user.id,
+                pinned_at: pinned ? null : new Date().toISOString(),
+              }
+            : m
+        )
       );
       const res = pinned ? await unpinMessage(thread.id, id) : await pinMessage(thread.id, id);
       if (res.error) {
@@ -138,7 +152,34 @@ export function ThreadScreen({
     },
     // toast functions are recreated each render by the provider; only error is used.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [thread.id]
+    [thread.id, user.id]
+  );
+
+  // ── "Discuss privately" (D2): fork a shared message into a new private thread ──
+  const [forking, setForking] = useState(false);
+  const forkingRef = useRef(false);
+  const startPrivateDiscussion = useCallback(
+    async (messageId: string) => {
+      if (forkingRef.current) return;
+      forkingRef.current = true;
+      setForking(true);
+      try {
+        const res = await discussPrivately(thread.id, messageId);
+        if (res.threadId) {
+          router.push(`/preview/thread/${res.threadId}`);
+          router.refresh();
+          return;
+        }
+        toast.error(res.error || "Couldn't start a private thread.");
+      } catch {
+        toast.error("Couldn't start a private thread. Please try again.");
+      }
+      forkingRef.current = false;
+      setForking(false);
+    },
+    // toast functions are recreated each render by the provider; only error is used.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [thread.id, router]
   );
 
   const jumpTo = useCallback(
@@ -330,6 +371,14 @@ export function ThreadScreen({
       toast.error(res.error || "Couldn't post to the shared thread.");
     }
   };
+
+  // ── Publish findings (K2) ────────────────────────────────────────────────
+  const findings = usePublishFindings({
+    threadId: thread.id,
+    sharedThreadId: sharedThread?.id,
+    sharedName,
+    onPublished: () => setPanel("team"),
+  });
 
   // ── Export and Catch me up (same backend endpoints as the classic view) ────
   const [exporting, setExporting] = useState(false);
@@ -552,6 +601,16 @@ export function ThreadScreen({
                 >
                   Post to Shared
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void findings.start()}
+                  leadingIcon={<Megaphone size={15} aria-hidden="true" />}
+                  className="hidden lg:inline-flex"
+                >
+                  Publish findings
+                </Button>
+                <IconButton label="Publish findings" icon={<Megaphone />} onClick={() => void findings.start()} className="lg:hidden" />
                 <IconButton
                   label={`Show ${sharedName}`}
                   icon={<PanelRight />}
@@ -584,6 +643,7 @@ export function ThreadScreen({
               {isPrivate && sharedThread && (
                 <>
                   <MenuItem icon={<CheckSquare />} onSelect={() => setSelectMode(true)}>Post to Shared</MenuItem>
+                  <MenuItem icon={<Megaphone />} onSelect={() => void findings.start()}>Publish findings</MenuItem>
                   <MenuItem icon={<PanelRight />} onSelect={() => setPanel("team")}>Show {sharedName}</MenuItem>
                 </>
               )}
@@ -600,6 +660,13 @@ export function ThreadScreen({
           <div role="status" className="flex shrink-0 items-center gap-2 border-b border-primary/20 bg-primary-soft px-4 py-2 text-label text-primary">
             <ArrowUpRight size={14} aria-hidden="true" />
             <span className="flex-1">Pick the messages to post to {sharedName}. Your teammates will see them as one update.</span>
+          </div>
+        )}
+
+        {forking && (
+          <div role="status" className="flex shrink-0 items-center gap-2 border-b border-private-line bg-private-soft px-4 py-2 text-label text-private">
+            <MessageSquareLock size={14} aria-hidden="true" />
+            <span className="flex-1">Starting a private thread about this message…</span>
           </div>
         )}
 
@@ -624,6 +691,7 @@ export function ThreadScreen({
           highlightedId={highlightedId}
           onToggleSelect={toggleSelect}
           onTogglePin={togglePin}
+          onDiscussPrivately={isPrivate ? undefined : startPrivateDiscussion}
           streaming={streaming}
           scrollToEndSignal={scrollSignal}
           empty={emptyState}
@@ -674,6 +742,7 @@ export function ThreadScreen({
         </Sheet>
       )}
 
+      {isPrivate && sharedThread && findings.dialog}
       <CatchUpDialog state={catchUp} decisions={decisions} onClose={() => setCatchUp((s) => ({ ...s, open: false }))} />
     </div>
   );

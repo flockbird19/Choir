@@ -272,6 +272,25 @@ def _format_shared_as_system_context(
     return "\n".join(lines)
 
 
+def _fork_focus_context(
+    thread: dict[str, Any], shared_msgs: list[dict[str, Any]], names: dict[str, str]
+) -> str:
+    """
+    D2 "Discuss privately": a private thread started from a shared message is about that
+    message. Only messages from this project's shared thread are used, so nothing else leaks in.
+    """
+    forked_id = thread.get("forked_from_message_id")
+    focus = next((m for m in shared_msgs if forked_id and m.get("id") == forked_id), None)
+    if not focus:
+        return ""
+    return (
+        "\nFOCUS: The user started this private thread to discuss one message from the shared thread, "
+        f"written by {sender_label(focus, names)}:\n"
+        f"\"\"\"\n{focus['content']}\n\"\"\"\n"
+        "Treat that message as the focus of this conversation.\n"
+    )
+
+
 def _resolve_owner_key(project: dict[str, Any] | None) -> tuple[str, str, str] | None:
     """(provider, model, api_key) from the project owner's saved key, or None if they have none."""
     if not project or not project.get("created_by"):
@@ -440,7 +459,9 @@ def stream_ai_response(
             + team_context + "\n"
             "ROLE: Brainstorming partner. Help explore, stress-test, and refine ideas before they are shared with the team.\n"
             "STYLE: Exploratory, direct, creative, yet concise. Do NOT use emojis. Provide enough detail to be genuinely helpful, but avoid exhaustively long or overly verbose responses.\n"
-            "CONTEXT: The team's shared thread is below for alignment. Only answer the user's immediate private questions.\n\n"
+            "CONTEXT: The team's shared thread is below for alignment. Only answer the user's immediate private questions.\n"
+            + _fork_focus_context(thread, shared_msgs, names)
+            + "\n"
             + _format_shared_as_system_context(shared_msgs, names, user_id)
         )
         # Only the owner writes in a private thread, so no sender labels are needed.

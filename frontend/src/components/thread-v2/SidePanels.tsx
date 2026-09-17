@@ -9,6 +9,7 @@ import { cn } from "@/components/ui/cn";
 import { Markdown } from "./Markdown";
 import { formatDayLabel, formatTime } from "./format";
 import { senderOf } from "./MessageStream";
+import { publishedLabel } from "@/utils/display-name";
 
 interface NameProps {
   currentUserId: string;
@@ -44,6 +45,11 @@ export function DecisionsList({
     <ul className="flex flex-col gap-2 p-3">
       {sorted.map((decision) => {
         const sender = senderOf(decision, nameProps.currentUserId, nameProps.currentUserName, nameProps.names, nameProps.namesLoaded);
+        const pinner = decision.pinned_by
+          ? decision.pinned_by === nameProps.currentUserId
+            ? "you"
+            : nameProps.names[decision.pinned_by] ?? (nameProps.namesLoaded ? "a former member" : "a teammate")
+          : null;
         return (
           <li key={decision.id} className="group/decision relative rounded-card border border-decision-line bg-card shadow-soft">
             <button
@@ -58,6 +64,7 @@ export function DecisionsList({
                 {formatDayLabel(decision.created_at)}
               </span>
               <span className="line-clamp-4 text-body-sm text-fg [overflow-wrap:anywhere]">{decision.content}</span>
+              {pinner && <span className="text-caption text-fg-subtle">Pinned by {pinner}</span>}
               <span className="inline-flex items-center gap-1 text-caption font-medium text-primary">
                 Jump to message <ArrowRight size={12} aria-hidden="true" />
               </span>
@@ -111,6 +118,9 @@ export function TeamSpacePeek({
                     <time dateTime={message.created_at} className="text-fg-subtle">{formatTime(message.created_at)}</time>
                     {message.is_decision && <Pin size={11} className="fill-current text-decision" aria-label="Decision" />}
                   </p>
+                  {message.source_thread_id && (
+                    <p className="text-caption font-medium text-team">{publishedLabel(sender.kind === "own", sender.name)}</p>
+                  )}
                   <div className={cn("mt-0.5 text-body-sm text-fg [overflow-wrap:anywhere]", message.shared_by && "rounded-control border border-team-line bg-team-soft px-2.5 py-1.5")}>
                     <Markdown>{message.content}</Markdown>
                   </div>

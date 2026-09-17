@@ -31,6 +31,7 @@ export interface MessageStreamProps {
   highlightedId: string | null;
   onToggleSelect: (id: string) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
+  onDiscussPrivately?: (id: string) => void;
   /** AI reply being streamed: null while waiting for the first words. */
   streaming: { text: string | null; model: string } | null;
   /** Bumped when the current user sends, to always scroll to their message. */
@@ -65,6 +66,7 @@ export function MessageStream({
   highlightedId,
   onToggleSelect,
   onTogglePin,
+  onDiscussPrivately,
   streaming,
   scrollToEndSignal,
   empty,
@@ -180,6 +182,7 @@ export function MessageStream({
                     highlighted={highlightedId === message.id}
                     onToggleSelect={onToggleSelect}
                     onTogglePin={onTogglePin}
+                    onDiscussPrivately={onDiscussPrivately}
                   />
                 </Fragment>
               );
