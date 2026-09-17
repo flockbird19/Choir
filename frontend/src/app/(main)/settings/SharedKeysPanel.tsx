@@ -23,8 +23,6 @@ const CHOICES: { value: Choice; label: string }[] = [
   { value: "pool", label: "Pool" },
 ];
 
-const MODE_LABELS: Record<Mode, string> = { fallback: "Fallback", pool: "Pool" };
-
 /** Who lends keys to a project, or null if the query failed. */
 async function fetchRows(projectId: string): Promise<SharedKeyRow[] | null> {
   const { data, error } = await createClient()
@@ -52,7 +50,7 @@ function LendChoice({
       <span id={`${name}-label`} className="text-sm font-semibold text-ink">
         {providerName(provider)} key
       </span>
-      <div role="radiogroup" aria-labelledby={`${name}-label`} className="flex gap-1.5">
+      <div role="radiogroup" aria-labelledby={`${name}-label`} className="flex flex-wrap gap-1.5">
         {CHOICES.map((choice) => (
           <label key={choice.value} className="relative">
             <input
@@ -66,7 +64,7 @@ function LendChoice({
             />
             <span
               className={
-                "flex min-h-11 cursor-pointer items-center rounded-full border px-3.5 text-xs font-medium transition-colors sm:min-h-8 " +
+                "flex min-h-11 cursor-pointer items-center whitespace-nowrap rounded-full border px-3.5 text-xs font-medium transition-colors sm:min-h-8 " +
                 "border-border text-graphite hover:text-ink hover:border-graphite/40 " +
                 "peer-checked:border-ink peer-checked:bg-ink peer-checked:text-canvas " +
                 "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent " +
@@ -213,7 +211,9 @@ export function SharedKeysPanel({ savedProviders }: { savedProviders: string[] }
               <select
                 id={selectId}
                 value={projectId}
+                disabled={pending !== null}
                 onChange={(e) => {
+                  if (e.target.value === projectId) return;
                   setRows(null);
                   setError(null);
                   setProjectId(e.target.value);
@@ -270,7 +270,7 @@ export function SharedKeysPanel({ savedProviders }: { savedProviders: string[] }
                         <span className="text-graphite">· {providerName(row.provider)}</span>
                       </span>
                       <span className="shrink-0 rounded-full border border-border px-2.5 py-0.5 text-xs text-graphite">
-                        {MODE_LABELS[row.mode] ?? row.mode}
+                        {CHOICES.find((c) => c.value === row.mode)?.label ?? row.mode}
                       </span>
                     </li>
                   ))}

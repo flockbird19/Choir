@@ -16,7 +16,7 @@ export function PrimarySidebar({ teams, activeTeamId, onSelectTeam }: PrimarySid
   return (
     <nav
       aria-label="Teams"
-      className="w-16 h-full flex flex-col items-center py-4 bg-surface-hover/50 border-r border-border shrink-0 z-20"
+      className="w-16 h-full flex flex-col items-center py-4 bg-surface-hover/50 border-r border-border shrink-0 z-30"
     >
 
       {/* Home / Logo */}
