@@ -139,7 +139,13 @@ export function ThreadScreen({
 
   // ── Seen by (E5) — throttled read-position updates + who else has seen what ───
   const [atBottom, setAtBottom] = useState(true);
-  const seenBy = useSeenBy(thread.id, atBottom, !isPrivate);
+  // Newest message time: with nothing new, the hook writes nothing at all.
+  const seenBy = useSeenBy(
+    thread.id,
+    atBottom,
+    !isPrivate,
+    localMessages.length > 0 ? localMessages[localMessages.length - 1].created_at : null
+  );
 
   // Pinners and seen-by readers too, so their names can be shown.
   const names = useMemberNames(

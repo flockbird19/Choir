@@ -17,27 +17,48 @@ const POLL_MS = 20000;
 export function useSeenBy(
   threadId: string | null | undefined,
   atBottom: boolean,
-  enabled: boolean
+  enabled: boolean,
+  /** `created_at` of the newest message. Nothing new to mark means nothing is written. */
+  latestMessageAt?: string | null
 ): Record<string, string> {
   const [seenBy, setSeenBy] = useState<Record<string, string>>({});
   const atBottomRef = useRef(atBottom);
+  const latestRef = useRef(latestMessageAt);
+  // What we last told the server we had read, so an idle tab stops writing.
+  const markedRef = useRef<string | null>(null);
   useEffect(() => {
     atBottomRef.current = atBottom;
-  }, [atBottom]);
+    latestRef.current = latestMessageAt;
+  }, [atBottom, latestMessageAt]);
 
   useEffect(() => {
     if (!enabled || !threadId) return;
     let cancelled = false;
 
+    // These run on a timer forever, so a failure must never become an unhandled
+    // rejection — that turned one hiccup into a console error every few seconds.
     const refreshSeenBy = () => {
-      getThreadSeenBy(threadId).then((data) => {
-        if (!cancelled) setSeenBy(data);
-      });
+      getThreadSeenBy(threadId)
+        .then((data) => {
+          if (!cancelled) setSeenBy(data);
+        })
+        .catch(() => {
+          // Offline, or the session is being refreshed. The next tick will retry.
+        });
     };
     const markIfAtBottom = () => {
-      if (atBottomRef.current) void markThreadSeen(threadId);
+      const latest = latestRef.current;
+      // Only write when we are at the bottom AND there is something newer than
+      // what we already marked. An idle tab used to write every 5 seconds.
+      if (!atBottomRef.current || !latest || latest === markedRef.current) return;
+      markedRef.current = latest;
+      markThreadSeen(threadId).catch(() => {
+        // Let the next tick try again rather than losing the position for good.
+        markedRef.current = null;
+      });
     };
 
+    markedRef.current = null;
     refreshSeenBy();
     markIfAtBottom();
     const markTimer = setInterval(markIfAtBottom, MARK_THROTTLE_MS);

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/client";
+import { keepRealtimeAuthFresh } from "@/utils/supabase/realtime-auth";
 
 /** A row of `notifications`. kind 'key_rate_limited' has payload {provider, project_name, thread_id}. */
 export interface AppNotification {
@@ -35,6 +36,7 @@ export function useNotifications() {
   useEffect(() => {
     const supabase = createClient();
     let channel: RealtimeChannel | null = null;
+    let stopAuthRefresh: (() => void) | null = null;
     let cancelled = false;
 
     const load = async (userId: string) => {
@@ -50,13 +52,10 @@ export function useNotifications() {
     };
 
     (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { session, stop } = await keepRealtimeAuthFresh(supabase);
+      stopAuthRefresh = stop;
       if (cancelled || !session) return;
       const userId = session.user.id;
-      await supabase.realtime.setAuth(session.access_token);
-      if (cancelled) return;
       void load(userId);
 
       let hasSubscribed = false;
@@ -81,6 +80,7 @@ export function useNotifications() {
 
     return () => {
       cancelled = true;
+      stopAuthRefresh?.();
       if (channel) supabase.removeChannel(channel);
     };
   }, []);

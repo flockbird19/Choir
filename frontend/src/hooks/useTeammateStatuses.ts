@@ -3,6 +3,7 @@
 import { useEffect, useId, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/client";
+import { keepRealtimeAuthFresh } from "@/utils/supabase/realtime-auth";
 import type { StatusId } from "@/app/(main)/profile/actions";
 
 export const STATUS_LABEL: Record<StatusId, string> = {
@@ -46,6 +47,7 @@ export function useTeammateStatuses(): Record<string, StatusId> {
   useEffect(() => {
     const supabase = createClient();
     let channel: RealtimeChannel | null = null;
+    let stopAuthRefresh: (() => void) | null = null;
     let cancelled = false;
 
     const refresh = async () => {
@@ -59,12 +61,9 @@ export function useTeammateStatuses(): Record<string, StatusId> {
     };
 
     (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { session, stop } = await keepRealtimeAuthFresh(supabase);
+      stopAuthRefresh = stop;
       if (cancelled || !session) return;
-      await supabase.realtime.setAuth(session.access_token);
-      if (cancelled) return;
 
       void refresh();
 
@@ -88,6 +87,7 @@ export function useTeammateStatuses(): Record<string, StatusId> {
 
     return () => {
       cancelled = true;
+      stopAuthRefresh?.();
       if (channel) supabase.removeChannel(channel);
     };
   }, [instanceId]);

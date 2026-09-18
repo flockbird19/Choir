@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/client";
+import { keepRealtimeAuthFresh } from "@/utils/supabase/realtime-auth";
 import { Message } from "@/types/database";
 
 /**
@@ -34,6 +35,7 @@ export function useRealtimeMessages(
 
     const supabase = createClient();
     let channel: RealtimeChannel | null = null;
+    let stopAuthRefresh: (() => void) | null = null;
     let cancelled = false;
     let hasSubscribed = false;
 
@@ -50,11 +52,8 @@ export function useRealtimeMessages(
     };
 
     (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (cancelled) return;
-      if (session) await supabase.realtime.setAuth(session.access_token);
+      const { stop } = await keepRealtimeAuthFresh(supabase);
+      stopAuthRefresh = stop;
       if (cancelled) return;
 
       channel = supabase
@@ -81,6 +80,7 @@ export function useRealtimeMessages(
 
     return () => {
       cancelled = true;
+      stopAuthRefresh?.();
       if (channel) supabase.removeChannel(channel);
     };
   }, [threadId]);
