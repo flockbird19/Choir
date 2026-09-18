@@ -4,7 +4,6 @@ import { X, Pin, Eye } from "lucide-react";
 import { Message } from "@/types/database";
 import { useDialogA11y } from "@/hooks/useDialogA11y";
 import { whoHasSeen } from "@/hooks/useSeenBy";
-import { getInitials } from "@/utils/display-name";
 
 interface DecisionsPanelProps {
   isOpen: boolean;
