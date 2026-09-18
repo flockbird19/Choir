@@ -41,7 +41,7 @@ async def lifespan(_app: FastAPI):
         raise RuntimeError(
             "Supabase is missing required tables: "
             + ", ".join(missing)
-            + ". Apply the pending migrations in supabase/migrations before starting the backend."
+            + ". Run schema.sql in the Supabase SQL Editor before starting the backend."
         )
     yield
 
