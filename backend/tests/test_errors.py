@@ -6,6 +6,8 @@ opaque "Failed to fetch" (see backend/src/backend/errors.py).
 import json
 from unittest.mock import patch
 
+import pytest
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
 import main
@@ -13,6 +15,30 @@ from backend.auth import get_current_user
 from backend.errors import safe_sse_stream
 
 ORIGIN = "http://localhost:3000"
+
+
+@pytest.fixture(autouse=True)
+def _default_cors_origins():
+    """
+    FU-5: CORSMiddleware is configured once, at import time, from the
+    ALLOWED_ORIGINS env var — so these tests must not depend on whatever a
+    developer's local backend/.env happens to set it to. Rebuild it here with
+    the localhost default regardless.
+    """
+    middleware_before = list(main.app.user_middleware)
+    stack_before = main.app.middleware_stack
+    main.app.middleware_stack = None
+    main.app.user_middleware = [m for m in middleware_before if m.cls is not CORSMiddleware]
+    main.app.add_middleware(
+        CORSMiddleware,
+        allow_origins=main.parse_allowed_origins(None),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    yield
+    main.app.user_middleware = middleware_before
+    main.app.middleware_stack = stack_before
 
 
 def _client() -> TestClient:
