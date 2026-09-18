@@ -5,6 +5,8 @@ import { Message } from "@/types/database";
 import { useDialogA11y } from "@/hooks/useDialogA11y";
 import { whoHasSeen } from "@/hooks/useSeenBy";
 import { useDecisionTrailModels } from "@/hooks/useDecisionTrail";
+import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
+import type { StatusId } from "@/app/(main)/profile/actions";
 
 interface DecisionsPanelProps {
   isOpen: boolean;
@@ -17,9 +19,12 @@ interface DecisionsPanelProps {
   namesLoaded: boolean;
   /** E5: { userId: last_read_at }. */
   seenBy?: Record<string, string>;
+  /** E4 follow-up: { userId: status }, so the author's name can show it. */
+  statuses?: Record<string, StatusId>;
 }
 
 const EMPTY_SEEN_BY: Record<string, string> = {};
+const EMPTY_STATUSES: Record<string, StatusId> = {};
 
 // K3: "from X's private exploration · model" — a detail line, not a panel.
 function DecisionTrail({ msg, possessive }: { msg: Message; possessive: string }) {
@@ -45,6 +50,7 @@ export function DecisionsPanel({
   memberNames,
   namesLoaded,
   seenBy = EMPTY_SEEN_BY,
+  statuses = EMPTY_STATUSES,
 }: DecisionsPanelProps) {
   const dialogRef = useDialogA11y(isOpen, onClose);
 
@@ -116,6 +122,14 @@ export function DecisionsPanel({
                 <div key={msg.id} className="p-3 rounded-xl border border-border bg-canvas group">
                   <p className="text-[11px] text-graphite mb-1">
                     <span className="font-semibold text-ink">{authorName(msg)}</span>
+                    {msg.sender_type !== "assistant" && msg.sender_id && (
+                      <span
+                        role="img"
+                        aria-label={`${authorName(msg)} — ${STATUS_LABEL[statuses[msg.sender_id] ?? "online"]}`}
+                        title={STATUS_LABEL[statuses[msg.sender_id] ?? "online"]}
+                        className={`inline-block w-1.5 h-1.5 rounded-full ml-1.5 align-middle ${STATUS_DOT_CLASS[statuses[msg.sender_id] ?? "online"]}`}
+                      />
+                    )}
                     {msg.pinned_by && (
                       <> · pinned by {msg.pinned_by === currentUserId ? "you" : personName(msg.pinned_by)}</>
                     )}

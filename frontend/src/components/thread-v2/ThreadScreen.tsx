@@ -36,6 +36,7 @@ import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useSeenBy } from "@/hooks/useSeenBy";
 import { useThreadDecisions } from "@/hooks/useThreadDecisions";
 import { useThreadPresence } from "@/hooks/useThreadPresence";
+import { useTeammateStatuses, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 import { useToast } from "@/components/Toast";
 import { usePublishFindings } from "@/components/PublishFindingsDialog";
 import { AvatarStack } from "@/components/ui/Avatar";
@@ -155,6 +156,9 @@ export function ThreadScreen({
   );
   const present = useThreadPresence(thread.id, user.name);
   const memberCount = Object.keys(names.names).length;
+
+  // ── E4 follow-up: teammates' status (online/away/dnd/offline), live ────────
+  const statuses = useTeammateStatuses();
 
   // ── Panels ───────────────────────────────────────────────────────────────
   const [navOpen, setNavOpen] = useState(false);
@@ -508,6 +512,7 @@ export function ThreadScreen({
         names={names.names}
         namesLoaded={names.loaded}
         seenBy={seenBy}
+        statuses={statuses}
       />
     ) : panel === "team" && sharedThread ? (
       <TeamSpacePeek
@@ -597,7 +602,10 @@ export function ThreadScreen({
 
           {present.length > 0 && (
             <span className="hidden sm:block">
-              <AvatarStack people={present} label={`Viewing now: ${present.map((p) => p.name).join(", ")}`} />
+              <AvatarStack
+                people={present.map((p) => ({ ...p, status: statuses[p.id] ?? "online" }))}
+                label={`Viewing now: ${present.map((p) => `${p.name} (${STATUS_LABEL[statuses[p.id] ?? "online"]})`).join(", ")}`}
+              />
             </span>
           )}
 
@@ -747,6 +755,7 @@ export function ThreadScreen({
           empty={emptyState}
           label={`Messages in ${threadName}`}
           seenBy={seenBy}
+          statuses={statuses}
           onNearBottomChange={setAtBottom}
           onLoadOlder={paged.loadOlder}
           hasMoreOlder={paged.hasMore}

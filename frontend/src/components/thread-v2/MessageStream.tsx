@@ -11,6 +11,7 @@ import { Markdown } from "./Markdown";
 import { MessageRow, type SenderKind } from "./MessageRow";
 import { continuesGroup, dayKey, formatDayLabel } from "./format";
 import { whoHasSeen } from "@/hooks/useSeenBy";
+import type { StatusId } from "@/app/(main)/profile/actions";
 
 const NEAR_BOTTOM_PX = 120;
 const ANNOUNCE_MAX_CHARS = 160;
@@ -43,6 +44,8 @@ export interface MessageStreamProps {
   label: string;
   /** E5 "Seen by": { userId: last_read_at }, shared threads only. */
   seenBy?: Record<string, string>;
+  /** E4 follow-up: { userId: status }, so seen-by avatars can show it. */
+  statuses?: Record<string, StatusId>;
   /** Called when the reader scrolls to (or away from) the bottom. */
   onNearBottomChange?: (near: boolean) => void;
   /** C3 "Load older": pages further back by a created_at cursor. */
@@ -52,6 +55,7 @@ export interface MessageStreamProps {
 }
 
 const EMPTY_SEEN_BY: Record<string, string> = {};
+const EMPTY_STATUSES: Record<string, StatusId> = {};
 
 export function senderOf(
   message: Message,
@@ -85,6 +89,7 @@ export function MessageStream({
   compact = false,
   label,
   seenBy = EMPTY_SEEN_BY,
+  statuses = EMPTY_STATUSES,
   onNearBottomChange,
   onLoadOlder,
   hasMoreOlder = false,
@@ -254,7 +259,14 @@ export function MessageStream({
                       onToggleSelect={onToggleSelect}
                       onTogglePin={onTogglePin}
                       onDiscussPrivately={onDiscussPrivately}
-                      seenBy={canPin ? whoHasSeen(message.created_at, message.sender_id, seenBy, names, currentUserId) : undefined}
+                      seenBy={
+                        canPin
+                          ? whoHasSeen(message.created_at, message.sender_id, seenBy, names, currentUserId).map((p) => ({
+                              ...p,
+                              status: statuses[p.id] ?? ("online" as StatusId),
+                            }))
+                          : undefined
+                      }
                     />
                   </div>
                 );

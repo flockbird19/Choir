@@ -10,6 +10,8 @@ import { Menu, MenuItem } from "@/components/ui/Menu";
 import { cn } from "@/components/ui/cn";
 import { Markdown } from "./Markdown";
 import { formatTime } from "./format";
+import { STATUS_LABEL } from "@/hooks/useTeammateStatuses";
+import type { StatusId } from "@/app/(main)/profile/actions";
 
 export type SenderKind = "own" | "teammate" | "ai";
 
@@ -28,7 +30,7 @@ interface MessageRowProps {
   /** Shared threads only: start a private thread about this message. */
   onDiscussPrivately?: (id: string) => void;
   /** E5 "Seen by": teammates whose last-read time is at or after this message. */
-  seenBy?: { id: string; name: string }[];
+  seenBy?: { id: string; name: string; status?: StatusId }[];
 }
 
 // Pointer devices only (touch screens get the actions menu below), so 28px meets the 24px web minimum.
@@ -203,7 +205,12 @@ export const MessageRow = memo(function MessageRow({
         {time}
       </time>
       {seenBy.length > 0 && (
-        <AvatarStack people={seenBy} max={3} size="xs" label={`Seen by ${seenBy.map((p) => p.name).join(", ")}`} />
+        <AvatarStack
+          people={seenBy}
+          max={3}
+          size="xs"
+          label={`Seen by ${seenBy.map((p) => `${p.name} (${STATUS_LABEL[p.status ?? "online"]})`).join(", ")}`}
+        />
       )}
     </div>
   );
