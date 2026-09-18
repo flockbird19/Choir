@@ -1,42 +1,28 @@
 import { createAdminClient } from "./admin";
-import { getDisplayName } from "@/utils/display-name";
 
-// Names live in auth user metadata, which only the admin API can read for other
-// users. Cache them briefly so opening a thread doesn't re-fetch every teammate.
-// TODO(L11/E4): replace with a `profiles` table once it exists in the schema script.
-const CACHE_TTL_MS = 5 * 60 * 1000;
-const cache = new Map<string, { name: string; cachedAt: number }>();
-
-export function forgetMemberName(userId: string) {
-  cache.delete(userId);
-}
-
+// E4: names come from the `profiles` table (backfilled for everyone, kept filled by a
+// sign-up trigger, and updated the moment someone edits their own name) instead of one
+// admin-API call per team member. Fixes the Cmd+K slowdown (FU-2) and the 5-minute
+// rename delay (L14) that the old 5-minute cache caused.
 export async function getTeamMemberNames(teamId: string): Promise<Record<string, string>> {
   const admin = createAdminClient();
   const { data: members, error } = await admin.from("team_members").select("user_id").eq("team_id", teamId);
-  if (error || !members) {
-    console.error("Error fetching team members:", error);
+  if (error || !members || members.length === 0) {
+    if (error) console.error("Error fetching team members:", error);
     return {};
   }
 
-  const now = Date.now();
+  const userIds = members.map((m) => m.user_id);
+  const { data: profiles, error: profilesError } = await admin
+    .from("profiles")
+    .select("id, display_name")
+    .in("id", userIds);
+  if (profilesError) console.error("Error fetching profiles:", profilesError);
+
   const names: Record<string, string> = {};
-  const missing: string[] = [];
-  for (const { user_id: userId } of members) {
-    const cached = cache.get(userId);
-    if (cached && now - cached.cachedAt < CACHE_TTL_MS) names[userId] = cached.name;
-    else missing.push(userId);
+  for (const id of userIds) names[id] = "Teammate";
+  for (const p of profiles ?? []) {
+    if (p.display_name) names[p.id] = p.display_name;
   }
-
-  await Promise.all(
-    missing.map(async (userId) => {
-      const { data } = await admin.auth.admin.getUserById(userId);
-      if (!data.user) return;
-      const name = getDisplayName(data.user);
-      cache.set(userId, { name, cachedAt: now });
-      names[userId] = name;
-    })
-  );
-
   return names;
 }

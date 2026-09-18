@@ -4,14 +4,13 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Settings, Lock, Plus, Hash, Trash2 } from "lucide-react";
 import type { SessionUser } from "@/utils/supabase/access";
-import { getDisplayName } from "@/utils/display-name";
+import { getDisplayName, getInitials } from "@/utils/display-name";
 import { Team, Project, Thread } from "@/types/database";
 import { useEffect, useState } from "react";
 import { createThread, deleteThread } from "@/app/(main)/thread/[id]/actions";
 import { useToast } from "@/components/Toast";
 import { useDialogA11y } from "@/hooks/useDialogA11y";
-
-type StatusId = "online" | "away" | "dnd" | "offline";
+import { getMyStatus, type StatusId } from "@/app/(main)/profile/actions";
 
 const STATUS_COLORS: Record<StatusId, string> = {
   online: "bg-green-500",
@@ -89,25 +88,25 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
   };
 
   useEffect(() => {
-    const saved = localStorage.getItem("choir_status") as StatusId | null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (saved) setStatus(saved);
-    const onFocus = () => {
-      const s = localStorage.getItem("choir_status") as StatusId | null;
-      if (s) setStatus(s);
+    // E4: status lives in `profiles` now (real, shared state), not per-browser
+    // localStorage. Re-read on focus so a change made on the Profile page, or on
+    // another device, shows up without waiting for a full page reload.
+    let cancelled = false;
+    const refresh = () => {
+      getMyStatus().then((s) => {
+        if (!cancelled) setStatus(s);
+      });
     };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", refresh);
+    };
   }, []);
 
   const displayName = getDisplayName(user);
-
-  const initials = displayName
-    .split(" ")
-    .map((n: string) => n[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase() || "?";
+  const initials = getInitials(displayName);
 
   const isActive = (id: string) => pathname === `/thread/${id}`;
 

@@ -1,41 +1,37 @@
 ﻿"use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Pencil, Check, X, LogOut } from "lucide-react";
-import { updateDisplayName, signOut } from "./actions";
+import { updateDisplayName, updateStatus, signOut, type StatusId } from "./actions";
 
 const STATUS_OPTIONS = [
   { id: "online", label: "Online", color: "bg-green-500", ring: "ring-green-400" },
   { id: "away", label: "Away", color: "bg-amber-400", ring: "ring-amber-300" },
   { id: "dnd", label: "Do Not Disturb", color: "bg-red-500", ring: "ring-red-400" },
   { id: "offline", label: "Offline", color: "bg-graphite/40", ring: "ring-graphite/30" },
-] as const;
-
-type StatusId = typeof STATUS_OPTIONS[number]["id"];
+] as const satisfies readonly { id: StatusId; label: string; color: string; ring: string }[];
 
 interface ProfileClientProps {
   initialName: string;
   email: string;
   initials: string;
+  initialStatus: StatusId;
 }
 
-export function ProfileClient({ initialName, email, initials }: ProfileClientProps) {
+export function ProfileClient({ initialName, email, initials, initialStatus }: ProfileClientProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(initialName);
   const [displayName, setDisplayName] = useState(initialName);
   const [nameError, setNameError] = useState<string | null>(null);
-  const [status, setStatus] = useState<StatusId>("online");
+  const [status, setStatus] = useState<StatusId>(initialStatus);
   const [isPending, startTransition] = useTransition();
-
-  useEffect(() => {
-    const saved = localStorage.getItem("choir_status") as StatusId | null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (saved) setStatus(saved);
-  }, []);
 
   const handleStatusChange = (s: StatusId) => {
     setStatus(s);
-    localStorage.setItem("choir_status", s);
+    startTransition(async () => {
+      const result = await updateStatus(s);
+      if (result.error) setStatus(status); // roll back on failure
+    });
   };
 
   const handleSaveName = () => {
