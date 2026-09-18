@@ -23,6 +23,8 @@ import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useThreadPresence } from "@/hooks/useThreadPresence";
 import { useMemberNames } from "@/hooks/useMemberNames";
 import { useSeenBy } from "@/hooks/useSeenBy";
+import { usePagedMessages } from "@/hooks/usePagedMessages";
+import { useThreadDecisions } from "@/hooks/useThreadDecisions";
 
 import { Thread, Message } from "@/types/database";
 import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE } from "@/utils/ai-errors";
@@ -58,6 +60,10 @@ export function ThreadView({
     setLocalMessages(messages);
   }, [messages]);
 
+  // ── C3 pagination — "load older" by created_at cursor, ahead of the loaded 50 ──
+  const paged = usePagedMessages(thread.id, messages);
+  const allMessages = useMemo(() => [...paged.older, ...localMessages], [paged.older, localMessages]);
+
   // ── Selection State (for Post to Shared) ───────────────────────────────────
   const [selectMode, setSelectMode] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
@@ -76,9 +82,9 @@ export function ThreadView({
     if (!sharedThread || selectedMessageIds.size === 0) return;
     setIsPosting(true);
 
-    // Compile messages into a markdown block
-    // localMessages, not the page-load `messages`: it includes this visit's messages and AI replies.
-    const selectedMsgs = localMessages.filter((m) => selectedMessageIds.has(m.id));
+    // Compile messages into a markdown block. allMessages (older pages + this visit's
+    // live messages), not the page-load `messages`, since either can be selected.
+    const selectedMsgs = allMessages.filter((m) => selectedMessageIds.has(m.id));
     let compiledMarkdown = "";
     for (const msg of selectedMsgs) {
       const sender = msg.sender_type === "user" ? currentUserName : "Choir AI";
@@ -130,6 +136,12 @@ export function ThreadView({
     }
   };
 
+  // ── Global Decisions — sourced independently of the loaded page, so an old
+  // decision still shows once pagination has moved the loaded window past it ─────
+  const threadDecisions = useThreadDecisions(thread.id);
+  const sharedDecisions = useThreadDecisions(isPrivate ? sharedThread?.id : undefined);
+  const decisions = threadDecisions.decisions;
+
   // ── Live sync (Realtime) ────────────────────────────────────────────────────
   // Pushes new/changed messages from other clients into this thread's view without
   // requiring a refresh. UPDATE events cover pin/unpin (`is_decision`) changes.
@@ -140,9 +152,13 @@ export function ThreadView({
     });
   }, []);
 
-  const handleRealtimeUpdate = useCallback((incoming: Message) => {
-    setLocalMessages((prev) => prev.map((m) => (m.id === incoming.id ? { ...m, ...incoming } : m)));
-  }, []);
+  const handleRealtimeUpdate = useCallback(
+    (incoming: Message) => {
+      setLocalMessages((prev) => prev.map((m) => (m.id === incoming.id ? { ...m, ...incoming } : m)));
+      threadDecisions.applyUpdate(incoming);
+    },
+    [threadDecisions]
+  );
 
   useRealtimeMessages(thread.id, handleRealtimeInsert, handleRealtimeUpdate);
 
@@ -162,9 +178,13 @@ export function ThreadView({
     });
   }, []);
 
-  const handleSharedRealtimeUpdate = useCallback((incoming: Message) => {
-    setLocalSharedMessages((prev) => prev.map((m) => (m.id === incoming.id ? { ...m, ...incoming } : m)));
-  }, []);
+  const handleSharedRealtimeUpdate = useCallback(
+    (incoming: Message) => {
+      setLocalSharedMessages((prev) => prev.map((m) => (m.id === incoming.id ? { ...m, ...incoming } : m)));
+      sharedDecisions.applyUpdate(incoming);
+    },
+    [sharedDecisions]
+  );
 
   useRealtimeMessages(
     isPrivate ? sharedThread?.id : undefined,
@@ -180,46 +200,43 @@ export function ThreadView({
   // Pinners and seen-by readers too, so their names can be shown.
   const threadNames = useMemberNames(
     thread.id,
-    localMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]).concat(Object.keys(seenBy))
+    localMessages
+      .flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
+      .concat(Object.keys(seenBy), decisions.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]))
   );
   const sharedNames = useMemberNames(
     isPrivate ? sharedThread?.id : undefined,
-    localSharedMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
+    localSharedMessages
+      .flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
+      .concat(sharedDecisions.decisions.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]))
   );
 
   // ── Presence — who else currently has this thread open ─────────────────────
   const presentUsers = useThreadPresence(thread.id, currentUserName);
 
-  // ── Global Decisions — pin/unpin shared-thread messages ─────────────────────
+  // ── Decisions panel and jump-to-decision UI state ───────────────────────────
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
-  const decisions = localMessages.filter((m) => m.is_decision);
 
   const handleTogglePin = useCallback(
     async (id: string, currentlyPinned: boolean) => {
       // Optimistic update — the realtime UPDATE event will also arrive and confirm this.
-      setLocalMessages((prev) =>
-        prev.map((m) =>
-          m.id === id
-            ? {
-                ...m,
-                is_decision: !currentlyPinned,
-                pinned_by: currentlyPinned ? null : currentUserId,
-                pinned_at: currentlyPinned ? null : new Date().toISOString(),
-              }
-            : m
-        )
-      );
+      // The target may be older than the loaded page (unpinning from the Decisions
+      // panel), so update the decisions list directly rather than relying on it being
+      // found in `localMessages`.
+      const optimistic = { id, is_decision: !currentlyPinned, pinned_by: currentlyPinned ? null : currentUserId, pinned_at: currentlyPinned ? null : new Date().toISOString() };
+      setLocalMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...optimistic } : m)));
+      const existing = allMessages.find((m) => m.id === id) ?? decisions.find((m) => m.id === id);
+      if (existing) threadDecisions.applyUpdate({ ...existing, ...optimistic });
       const res = currentlyPinned ? await unpinMessage(thread.id, id) : await pinMessage(thread.id, id);
       if (res.error) {
         toastError(res.error);
         // Revert on failure
-        setLocalMessages((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, is_decision: currentlyPinned } : m))
-        );
+        setLocalMessages((prev) => prev.map((m) => (m.id === id ? { ...m, is_decision: currentlyPinned } : m)));
+        if (existing) threadDecisions.applyUpdate({ ...existing, is_decision: currentlyPinned });
       }
     },
-    [thread.id, currentUserId, toastError]
+    [thread.id, currentUserId, toastError, allMessages, decisions, threadDecisions]
   );
 
   // ── "Discuss privately" (D2): fork a Team Space message into a private thread ──
@@ -257,14 +274,18 @@ export function ThreadView({
     onPublished: () => setDrawerOpen(true),
   });
 
-  const handleJumpToDecision = useCallback((id: string) => {
-    setDecisionsOpen(false);
-    setHighlightedMessageId(id);
-    requestAnimationFrame(() => {
-      document.getElementById(`message-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-    setTimeout(() => setHighlightedMessageId(null), 2000);
-  }, []);
+  // The message list is virtualized (C3), so a decision older than what's loaded may
+  // not exist in `allMessages` yet — page back until it does before highlighting it;
+  // MessageList itself scrolls to it once it's in the array.
+  const handleJumpToDecision = useCallback(
+    async (id: string) => {
+      setDecisionsOpen(false);
+      if (!allMessages.some((m) => m.id === id)) await paged.loadUntil(id);
+      setHighlightedMessageId(id);
+      setTimeout(() => setHighlightedMessageId(null), 2000);
+    },
+    [allMessages, paged]
+  );
 
   // ── Catch Me Up — one-shot AI digest of new shared-thread messages ─────────
   const [catchUpOpen, setCatchUpOpen] = useState(false);
@@ -370,10 +391,10 @@ export function ThreadView({
   const newDecisions = useMemo(() => {
     if (!isPrivate || dismissedAt === null) return [];
     const since = Math.max(lastActivityAt, dismissedAt);
-    return localSharedMessages
-      .filter((m) => m.is_decision && m.pinned_at && Date.parse(m.pinned_at) > since)
+    return sharedDecisions.decisions
+      .filter((m) => m.pinned_at && Date.parse(m.pinned_at) > since)
       .sort((a, b) => Date.parse(b.pinned_at!) - Date.parse(a.pinned_at!));
-  }, [isPrivate, localSharedMessages, lastActivityAt, dismissedAt]);
+  }, [isPrivate, sharedDecisions.decisions, lastActivityAt, dismissedAt]);
 
   const handleDismissDecisions = useCallback(() => {
     const latest = Math.max(...newDecisions.map((m) => Date.parse(m.pinned_at!)));
@@ -663,7 +684,7 @@ export function ThreadView({
 
         {/* Messages */}
         <MessageList
-          messages={localMessages}
+          messages={allMessages}
           currentUserId={currentUserId}
           memberNames={threadNames.names}
           namesLoaded={threadNames.loaded}
@@ -679,6 +700,9 @@ export function ThreadView({
           aiAutoReply={isPrivate && autoReply}
           seenBy={seenBy}
           onNearBottomChange={setAtBottom}
+          onLoadOlder={paged.loadOlder}
+          hasMoreOlder={paged.hasMore}
+          loadingOlder={paged.loading}
         />
 
         {/* Chat Input or Selection Action Bar */}

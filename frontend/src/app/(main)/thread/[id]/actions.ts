@@ -3,7 +3,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { getAccessibleThread, getCurrentUser } from "@/utils/supabase/access";
-import { getWorkspace } from "@/utils/supabase/queries";
+import { getDecisions, getMessagesBefore, getWorkspace } from "@/utils/supabase/queries";
 import { getTeamMemberNames } from "@/utils/supabase/member-names";
 import { getDisplayName } from "@/utils/display-name";
 import { revalidatePath } from "next/cache";
@@ -416,6 +416,22 @@ export async function createThread(projectId: string, name: string) {
 
   revalidatePath("/");
   return { success: true, threadId: data.id };
+}
+
+// ── C3 pagination ────────────────────────────────────────────────────────────
+
+export async function loadOlderMessages(threadId: string, beforeCreatedAt: string) {
+  const user = await getCurrentUser();
+  if (!user || !(await getAccessibleThread(user.id, threadId))) return [];
+  return getMessagesBefore(threadId, beforeCreatedAt);
+}
+
+// Decisions are shown regardless of how far "load older" has paged back, so they're
+// fetched on their own rather than filtered out of the loaded page.
+export async function getThreadDecisions(threadId: string) {
+  const user = await getCurrentUser();
+  if (!user || !(await getAccessibleThread(user.id, threadId))) return [];
+  return getDecisions(threadId);
 }
 
 // ── K3 decision trail ────────────────────────────────────────────────────────

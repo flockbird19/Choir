@@ -31,8 +31,10 @@ import {
 } from "@/app/(main)/thread/[id]/actions";
 import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE } from "@/utils/ai-errors";
 import { useMemberNames } from "@/hooks/useMemberNames";
+import { usePagedMessages } from "@/hooks/usePagedMessages";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useSeenBy } from "@/hooks/useSeenBy";
+import { useThreadDecisions } from "@/hooks/useThreadDecisions";
 import { useThreadPresence } from "@/hooks/useThreadPresence";
 import { useToast } from "@/components/Toast";
 import { usePublishFindings } from "@/components/PublishFindingsDialog";
@@ -101,15 +103,37 @@ export function ThreadScreen({
   const [localMessages, setLocalMessages] = useState(messages);
   const [localShared, setLocalShared] = useState(sharedMessages);
 
+  // ── C3 pagination — "load older" by created_at cursor, ahead of the loaded 50 ──
+  const paged = usePagedMessages(thread.id, messages);
+  const allMessages = useMemo(() => [...paged.older, ...localMessages], [paged.older, localMessages]);
+
+  // ── Decisions — sourced independently of the loaded page, so an old decision
+  // still shows once pagination has moved the loaded window past it ─────────────
+  const threadDecisions = useThreadDecisions(thread.id);
+  const sharedDecisions = useThreadDecisions(isPrivate ? sharedThread?.id : undefined);
+  const decisions = threadDecisions.decisions;
+
   useRealtimeMessages(
     thread.id,
     useCallback((m: Message) => setLocalMessages((prev) => upsert(prev, m)), []),
-    useCallback((m: Message) => setLocalMessages((prev) => merge(prev, m)), [])
+    useCallback(
+      (m: Message) => {
+        setLocalMessages((prev) => merge(prev, m));
+        threadDecisions.applyUpdate(m);
+      },
+      [threadDecisions]
+    )
   );
   useRealtimeMessages(
     isPrivate ? sharedThread?.id : undefined,
     useCallback((m: Message) => setLocalShared((prev) => upsert(prev, m)), []),
-    useCallback((m: Message) => setLocalShared((prev) => merge(prev, m)), [])
+    useCallback(
+      (m: Message) => {
+        setLocalShared((prev) => merge(prev, m));
+        sharedDecisions.applyUpdate(m);
+      },
+      [sharedDecisions]
+    )
   );
 
   // ── Seen by (E5) — throttled read-position updates + who else has seen what ───
@@ -119,11 +143,15 @@ export function ThreadScreen({
   // Pinners and seen-by readers too, so their names can be shown.
   const names = useMemberNames(
     thread.id,
-    localMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]).concat(Object.keys(seenBy))
+    localMessages
+      .flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
+      .concat(Object.keys(seenBy), decisions.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]))
   );
   const sharedNames = useMemberNames(
     isPrivate ? sharedThread?.id : undefined,
-    localShared.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
+    localShared
+      .flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
+      .concat(sharedDecisions.decisions.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]))
   );
   const present = useThreadPresence(thread.id, user.name);
   const memberCount = Object.keys(names.names).length;
@@ -133,8 +161,7 @@ export function ThreadScreen({
   const [panel, setPanel] = useState<Panel>(null);
   const togglePanel = (next: Exclude<Panel, null>) => setPanel((current) => (current === next ? null : next));
 
-  // ── Decisions ────────────────────────────────────────────────────────────
-  const decisions = useMemo(() => localMessages.filter((m) => m.is_decision), [localMessages]);
+  // ── Decisions panel and jump-to-decision UI state ───────────────────────────
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -143,27 +170,22 @@ export function ThreadScreen({
 
   const togglePin = useCallback(
     async (id: string, pinned: boolean) => {
-      setLocalMessages((prev) =>
-        prev.map((m) =>
-          m.id === id
-            ? {
-                ...m,
-                is_decision: !pinned,
-                pinned_by: pinned ? null : user.id,
-                pinned_at: pinned ? null : new Date().toISOString(),
-              }
-            : m
-        )
-      );
+      const optimistic = { id, is_decision: !pinned, pinned_by: pinned ? null : user.id, pinned_at: pinned ? null : new Date().toISOString() };
+      setLocalMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...optimistic } : m)));
+      // The target may be older than the loaded page (unpinning from the Decisions
+      // panel), so update the decisions list directly too.
+      const existing = allMessages.find((m) => m.id === id) ?? decisions.find((m) => m.id === id);
+      if (existing) threadDecisions.applyUpdate({ ...existing, ...optimistic });
       const res = pinned ? await unpinMessage(thread.id, id) : await pinMessage(thread.id, id);
       if (res.error) {
         toast.error(res.error);
         setLocalMessages((prev) => prev.map((m) => (m.id === id ? { ...m, is_decision: pinned } : m)));
+        if (existing) threadDecisions.applyUpdate({ ...existing, is_decision: pinned });
       }
     },
     // toast functions are recreated each render by the provider; only error is used.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [thread.id, user.id]
+    [thread.id, user.id, allMessages, decisions, threadDecisions]
   );
 
   // ── "Discuss privately" (D2): fork a shared message into a new private thread ──
@@ -193,15 +215,18 @@ export function ThreadScreen({
     [thread.id, router]
   );
 
+  // The message list is virtualized (C3), so a decision older than what's loaded may
+  // not exist in `allMessages` yet — page back until it does before highlighting it;
+  // MessageStream itself scrolls to it once it's in the array.
   const jumpTo = useCallback(
-    (id: string) => {
+    async (id: string) => {
       if (!isWide) setPanel(null);
+      if (!allMessages.some((m) => m.id === id)) await paged.loadUntil(id);
       setHighlightedId(id);
-      requestAnimationFrame(() => document.getElementById(`message-${id}`)?.scrollIntoView({ block: "center" }));
       if (highlightTimer.current) clearTimeout(highlightTimer.current);
       highlightTimer.current = setTimeout(() => setHighlightedId(null), 1800);
     },
-    [isWide]
+    [isWide, allMessages, paged]
   );
 
   // ── AI auto-replies (private threads, D1) ───────────────────────────────
@@ -253,10 +278,10 @@ export function ThreadScreen({
   const newTeamDecisions = useMemo(() => {
     if (!isPrivate || dismissedAt === null) return [];
     const since = Math.max(lastActivityAt, dismissedAt);
-    return localShared
-      .filter((m) => m.is_decision && m.pinned_at && Date.parse(m.pinned_at) > since)
+    return sharedDecisions.decisions
+      .filter((m) => m.pinned_at && Date.parse(m.pinned_at) > since)
       .sort((a, b) => Date.parse(b.pinned_at!) - Date.parse(a.pinned_at!));
-  }, [isPrivate, localShared, lastActivityAt, dismissedAt]);
+  }, [isPrivate, sharedDecisions.decisions, lastActivityAt, dismissedAt]);
 
   const dismissTeamDecisions = () => {
     const latest = Math.max(...newTeamDecisions.map((m) => Date.parse(m.pinned_at!)));
@@ -376,7 +401,7 @@ export function ThreadScreen({
   const postSelected = async () => {
     if (!sharedThread || selectedIds.size === 0) return;
     setPosting(true);
-    const markdown = localMessages
+    const markdown = allMessages
       .filter((m) => selectedIds.has(m.id))
       .map((m) => `**${m.sender_type === "user" ? user.name : "Choir AI"}:** ${m.content}`)
       .join("\n\n");
@@ -702,7 +727,7 @@ export function ThreadScreen({
         )}
 
         <MessageStream
-          messages={localMessages}
+          messages={allMessages}
           currentUserId={user.id}
           currentUserName={user.name}
           names={names.names}
@@ -720,6 +745,9 @@ export function ThreadScreen({
           label={`Messages in ${threadName}`}
           seenBy={seenBy}
           onNearBottomChange={setAtBottom}
+          onLoadOlder={paged.loadOlder}
+          hasMoreOlder={paged.hasMore}
+          loadingOlder={paged.loading}
         />
 
         {selectMode ? (
