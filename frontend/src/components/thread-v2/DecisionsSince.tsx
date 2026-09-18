@@ -16,15 +16,19 @@ export function DecisionsSince({
   sharedName,
   onView,
   onDismiss,
+  names = {},
 }: {
   /** Newest first. */
   decisions: Message[];
   sharedName: string;
   onView: () => void;
   onDismiss: () => void;
+  /** Display names, keyed by user id, so the notice can say who pinned it. */
+  names?: Record<string, string>;
 }) {
   const count = decisions.length;
   const latest = preview(decisions[0].content);
+  const pinner = decisions[0].pinned_by ? names[decisions[0].pinned_by] ?? "a teammate" : null;
 
   return (
     <div role="status" className="shrink-0 border-b border-decision-line bg-decision-soft px-3 py-2 sm:px-4">
@@ -39,6 +43,7 @@ export function DecisionsSince({
           <p className="truncate text-label text-fg-muted" title={latest}>
             {count > 1 ? "Latest: " : ""}
             {latest}
+            {pinner && <span> · pinned by {pinner}</span>}
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={onView} className="shrink-0 text-decision hover:text-decision">

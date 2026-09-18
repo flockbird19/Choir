@@ -121,7 +121,10 @@ export function ThreadScreen({
     thread.id,
     localMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]).concat(Object.keys(seenBy))
   );
-  const sharedNames = useMemberNames(isPrivate ? sharedThread?.id : undefined, localShared.map((m) => m.sender_id ?? ""));
+  const sharedNames = useMemberNames(
+    isPrivate ? sharedThread?.id : undefined,
+    localShared.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
+  );
   const present = useThreadPresence(thread.id, user.name);
   const memberCount = Object.keys(names.names).length;
 
@@ -693,6 +696,7 @@ export function ThreadScreen({
             sharedName={sharedName}
             onView={() => setPanel("team")}
             onDismiss={dismissTeamDecisions}
+            names={sharedNames.names}
           />
         )}
 
@@ -762,7 +766,12 @@ export function ThreadScreen({
       )}
 
       {isPrivate && sharedThread && findings.dialog}
-      <CatchUpDialog state={catchUp} decisions={decisions} onClose={() => setCatchUp((s) => ({ ...s, open: false }))} />
+      <CatchUpDialog
+        state={catchUp}
+        decisions={decisions}
+        names={names.names}
+        onClose={() => setCatchUp((s) => ({ ...s, open: false }))}
+      />
     </div>
   );
 }

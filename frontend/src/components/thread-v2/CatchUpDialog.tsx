@@ -26,7 +26,15 @@ function plain(content: string): string {
   return content.replace(/[*_`#>]/g, "").replace(/\s+/g, " ").trim();
 }
 
-function NoKeyState({ decisions, onClose }: { decisions: Message[]; onClose: () => void }) {
+function NoKeyState({
+  decisions,
+  names,
+  onClose,
+}: {
+  decisions: Message[];
+  names: Record<string, string>;
+  onClose: () => void;
+}) {
   const shown = [...decisions]
     .sort((a, b) => Date.parse(b.pinned_at ?? b.created_at) - Date.parse(a.pinned_at ?? a.created_at))
     .slice(0, MAX_DECISIONS_SHOWN);
@@ -59,7 +67,12 @@ function NoKeyState({ decisions, onClose }: { decisions: Message[]; onClose: () 
             {shown.map((decision) => (
               <li key={decision.id} className="flex gap-2 text-body-sm text-fg">
                 <Pin size={14} aria-hidden="true" className="mt-0.5 shrink-0 fill-current text-decision" />
-                <span className="line-clamp-2 [overflow-wrap:anywhere]">{plain(decision.content)}</span>
+                <div>
+                  <span className="line-clamp-2 [overflow-wrap:anywhere]">{plain(decision.content)}</span>
+                  {decision.pinned_by && (
+                    <p className="text-caption text-fg-subtle">Pinned by {names[decision.pinned_by] ?? "a teammate"}</p>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -72,11 +85,14 @@ function NoKeyState({ decisions, onClose }: { decisions: Message[]; onClose: () 
 export function CatchUpDialog({
   state,
   decisions,
+  names = {},
   onClose,
 }: {
   state: CatchUpState;
   /** Pinned Decisions, shown without AI when there's no key. */
   decisions: Message[];
+  /** Display names, keyed by user id, so each decision can say who pinned it. */
+  names?: Record<string, string>;
   onClose: () => void;
 }) {
   return (
@@ -98,7 +114,7 @@ export function CatchUpDialog({
           <Skeleton className="h-4 w-4/5" />
         </div>
       ) : state.needsKey ? (
-        <NoKeyState decisions={decisions} onClose={onClose} />
+        <NoKeyState decisions={decisions} names={names} onClose={onClose} />
       ) : state.summary ? (
         <div className="flex flex-col gap-3">
           <div className="text-body text-fg">

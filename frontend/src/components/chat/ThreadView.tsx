@@ -184,7 +184,7 @@ export function ThreadView({
   );
   const sharedNames = useMemberNames(
     isPrivate ? sharedThread?.id : undefined,
-    localSharedMessages.map((m) => m.sender_id ?? "")
+    localSharedMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
   );
 
   // ── Presence — who else currently has this thread open ─────────────────────
@@ -656,6 +656,7 @@ export function ThreadView({
             decisions={newDecisions}
             onView={() => setDrawerOpen(true)}
             onDismiss={handleDismissDecisions}
+            names={sharedNames.names}
           />
         )}
 
@@ -780,6 +781,7 @@ export function ThreadView({
           messageCount={catchUpCount}
           needsApiKey={catchUpNeedsKey}
           decisions={decisions}
+          names={threadNames.names}
         />
       )}
     </div>

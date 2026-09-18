@@ -8,16 +8,21 @@ interface DecisionsSinceBannerProps {
   decisions: Message[];
   onView: () => void;
   onDismiss: () => void;
+  /** Display names, keyed by user id, so each decision can say who pinned it. */
+  names?: Record<string, string>;
 }
+
+const EMPTY_NAMES: Record<string, string> = {};
 
 // Plain one-line preview of a Decision (drops Markdown markers and line breaks).
 function preview(content: string): string {
   return content.replace(/[*_`#>]/g, "").replace(/\s+/g, " ").trim();
 }
 
-export function DecisionsSinceBanner({ decisions, onView, onDismiss }: DecisionsSinceBannerProps) {
+export function DecisionsSinceBanner({ decisions, onView, onDismiss, names = EMPTY_NAMES }: DecisionsSinceBannerProps) {
   const count = decisions.length;
   const latest = decisions[0];
+  const pinner = latest.pinned_by ? names[latest.pinned_by] ?? "a teammate" : null;
 
   return (
     <div
@@ -35,6 +40,7 @@ export function DecisionsSinceBanner({ decisions, onView, onDismiss }: Decisions
         <p className="mt-0.5 truncate text-sm text-graphite" title={preview(latest.content)}>
           {count > 1 ? "Latest: " : ""}
           {preview(latest.content)}
+          {pinner && <span className="text-graphite/70"> · pinned by {pinner}</span>}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1">
