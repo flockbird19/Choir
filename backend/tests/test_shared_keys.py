@@ -23,6 +23,7 @@ NAMES = {"u-owner": "Venu", "u-ravi": "Ravi", "u-meera": "Meera", "u-gone": "Gon
 def make_db(shared_rows=(), notifications=()):
     return FakeClient(
         teams=[{"id": "team-1", "name": "hackathon"}],
+        profiles=[{"id": uid, "display_name": name} for uid, name in NAMES.items()],
         projects=[
             {
                 "id": "p1",
@@ -123,7 +124,6 @@ def run(db, thread_id="shared", user_id="u-ravi", limited=(), limited_after_text
     with (
         patch.object(llm, "get_db", return_value=db),
         patch.object(llm, "get_api_key", side_effect=fake_get_api_key),
-        patch.object(llm, "_fetch_user_name", side_effect=NAMES.get),
         patch.object(llm, "_save_assistant_message", side_effect=lambda *args: (saved if saved is not None else []).append(args) or "msg-1"),
         patch.dict(sys.modules, {"anthropic": fake_anthropic, "openai": fake_openai}),
     ):
@@ -140,7 +140,12 @@ def test_owner_key_is_used_when_nobody_pools():
     tried, frames, decrypted = run(db)
     assert tried == [("sk-owner", "claude-haiku-4-5")]
     assert notices(frames) == []
-    assert frames[-1] == {"done": True, "message_id": "msg-1"}
+    assert frames[-1] == {
+        "done": True,
+        "message_id": "msg-1",
+        "model_provider": "anthropic",
+        "model_name": "claude-haiku-4-5",
+    }
     # Only the key actually used is decrypted.
     assert decrypted == [("u-owner", "anthropic")]
 

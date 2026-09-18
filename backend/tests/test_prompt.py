@@ -20,6 +20,7 @@ NAMES = {"u-owner": "Venu", "u-bob": "Bob", "u-quiet": "Quiet Priya"}
 
 DB = FakeClient(
     teams=[{"id": "team-1", "name": "hackathon"}],
+    profiles=[{"id": uid, "display_name": name} for uid, name in NAMES.items()],
     projects=[{"id": "p1", "team_id": "team-1", "name": "General", "created_by": "u-owner"}],
     team_members=[
         {"team_id": "team-1", "user_id": "u-owner", "role": "owner", "joined_at": "2026-08-01"},
@@ -54,7 +55,6 @@ def fake_backend():
     with (
         patch.object(llm, "get_db", return_value=DB),
         patch.object(llm, "get_api_key", return_value="sk-test"),
-        patch.object(llm, "_fetch_user_name", side_effect=NAMES.get),
         patch.dict(sys.modules, {"anthropic": fake_anthropic}),
     ):
         yield captured
@@ -62,6 +62,16 @@ def fake_backend():
 
 def _run(thread_id: str, user_id: str) -> None:
     list(llm.stream_ai_response(thread_id, user_id, "anthropic", "claude-haiku-4-5", "client-sent-name"))
+
+
+def _flatten_system(captured: dict) -> str:
+    """D3: the anthropic `system` param is now a list of cache-aware text blocks
+    (stable part first, marked cache_control; volatile part after) — flatten
+    them back to one string for the older substring assertions below."""
+    blocks = captured["system"]
+    assert blocks[0]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in blocks[-1] or len(blocks) == 1
+    return "\n".join(block["text"] for block in blocks)
 
 
 def test_roster_lists_every_member_with_role_in_join_order():
@@ -72,7 +82,7 @@ def test_roster_lists_every_member_with_role_in_join_order():
 def test_shared_thread_prompt_includes_whole_team_and_labels_each_sender(fake_backend):
     _run("shared", "u-bob")
 
-    system = fake_backend["system"]
+    system = _flatten_system(fake_backend)
     assert "TEAM MEMBERS (3): Venu (owner); Bob (member) - the person you are talking to; Quiet Priya (member)." in system
     assert "You are currently talking to: Bob" in system
 
@@ -86,7 +96,7 @@ def test_shared_thread_prompt_includes_whole_team_and_labels_each_sender(fake_ba
 def test_private_thread_context_names_shared_thread_senders(fake_backend):
     _run("private", "u-bob")
 
-    system = fake_backend["system"]
+    system = _flatten_system(fake_backend)
     assert "TEAM MEMBERS (3)" in system
     assert "Venu: lets do frontend" in system
     assert "Bob (you): yo gang" in system
@@ -101,6 +111,7 @@ def test_forked_private_thread_tells_the_ai_which_message_is_the_focus(fake_back
     shared_msg = {"id": "m-venu", "thread_id": "shared", "sender_type": "user", "sender_id": "u-owner", "content": "lets do frontend", "created_at": "1"}
     db = FakeClient(
         teams=DB._tables["teams"],
+        profiles=DB._tables["profiles"],
         projects=DB._tables["projects"],
         team_members=DB._tables["team_members"],
         threads=[*DB._tables["threads"], forked],
@@ -109,7 +120,7 @@ def test_forked_private_thread_tells_the_ai_which_message_is_the_focus(fake_back
     with patch.object(llm, "get_db", return_value=db):
         _run("forked", "u-bob")
 
-    system = fake_backend["system"]
+    system = _flatten_system(fake_backend)
     assert "FOCUS: The user started this private thread to discuss one message from the shared thread, written by Venu:" in system
     assert '"""\nlets do frontend\n"""' in system
     assert "Treat that message as the focus of this conversation." in system
@@ -128,7 +139,21 @@ def test_shared_from_private_is_attributed():
     assert msgs == [{"role": "user", "content": "[Bob, shared from their private thread]\nSchema draft"}]
 
 
-def test_display_name_matches_frontend_order():
-    user = types.SimpleNamespace(user_metadata={"name": "Google Name", "full_name": "Saved Name"}, email="x@y.com")
-    assert llm._display_name(user) == "Saved Name"
-    assert llm._display_name(types.SimpleNamespace(user_metadata={}, email="venu@example.com")) == "venu"
+def test_roster_falls_back_to_teammate_when_no_profile_row_exists():
+    db = FakeClient(
+        team_members=[{"team_id": "team-2", "user_id": "u-new", "role": "member", "joined_at": "1"}],
+        profiles=[],
+    )
+    with patch.object(llm, "get_db", return_value=db):
+        roster = llm._fetch_team_roster("team-2")
+    assert roster == [{"user_id": "u-new", "name": "Teammate", "role": "member"}]
+
+
+def test_roster_uses_former_member_when_profile_name_is_blank():
+    db = FakeClient(
+        team_members=[{"team_id": "team-2", "user_id": "u-old", "role": "member", "joined_at": "1"}],
+        profiles=[{"id": "u-old", "display_name": None}],
+    )
+    with patch.object(llm, "get_db", return_value=db):
+        roster = llm._fetch_team_roster("team-2")
+    assert roster == [{"user_id": "u-old", "name": "Former member", "role": "member"}]

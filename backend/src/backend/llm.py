@@ -10,8 +10,6 @@ Handles:
 
 import json
 import logging
-import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Generator, cast
 
@@ -152,38 +150,22 @@ def _save_assistant_message(
 
 # ---------------------------------------------------------------------------
 # Team roster — who is on the team, so the AI knows who said what
+#
+# E4: names come from `profiles` (one query for the whole roster), not the auth
+# admin API. That was one admin call per member with a 5-minute cache, so a
+# rename reached the AI up to 5 minutes late; `profiles` is always fresh.
 # ---------------------------------------------------------------------------
-
-_NAME_CACHE_TTL_SECONDS = 300
-_name_cache: dict[str, tuple[str, float]] = {}
 
 FORMER_MEMBER = "Former member"
 
 
-def _display_name(user: Any) -> str:
-    """Same order as the frontend's getDisplayName: saved name, Google name, email prefix."""
-    metadata = getattr(user, "user_metadata", None) or {}
-    for key in ("full_name", "name"):
-        value = metadata.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    email = getattr(user, "email", None) or ""
-    return email.split("@")[0] or "Teammate"
-
-
-def _fetch_user_name(user_id: str) -> str | None:
-    cached = _name_cache.get(user_id)
-    if cached and time.monotonic() - cached[1] < _NAME_CACHE_TTL_SECONDS:
-        return cached[0]
-    try:
-        user = get_db().auth.admin.get_user_by_id(user_id).user
-    except Exception:
-        return None
-    if not user:
-        return None
-    name = _display_name(user)
-    _name_cache[user_id] = (name, time.monotonic())
-    return name
+def _fetch_profile_names(user_ids: list[str]) -> dict[str, str | None]:
+    """{user_id: display_name} for ids that have a `profiles` row (display_name may be empty)."""
+    if not user_ids:
+        return {}
+    resp = get_db().table("profiles").select("id, display_name").in_("id", user_ids).execute()
+    rows = cast(list[dict[str, Any]], resp.data)
+    return {row["id"]: row.get("display_name") for row in rows}
 
 
 def _fetch_team_roster(team_id: str) -> list[dict[str, str]]:
@@ -197,13 +179,18 @@ def _fetch_team_roster(team_id: str) -> list[dict[str, str]]:
         .execute()
     )
     rows = cast(list[dict[str, Any]], resp.data)
-    user_ids = [row["user_id"] for row in rows]
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        names = list(pool.map(_fetch_user_name, user_ids))
-    return [
-        {"user_id": row["user_id"], "name": name or FORMER_MEMBER, "role": row.get("role") or "member"}
-        for row, name in zip(rows, names)
-    ]
+    profiles = _fetch_profile_names([row["user_id"] for row in rows])
+    roster = []
+    for row in rows:
+        user_id = row["user_id"]
+        if user_id in profiles:
+            # Has a profile row, but no name saved on it.
+            name = profiles[user_id] or FORMER_MEMBER
+        else:
+            # No profile row at all for this member id.
+            name = "Teammate"
+        roster.append({"user_id": user_id, "name": name, "role": row.get("role") or "member"})
+    return roster
 
 
 def team_names_for_thread(thread: dict[str, Any]) -> dict[str, str]:
@@ -296,6 +283,126 @@ def _fork_focus_context(
     )
 
 
+# ---------------------------------------------------------------------------
+# D3 — prompt budget and rolling summaries
+#
+# An unbounded thread history costs more and gets slower on every turn. Keep
+# the most recent messages verbatim (capped below), always keep pinned
+# Decisions since those are the team's agreements, and represent everything
+# else with a short summary kept in `thread_summaries`, refreshed only when
+# enough new material has piled up.
+# ---------------------------------------------------------------------------
+
+MAX_CONTEXT_MESSAGES = 40
+MAX_CONTEXT_CHARS = 12_000
+SUMMARY_REFRESH_THRESHOLD = 20  # min. messages aged out since covers_through before regenerating
+
+SUMMARY_SYSTEM_PROMPT = (
+    "You maintain a rolling summary of a team's shared AI chat thread, so old messages don't need "
+    "to be replayed in full on every turn. Merge the previous summary (if given) with the new older "
+    "messages into one updated summary.\n"
+    "STYLE: Concise bullet points. Do NOT use emojis. Preserve decisions and important context; drop "
+    "small talk."
+)
+
+
+def _recent_window(
+    messages: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Split `messages` (oldest first) into (older, recent). `recent` holds the most
+    recent messages verbatim, capped at MAX_CONTEXT_MESSAGES messages or
+    MAX_CONTEXT_CHARS of content — whichever limit is hit first — but always
+    keeps at least the single most recent message. `older` is everything before that.
+    """
+    cutoff = len(messages)
+    total_chars = 0
+    kept = 0
+    for i in range(len(messages) - 1, -1, -1):
+        if kept >= MAX_CONTEXT_MESSAGES:
+            break
+        content_len = len(messages[i].get("content") or "")
+        if kept > 0 and total_chars + content_len > MAX_CONTEXT_CHARS:
+            break
+        total_chars += content_len
+        kept += 1
+        cutoff = i
+    return messages[:cutoff], messages[cutoff:]
+
+
+def _refresh_summary_if_needed(
+    thread_id: str,
+    older: list[dict[str, Any]],
+    names: dict[str, str],
+    provider: str,
+    model: str,
+    api_key: str,
+) -> str:
+    """
+    Returns the summary text covering `older` (the messages aged out of the
+    verbatim window), reusing the one stored in `thread_summaries` unless at
+    least SUMMARY_REFRESH_THRESHOLD new messages have aged out since it was
+    last generated. Uses the same key already chosen for this reply, so a
+    summary is never generated with a key its owner hasn't already consented to.
+    """
+    if not older:
+        return ""
+
+    db = get_db()
+    resp = db.table("thread_summaries").select("*").eq("thread_id", thread_id).execute()
+    rows = cast(list[dict[str, Any]], resp.data)
+    existing = rows[0] if rows else None
+    covers_through = existing["covers_through"] if existing else None
+    new_older = [m for m in older if not covers_through or m["created_at"] > covers_through]
+
+    if existing and len(new_older) < SUMMARY_REFRESH_THRESHOLD:
+        return existing["summary"]
+    if not new_older:
+        return existing["summary"] if existing else ""
+
+    context_block = _format_shared_as_system_context(new_older, names)
+    prior = f"PREVIOUS SUMMARY:\n{existing['summary']}\n\n" if existing else ""
+    user_prompt = f"{prior}NEW OLDER MESSAGES TO FOLD IN:\n{context_block}"
+
+    try:
+        summary_text = complete_once(
+            provider, model, api_key, SUMMARY_SYSTEM_PROMPT, user_prompt, max_tokens=600
+        ).strip()
+    except RuntimeError:
+        # A failed refresh (rate limit, etc.) shouldn't break the reply itself.
+        logger.exception("Could not refresh the rolling summary for thread %s", thread_id)
+        return existing["summary"] if existing else ""
+
+    db.table("thread_summaries").upsert(
+        {
+            "thread_id": thread_id,
+            "summary": summary_text,
+            "covers_through": older[-1]["created_at"],
+            "message_count": len(older),
+            "model_provider": provider,
+            "model_name": model,
+        },
+        on_conflict="thread_id",
+    ).execute()
+    return summary_text
+
+
+def _budget_and_summarize(
+    thread_id: str,
+    messages: list[dict[str, Any]],
+    names: dict[str, str],
+    provider: str,
+    model: str,
+    api_key: str,
+) -> tuple[list[dict[str, Any]], str]:
+    """Apply the D3 budget to `messages`: (kept verbatim + pinned Decisions, summary text)."""
+    older, recent = _recent_window(messages)
+    decisions = [m for m in older if m.get("is_decision")]
+    kept = decisions + recent
+    summary = _refresh_summary_if_needed(thread_id, older, names, provider, model, api_key)
+    return kept, summary
+
+
 def _default_model(provider: str) -> str:
     return ANTHROPIC_DEFAULT_MODEL if provider == "anthropic" else OPENAI_COMPAT_PROVIDERS[provider]["default_model"]
 
@@ -354,6 +461,54 @@ def _resolve_provider_and_model(
 
 
 # ---------------------------------------------------------------------------
+# One-shot completion — shared by streaming's summary refresh, Catch Me Up and
+# Publish findings (FU-3: used to be duplicated ~25 lines apiece).
+# ---------------------------------------------------------------------------
+
+
+def complete_once(
+    provider: str, model: str, api_key: str, system_prompt: str, user_prompt: str, max_tokens: int
+) -> str:
+    """
+    Single non-streaming completion. Raises RuntimeError with a friendly message
+    on a rate limit or other upstream provider error.
+    """
+    try:
+        if provider == "anthropic":
+            import anthropic  # type: ignore
+
+            client = anthropic.Anthropic(api_key=api_key)
+            response = client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            return response.content[0].text if response.content else ""  # type: ignore[union-attr]
+
+        import openai as openai_module  # type: ignore
+
+        base_url: str | None = OPENAI_COMPAT_PROVIDERS[provider]["base_url"] or None
+        client = openai_module.OpenAI(api_key=api_key, base_url=base_url)
+        response = client.chat.completions.create(  # type: ignore[call-overload]
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        return response.choices[0].message.content or ""
+
+    except Exception as exc:
+        err = str(exc)
+        if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
+            raise RuntimeError(
+                "Rate limit reached. Please check your API key usage limits or try again later."
+            ) from exc
+        raise RuntimeError(f"AI error: {err}") from exc
+
+
+# ---------------------------------------------------------------------------
 # SSE helpers
 # ---------------------------------------------------------------------------
 
@@ -363,17 +518,36 @@ def _sse(payload: dict[str, Any]) -> str:
 
 
 def _stream_text(
-    provider: str, model: str, api_key: str, system_prompt: str, chat_messages: list[dict[str, str]]
+    provider: str,
+    model: str,
+    api_key: str,
+    system_stable: str,
+    system_volatile: str,
+    chat_messages: list[dict[str, str]],
 ) -> Generator[str, None, None]:
-    """Yield text chunks from one provider call."""
+    """
+    Yield text chunks from one provider call. `system_stable` is the part of the
+    system prompt that stays the same across turns in this thread (team roster,
+    role/style instructions); `system_volatile` is what changes every turn (who's
+    talking, the trimmed recent context).
+    """
     if provider == "anthropic":
         import anthropic  # type: ignore
 
         client = anthropic.Anthropic(api_key=api_key)
+        # D3: mark the stable part cacheable so repeated turns in the same
+        # thread reuse it instead of re-processing it every time.
+        system_blocks: list[dict[str, Any]] = []
+        if system_stable:
+            system_blocks.append(
+                {"type": "text", "text": system_stable, "cache_control": {"type": "ephemeral"}}
+            )
+        if system_volatile:
+            system_blocks.append({"type": "text", "text": system_volatile})
         with client.messages.stream(
             model=model,
             max_tokens=4096,
-            system=system_prompt,
+            system=system_blocks,
             messages=chat_messages,  # type: ignore[arg-type]
         ) as stream:
             yield from stream.text_stream
@@ -384,6 +558,7 @@ def _stream_text(
     config = OPENAI_COMPAT_PROVIDERS[provider]
     base_url: str | None = config["base_url"] or None
     client = openai_module.OpenAI(api_key=api_key, base_url=base_url)
+    system_prompt = "\n".join(part for part in (system_stable, system_volatile) if part)
     all_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}, *chat_messages]
     with client.chat.completions.create(  # type: ignore[call-overload]
         model=model,
@@ -416,7 +591,7 @@ def stream_ai_response(
       { "text": "..." }        — incremental token
       { "notice": "...", "model": "..." } — switched to a lent key after a rate limit
       { "error": "..." }       — terminal error
-      { "done": true }         — stream finished successfully
+      { "done": true, "message_id": ..., "model_provider": ..., "model_name": ... } — stream finished
     """
     # ── Fetch thread ──────────────────────────────────────────────────────────
     thread = _fetch_thread(thread_id)
@@ -502,31 +677,67 @@ def stream_ai_response(
             .execute()
         )
         shared_rows = cast(list[dict[str, Any]], shared_resp.data)
-        shared_msgs: list[dict[str, Any]] = []
+        full_shared_msgs: list[dict[str, Any]] = []
         if shared_rows:
-            shared_msgs = _fetch_messages(shared_rows[0]["id"])
+            full_shared_msgs = _fetch_messages(shared_rows[0]["id"])
 
-        system_prompt = (
-            f"You are Choir, an AI in a private scratchpad for {workspace_context}. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
-            + team_context + "\n"
-            "ROLE: Brainstorming partner. Help explore, stress-test, and refine ideas before they are shared with the team.\n"
-            "STYLE: Exploratory, direct, creative, yet concise. Do NOT use emojis. Provide enough detail to be genuinely helpful, but avoid exhaustively long or overly verbose responses.\n"
-            "CONTEXT: The team's shared thread is below for alignment. Only answer the user's immediate private questions.\n"
-            + _fork_focus_context(thread, shared_msgs, names)
-            + "\n"
-            + _format_shared_as_system_context(shared_msgs, names, user_id)
+        # The fork focus looks at the *full* shared history — the focused message
+        # might be older than the verbatim budget window, but it must never be lost.
+        fork_context = _fork_focus_context(thread, full_shared_msgs, names)
+
+        team_space_block = "[No shared team context yet]"
+        if shared_rows:
+            kept_shared, shared_summary = _budget_and_summarize(
+                shared_rows[0]["id"], full_shared_msgs, names, provider, model, api_key
+            )
+            team_space_block = _format_shared_as_system_context(kept_shared, names, user_id)
+            if shared_summary:
+                team_space_block = f"EARLIER CONTEXT (summarized): {shared_summary}\n\n{team_space_block}"
+
+        kept_own, own_summary = _budget_and_summarize(
+            thread_id, _fetch_messages(thread_id), names, provider, model, api_key
         )
+
+        system_stable = (
+            f"You are Choir, an AI in a private scratchpad for {workspace_context}.\n"
+            + team_context + "\n"
+            "ROLE: Thinking partner. Help this person explore, sharpen and pressure-test their own "
+            "ideas before they take them to the team.\n"
+            "STYLE: Warm, plain and concise, the way a trusted colleague talks. Do NOT use emojis. "
+            "Enough detail to be genuinely useful, never padded.\n"
+            "MANNER: Answer what was actually asked. Never comment on whether they should be using "
+            "Choir, how they are using it, or whether their question was worth asking, and never "
+            "suggest they skip it or go elsewhere. When you disagree with an idea, say plainly what "
+            "the problem is and offer a way forward: be hard on the idea and easy on the person. No "
+            "lecturing, no conditions, no scolding, no listing what they are doing wrong.\n"
+            "CONTEXT: The team's shared thread is below for alignment. Only answer the user's immediate private questions.\n"
+            + fork_context
+        )
+        system_volatile = f"You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
+        if own_summary:
+            system_volatile += f"\nEARLIER PRIVATE CONVERSATION (summarized): {own_summary}\n"
+        system_volatile += "\n" + team_space_block
         # Only the owner writes in a private thread, so no sender labels are needed.
-        chat_messages = _to_chat_messages(_fetch_messages(thread_id))
+        chat_messages = _to_chat_messages(kept_own)
 
     else:
-        system_prompt = (
-            f"You are Choir, the central AI for {workspace_context}. You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
-            + team_context + "\n"
-            "ROLE: Synthesizer, facilitator, and collective intelligence for the team.\n"
-            "STYLE: Objective, concise, collaborative. Do NOT use emojis. Provide enough detail to be genuinely helpful, but avoid exhaustively long or overly verbose responses. Do not hallucinate private context."
+        kept, summary = _budget_and_summarize(
+            thread_id, _fetch_messages(thread_id), names, provider, model, api_key
         )
-        chat_messages = _to_chat_messages(_fetch_messages(thread_id), names)
+        system_stable = (
+            f"You are Choir, the central AI for {workspace_context}.\n"
+            + team_context + "\n"
+            "ROLE: Synthesizer and facilitator for the team.\n"
+            "STYLE: Warm, plain, concise and even-handed. Do NOT use emojis. Enough detail to be "
+            "genuinely useful, never padded. Never invent private context you were not given.\n"
+            "MANNER: Answer what was actually asked, and treat every teammate as an equal. Never "
+            "comment on how people are using Choir or tell anyone not to ask. When you disagree with "
+            "an idea, do it kindly and specifically, never with the person. No lecturing, no scolding."
+        )
+        system_volatile = f"You are currently talking to: {user_name_ctx}. User role: {role_ctx}."
+        if summary:
+            system_volatile += f"\nEARLIER CONTEXT (summarized): {summary}\n"
+        chat_messages = _to_chat_messages(kept, names)
 
     # ── Stream from LLM ───────────────────────────────────────────────────────
     full_response = ""
@@ -543,7 +754,7 @@ def stream_ai_response(
     try:
         while True:
             try:
-                for text in _stream_text(provider, model, api_key, system_prompt, chat_messages):
+                for text in _stream_text(provider, model, api_key, system_stable, system_volatile, chat_messages):
                     full_response += text
                     yield _sse({"text": text})
                 break
@@ -578,7 +789,7 @@ def stream_ai_response(
                 provider = candidate.provider
                 model = candidate.model or _default_model(provider)
                 key_owner_id = candidate.user_id
-                lender = _fetch_user_name(candidate.user_id) or "a teammate"
+                lender = names.get(candidate.user_id) or "a teammate"
                 yield _sse({"notice": f"Using {lender}'s key", "model": model})
     finally:
         # Persist whatever was generated so far — on a clean finish this is the
@@ -588,7 +799,9 @@ def stream_ai_response(
             msg_id = _save_assistant_message(thread_id, full_response, provider, model)
 
     if not stream_failed:
-        yield _sse({"done": True, "message_id": msg_id})
+        # FU-4: a shared thread can end up using a different model than the one
+        # the user picked (pooled/lent keys), so tell the client which one answered.
+        yield _sse({"done": True, "message_id": msg_id, "model_provider": provider, "model_name": model})
 
 
 # ---------------------------------------------------------------------------
@@ -645,45 +858,15 @@ def generate_digest(thread_id: str, user_id: str) -> dict[str, Any]:
     project = _fetch_project(thread["project_id"])
     roster = _fetch_team_roster(project["team_id"]) if project and project.get("team_id") else []
     names = {member["user_id"]: member["name"] for member in roster}
-    context_block = _format_shared_as_system_context(new_messages, names, user_id)
+
+    # D3: stay within budget even if the caller hasn't checked in a very long time —
+    # keep the message_count accurate, but only feed the trimmed set to the model.
+    older, recent = _recent_window(new_messages)
+    decisions = [m for m in older if m.get("is_decision")]
+    context_block = _format_shared_as_system_context(decisions + recent, names, user_id)
     user_prompt = f"Here are the new messages since your last check:\n\n{context_block}"
 
-    try:
-        if provider == "anthropic":
-            import anthropic  # type: ignore
-
-            client = anthropic.Anthropic(api_key=api_key)
-            response = client.messages.create(
-                model=model,
-                max_tokens=512,
-                system=DIGEST_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            summary = response.content[0].text if response.content else ""  # type: ignore[union-attr]
-
-        else:
-            import openai as openai_module  # type: ignore
-
-            config = OPENAI_COMPAT_PROVIDERS[provider]
-            base_url: str | None = config["base_url"] or None
-            client = openai_module.OpenAI(api_key=api_key, base_url=base_url)
-
-            response = client.chat.completions.create(  # type: ignore[call-overload]
-                model=model,
-                messages=[
-                    {"role": "system", "content": DIGEST_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            summary = response.choices[0].message.content or ""
-
-    except Exception as exc:
-        err = str(exc)
-        if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
-            raise RuntimeError(
-                "Rate limit reached. Please check your API key usage limits or try again later."
-            ) from exc
-        raise RuntimeError(f"AI error: {err}") from exc
+    summary = complete_once(provider, model, api_key, DIGEST_SYSTEM_PROMPT, user_prompt, max_tokens=512)
 
     _upsert_thread_read(thread_id, user_id, now_iso)
     return {"summary": summary.strip(), "message_count": len(new_messages)}

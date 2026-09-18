@@ -104,7 +104,7 @@ def test_shared_thread_and_empty_thread_are_rejected(client):
 def test_rate_limit_from_provider_is_friendly():
     with pytest.raises(RuntimeError, match="Rate limit reached"):
         with patch.dict(sys.modules, {"anthropic": types.SimpleNamespace(Anthropic=lambda **_: (_ for _ in ()).throw(Exception("Error code: 429")))}):
-            findings._complete("anthropic", "m", "k", "hi")
+            llm.complete_once("anthropic", "m", "k", "sys", "hi", max_tokens=100)
 
 
 def test_export_names_only_the_owner_of_a_published_post():

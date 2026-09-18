@@ -54,7 +54,6 @@ def _run(thread_id: str, user_id: str, keys: dict[tuple[str, str], str]):
     with (
         patch.object(llm, "get_db", return_value=DB),
         patch.object(llm, "get_api_key", side_effect=lambda uid, provider: keys.get((uid, provider))),
-        patch.object(llm, "_fetch_user_name", return_value="Someone"),
         patch.dict(sys.modules, {"anthropic": types.SimpleNamespace(Anthropic=fake_client)}),
     ):
         frames = list(llm.stream_ai_response(thread_id, user_id, "anthropic", "claude-opus-5", None))

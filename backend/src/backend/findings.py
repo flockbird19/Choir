@@ -9,11 +9,11 @@ from typing import Any
 
 from backend.keys import get_api_key
 from backend.llm import (
-    OPENAI_COMPAT_PROVIDERS,
     NoApiKeyError,
     _fetch_messages,
     _fetch_thread,
     _resolve_provider_and_model,
+    complete_once,
 )
 
 FINDINGS_SYSTEM_PROMPT = (
@@ -36,43 +36,6 @@ def _transcript(messages: list[dict[str, Any]]) -> str:
     text = "\n\n".join(lines)
     # Keep the most recent part if the thread is very long.
     return text[-MAX_TRANSCRIPT_CHARS:]
-
-
-def _complete(provider: str, model: str, api_key: str, user_prompt: str) -> str:
-    # ponytail: same one-shot call as llm.generate_digest; merge into one llm helper once
-    # Lane B's llm.py changes land (kept separate now to avoid editing their code).
-    try:
-        if provider == "anthropic":
-            import anthropic  # type: ignore
-
-            client = anthropic.Anthropic(api_key=api_key)
-            response = client.messages.create(
-                model=model,
-                max_tokens=700,
-                system=FINDINGS_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            return response.content[0].text if response.content else ""  # type: ignore[union-attr]
-
-        import openai as openai_module  # type: ignore
-
-        base_url: str | None = OPENAI_COMPAT_PROVIDERS[provider]["base_url"] or None
-        client = openai_module.OpenAI(api_key=api_key, base_url=base_url)
-        response = client.chat.completions.create(  # type: ignore[call-overload]
-            model=model,
-            messages=[
-                {"role": "system", "content": FINDINGS_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        return response.choices[0].message.content or ""
-    except Exception as exc:
-        err = str(exc)
-        if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
-            raise RuntimeError(
-                "Rate limit reached. Please check your API key usage limits or try again later."
-            ) from exc
-        raise RuntimeError(f"AI error: {err}") from exc
 
 
 def draft_findings(thread_id: str, user_id: str) -> dict[str, str]:
@@ -99,4 +62,5 @@ def draft_findings(thread_id: str, user_id: str) -> dict[str, str]:
         raise NoApiKeyError(f"Could not retrieve API key for {provider}.")
 
     user_prompt = f"Here is my private thread:\n\n{_transcript(messages)}"
-    return {"draft": _complete(provider, model, api_key, user_prompt).strip()}
+    draft = complete_once(provider, model, api_key, FINDINGS_SYSTEM_PROMPT, user_prompt, max_tokens=700)
+    return {"draft": draft.strip()}
