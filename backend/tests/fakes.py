@@ -1,7 +1,8 @@
 """A minimal fake of the supabase-py client's fluent query builder, just
 enough to exercise the backend without touching a real Supabase project.
-Supports select/insert/update with eq/gte filters, order, limit and execute.
-Inserts and updates change the fake's tables, so tests can inspect them.
+Supports select/insert/update/upsert with eq/gte/gt/in_ filters, order, limit
+and execute. Inserts, updates and upserts change the fake's tables, so tests
+can inspect them.
 """
 
 from datetime import datetime, timezone
@@ -23,6 +24,9 @@ class FakeQuery:
         self._error = error
         self._insert: dict[str, Any] | None = None
         self._update: dict[str, Any] | None = None
+        self._upsert: dict[str, Any] | None = None
+        self._on_conflict: str | None = None
+        self._limit: int | None = None
 
     def select(self, *_args: Any, **_kwargs: Any) -> "FakeQuery":
         return self
@@ -35,6 +39,11 @@ class FakeQuery:
         self._update = values
         return self
 
+    def upsert(self, row: dict[str, Any], on_conflict: str | None = None) -> "FakeQuery":
+        self._upsert = row
+        self._on_conflict = on_conflict
+        return self
+
     def eq(self, column: str, value: Any) -> "FakeQuery":
         self._filters.append((column, "eq", value))
         return self
@@ -43,7 +52,16 @@ class FakeQuery:
         self._filters.append((column, "gte", value))
         return self
 
-    def limit(self, _count: int) -> "FakeQuery":
+    def gt(self, column: str, value: Any) -> "FakeQuery":
+        self._filters.append((column, "gt", value))
+        return self
+
+    def in_(self, column: str, values: Any) -> "FakeQuery":
+        self._filters.append((column, "in", list(values)))
+        return self
+
+    def limit(self, count: int) -> "FakeQuery":
+        self._limit = count
         return self
 
     def order(self, column: str, desc: bool = False, **_kwargs: Any) -> "FakeQuery":
@@ -58,6 +76,10 @@ class FakeQuery:
                 return False
             if op == "gte" and (actual is None or actual < value):
                 return False
+            if op == "gt" and (actual is None or actual <= value):
+                return False
+            if op == "in" and actual not in value:
+                return False
         return True
 
     def execute(self) -> FakeResult:
@@ -68,7 +90,17 @@ class FakeQuery:
             row = {"created_at": datetime.now(timezone.utc).isoformat(), **self._insert}
             self._table.append(row)
             return FakeResult([dict(row)])
+        if self._upsert is not None:
+            keys = (self._on_conflict or "id").split(",")
+            for existing in self._table:
+                if all(existing.get(k) == self._upsert.get(k) for k in keys):
+                    existing.update(self._upsert)
+                    return FakeResult([dict(existing)])
+            self._table.append(dict(self._upsert))
+            return FakeResult([dict(self._upsert)])
         rows = [row for row in self._data if self._matches(row)]
+        if self._limit is not None:
+            rows = rows[: self._limit]
         if self._update is not None:
             for row in rows:
                 row.update(self._update)
