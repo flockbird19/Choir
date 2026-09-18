@@ -155,7 +155,10 @@ export async function deleteApiKey(
 export async function postToSharedThread(
   sharedThreadId: string,
   content: string,
-  sourceThreadId?: string
+  sourceThreadId?: string,
+  // K3: the private thread's message ids at the time of publishing (the decision
+  // trail). Prefer omitting/null over [] when there's nothing to point at.
+  sourceMessageIds?: string[] | null
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
@@ -188,6 +191,7 @@ export async function postToSharedThread(
     content,
     shared_by: user.id,
     ...(sourceThreadId ? { source_thread_id: sourceThreadId } : {}),
+    ...(sourceMessageIds && sourceMessageIds.length > 0 ? { source_message_ids: sourceMessageIds } : {}),
   });
 
   if (isMissingColumn(error)) {
@@ -412,6 +416,37 @@ export async function createThread(projectId: string, name: string) {
 
   revalidatePath("/");
   return { success: true, threadId: data.id };
+}
+
+// ── K3 decision trail ────────────────────────────────────────────────────────
+// The trail's author and "from X's private exploration" line come straight off the
+// message the caller already has (shared_by / sender). Only the model needs a lookup:
+// the private thread that fed a Decision is invisible to teammates other than its
+// owner under RLS, so reading its messages' model_name needs the admin client, scoped
+// to exactly the ids this Decision's own source_message_ids points at.
+export async function getDecisionTrailModels(sharedMessageId: string): Promise<string[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  const supabase = await createClient();
+  const { data: message } = await supabase
+    .from("messages")
+    .select("source_message_ids")
+    .eq("id", sharedMessageId)
+    .maybeSingle();
+  const sourceIds = message?.source_message_ids as string[] | null | undefined;
+  if (!sourceIds || sourceIds.length === 0) return [];
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("messages")
+    .select("model_name")
+    .in("id", sourceIds)
+    .eq("sender_type", "assistant")
+    .not("model_name", "is", null);
+
+  if (error || !data) return [];
+  return [...new Set(data.map((m) => m.model_name as string))];
 }
 
 // ── E5 "Seen by" ───────────────────────────────────────────────────────────

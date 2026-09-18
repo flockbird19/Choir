@@ -10,6 +10,7 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Textarea } from "@/components/ui/Input";
 import { Skeleton } from "@/components/ui/Skeleton";
+import type { Message } from "@/types/database";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -33,11 +34,14 @@ export function usePublishFindings({
   threadId,
   sharedThreadId,
   sharedName,
+  messages,
   onPublished,
 }: {
   threadId: string;
   sharedThreadId: string | null | undefined;
   sharedName: string;
+  /** The private thread's own messages, so the post can carry its decision trail (K3). */
+  messages: Message[];
   onPublished?: () => void;
 }) {
   const toast = useToast();
@@ -85,7 +89,9 @@ export function usePublishFindings({
     if (!sharedThreadId || !content) return;
     setPosting(true);
     try {
-      const res = await postToSharedThread(sharedThreadId, content, threadId);
+      // K3: the trail is this private thread's own messages at publish time.
+      const sourceMessageIds = messages.length > 0 ? messages.map((m) => m.id) : null;
+      const res = await postToSharedThread(sharedThreadId, content, threadId, sourceMessageIds);
       if (res.error) {
         toast.error(res.error);
         return;

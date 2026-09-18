@@ -1,9 +1,10 @@
 "use client";
 
-import { X, Pin, Eye } from "lucide-react";
+import { X, Pin, Eye, MessageSquareLock } from "lucide-react";
 import { Message } from "@/types/database";
 import { useDialogA11y } from "@/hooks/useDialogA11y";
 import { whoHasSeen } from "@/hooks/useSeenBy";
+import { useDecisionTrailModels } from "@/hooks/useDecisionTrail";
 
 interface DecisionsPanelProps {
   isOpen: boolean;
@@ -19,6 +20,20 @@ interface DecisionsPanelProps {
 }
 
 const EMPTY_SEEN_BY: Record<string, string> = {};
+
+// K3: "from X's private exploration · model" — a detail line, not a panel.
+function DecisionTrail({ msg, possessive }: { msg: Message; possessive: string }) {
+  const hasTrail = !!msg.source_message_ids && msg.source_message_ids.length > 0;
+  const models = useDecisionTrailModels(msg.id, hasTrail);
+  if (!hasTrail) return null;
+  return (
+    <p className="flex items-center gap-1 text-[10px] text-graphite/60 mb-1.5">
+      <MessageSquareLock size={10} aria-hidden="true" className="shrink-0" />
+      From {possessive} private exploration
+      {models.length > 0 && <span className="font-mono">· {models.join(", ")}</span>}
+    </p>
+  );
+}
 
 export function DecisionsPanel({
   isOpen,
@@ -105,6 +120,10 @@ export function DecisionsPanel({
                       <> · pinned by {msg.pinned_by === currentUserId ? "you" : personName(msg.pinned_by)}</>
                     )}
                   </p>
+                  <DecisionTrail
+                    msg={msg}
+                    possessive={msg.sender_id === currentUserId ? "your own" : `${authorName(msg)}'s`}
+                  />
                   <p className="text-sm text-ink leading-relaxed line-clamp-4 whitespace-pre-wrap">
                     {msg.content}
                   </p>

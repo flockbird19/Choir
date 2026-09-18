@@ -253,6 +253,7 @@ export function ThreadView({
     threadId: thread.id,
     sharedThreadId: sharedThread?.id,
     sharedName: sharedThread?.name || "Team Space",
+    messages: localMessages,
     onPublished: () => setDrawerOpen(true),
   });
 

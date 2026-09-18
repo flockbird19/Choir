@@ -396,6 +396,7 @@ export function ThreadScreen({
     threadId: thread.id,
     sharedThreadId: sharedThread?.id,
     sharedName,
+    messages: localMessages,
     onPublished: () => setPanel("team"),
   });
 
