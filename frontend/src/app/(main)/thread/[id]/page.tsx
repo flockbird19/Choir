@@ -34,7 +34,14 @@ export default async function ThreadPage({
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const thread = await getAccessibleThread(user.id, id);
+  // The access check and the thread's own messages don't depend on each other (both
+  // only need `id` from the URL), so run them together instead of one after the other.
+  // RLS scopes `messages` to threads this session can see either way, so nothing is
+  // exposed before `thread` is confirmed below.
+  const [thread, messages] = await Promise.all([
+    getAccessibleThread(user.id, id),
+    getMessages(id),
+  ]);
 
   if (!thread) {
     return (
@@ -52,10 +59,7 @@ export default async function ThreadPage({
         ) ?? null
       : null;
 
-  const [messages, sharedMessages]: [Message[], Message[]] = await Promise.all([
-    getMessages(id),
-    sharedThread ? getMessages(sharedThread.id) : Promise.resolve([]),
-  ]);
+  const sharedMessages: Message[] = sharedThread ? await getMessages(sharedThread.id) : [];
 
   return (
     <ThreadView

@@ -32,10 +32,18 @@ export default async function PreviewThreadPage({
   const user = await getCurrentUser();
   if (!user) redirect(`/login?next=/preview/thread/${id}`);
 
-  const workspace = await getWorkspace(user.id);
+  // The workspace and the thread's own messages don't depend on each other (both only
+  // need data already known from the URL and session), so run them together instead of
+  // one after the other. RLS scopes `messages` to threads this session can see either
+  // way, so nothing is exposed before `thread` is confirmed below.
+  const [workspace, messages] = await Promise.all([
+    getWorkspace(user.id),
+    getMessages(id),
+  ]);
   if (workspace.teams.length === 0) redirect("/onboarding");
 
-  const thread = await getAccessibleThread(user.id, id);
+  const thread = await getAccessibleThread(user.id, id); // same cached workspace lookup, no extra query
+
   if (!thread) {
     return (
       <main data-ds className="flex h-full items-center justify-center bg-bg font-body text-fg">
@@ -58,10 +66,7 @@ export default async function PreviewThreadPage({
       ? workspace.threads.find((t) => t.project_id === thread.project_id && t.type === "shared") ?? null
       : null;
 
-  const [messages, sharedMessages]: [Message[], Message[]] = await Promise.all([
-    getMessages(id),
-    sharedThread ? getMessages(sharedThread.id) : Promise.resolve([]),
-  ]);
+  const sharedMessages: Message[] = sharedThread ? await getMessages(sharedThread.id) : [];
 
   return (
     <ThreadScreen
