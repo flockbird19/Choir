@@ -12,7 +12,9 @@ interface ChatInputProps {
   userName: string;
   onStreamStart?: () => void;
   onStreamChunk?: (text: string) => void;
-  onStreamEnd?: (aiMessageId?: string) => void;
+  /** FU-4: the backend may answer with a different model than the one picked (e.g. a
+   * shared thread uses the team key's model), reported on the final frame when known. */
+  onStreamEnd?: (aiMessageId?: string, modelProvider?: string, modelName?: string) => void;
   onStreamError?: (error: string) => void;
   /** e.g. "Using Ravi's key" when the reply switched to a lent key. */
   onStreamNotice?: (notice: string) => void;
@@ -26,10 +28,13 @@ interface ChatInputProps {
   aiMode?: "mention" | "auto" | "muted";
 }
 
+// Same list as components/thread-v2/models.ts — kept in sync until the classic view
+// is removed, since both share the "choir_selected_model" localStorage key.
 const AVAILABLE_MODELS = [
   { provider: "anthropic", id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
-  { provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
-  { provider: "anthropic", id: "claude-opus-4-5", name: "Claude Opus 4.5" },
+  { provider: "anthropic", id: "claude-sonnet-5", name: "Sonnet 5" },
+  { provider: "anthropic", id: "claude-opus-5", name: "Opus 5" },
+  { provider: "anthropic", id: "claude-fable-5-1", name: "Fable 5.1" },
   { provider: "openai", id: "gpt-4o", name: "GPT-4o" },
   { provider: "openai", id: "gpt-4o-mini", name: "GPT-4o Mini" },
   { provider: "openai", id: "o3", name: "o3" },
@@ -189,7 +194,12 @@ export function ChatInput({
             onStreamChunk?.(event.text as string);
           }
           if (event.done) {
-            onStreamEnd?.(event.message_id as string);
+            // FU-4: present only once Lane A's backend change ships; read it when there.
+            onStreamEnd?.(
+              event.message_id as string | undefined,
+              typeof event.model_provider === "string" ? event.model_provider : undefined,
+              typeof event.model_name === "string" ? event.model_name : undefined
+            );
             return;
           }
         }

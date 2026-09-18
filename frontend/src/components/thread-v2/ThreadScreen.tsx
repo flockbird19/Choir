@@ -343,7 +343,9 @@ export function ThreadScreen({
         }
         toast.warning(notice);
       },
-      onStreamEnd: (aiMessageId) => {
+      // FU-4: a shared thread answers with the team key's model, not necessarily the
+      // one picked, so the "done" frame's model (when present) wins over the picked one.
+      onStreamEnd: (aiMessageId, modelProvider, modelName) => {
         if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
         streamFrame.current = null;
         const text = streamBuffer.current;
@@ -355,7 +357,8 @@ export function ThreadScreen({
               thread_id: thread.id,
               sender_type: "assistant",
               content: text,
-              model_name: streamModel.current,
+              model_provider: modelProvider,
+              model_name: modelName ?? streamModel.current,
               created_at: new Date().toISOString(),
             })
           );

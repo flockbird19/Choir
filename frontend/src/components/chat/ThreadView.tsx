@@ -448,7 +448,9 @@ export function ThreadView({
     });
   }, []);
 
-  const handleStreamEnd = useCallback((aiMessageId?: string) => {
+  // FU-4: a shared thread answers with the team key's model, not necessarily the one
+  // picked, so the "done" frame's model (when present) wins over the picked one.
+  const handleStreamEnd = useCallback((aiMessageId?: string, modelProvider?: string, modelName?: string) => {
     if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
     streamFrame.current = null;
     setIsStreaming(false);
@@ -466,6 +468,8 @@ export function ThreadView({
             thread_id: thread.id,
             sender_type: "assistant",
             content: currentContent,
+            model_provider: modelProvider,
+            model_name: modelName,
             created_at: new Date().toISOString(),
           } as Message,
         ];
