@@ -478,17 +478,34 @@ export async function markThreadSeen(threadId: string): Promise<{ success?: bool
   }
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("thread_reads")
-    .upsert(
-      { thread_id: threadId, user_id: user.id, last_read_at: new Date().toISOString() },
-      { onConflict: "thread_id,user_id" }
-    );
+  const now = new Date().toISOString();
 
-  if (isMissingColumn(error)) return { error: DATABASE_UPDATE_PENDING };
-  if (error) {
-    console.error("Error marking thread seen:", error);
-    return { error: error.message };
+  // Not a plain upsert: PostgREST's ON CONFLICT DO UPDATE rewrites every column in
+  // the payload, including thread_id/user_id, but the grant on this table only
+  // covers last_seen_at/last_read_at — update the row directly, and only insert a
+  // fresh one when there isn't one yet.
+  const { data: updated, error: updateError } = await supabase
+    .from("thread_reads")
+    .update({ last_read_at: now })
+    .eq("thread_id", threadId)
+    .eq("user_id", user.id)
+    .select("thread_id");
+
+  if (isMissingColumn(updateError)) return { error: DATABASE_UPDATE_PENDING };
+  if (updateError) {
+    console.error("Error marking thread seen:", updateError);
+    return { error: updateError.message };
+  }
+  if (updated && updated.length > 0) return { success: true };
+
+  const { error: insertError } = await supabase
+    .from("thread_reads")
+    .insert({ thread_id: threadId, user_id: user.id, last_read_at: now });
+
+  if (isMissingColumn(insertError)) return { error: DATABASE_UPDATE_PENDING };
+  if (insertError) {
+    console.error("Error marking thread seen:", insertError);
+    return { error: insertError.message };
   }
   return { success: true };
 }
