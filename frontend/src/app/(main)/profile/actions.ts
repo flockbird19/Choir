@@ -48,7 +48,9 @@ export async function updateStatus(status: StatusId) {
     .eq('id', user.id)
   if (error) return { error: error.message }
 
-  revalidatePath('/', 'layout')
+  // No revalidatePath here (E4 follow-up): that invalidated the whole app's cached
+  // layout on every status change. The profiles Realtime subscription
+  // (useTeammateStatuses) plus each screen's own local state carry the update now.
   return { success: true }
 }
 

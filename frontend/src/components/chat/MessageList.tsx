@@ -7,6 +7,8 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getInitials, publishedLabel } from "@/utils/display-name";
 import { whoHasSeen } from "@/hooks/useSeenBy";
+import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
+import type { StatusId } from "@/app/(main)/profile/actions";
 
 interface Message {
   id: string;
@@ -25,26 +27,26 @@ interface Message {
 const NEAR_BOTTOM_PX = 120;
 
 // Small "seen by" avatar row (E5). Compact by design — a handful of initials, not a list.
-function SeenByRow({ seenBy, isOwn }: { seenBy: { id: string; name: string }[]; isOwn: boolean }) {
+function SeenByRow({ seenBy, isOwn }: { seenBy: { id: string; name: string; status: StatusId }[]; isOwn: boolean }) {
   if (seenBy.length === 0) return null;
   const shown = seenBy.slice(0, 3);
   const extra = seenBy.length - shown.length;
+  const summary = seenBy.map((p) => `${p.name} (${STATUS_LABEL[p.status]})`).join(", ");
   return (
     <span
       className={`flex items-center -space-x-1 ${isOwn ? "order-first" : ""}`}
-      title={`Seen by ${seenBy.map((p) => p.name).join(", ")}`}
+      title={`Seen by ${summary}`}
     >
       {shown.map((p) => (
-        <span
-          key={p.id}
-          aria-hidden="true"
-          className="w-3.5 h-3.5 rounded-full bg-shared/20 text-shared-fg ring-1 ring-canvas flex items-center justify-center text-[7px] font-bold select-none"
-        >
-          {getInitials(p.name).slice(0, 1)}
+        <span key={p.id} aria-hidden="true" className="relative inline-flex">
+          <span className="w-3.5 h-3.5 rounded-full bg-shared/20 text-shared-fg ring-1 ring-canvas flex items-center justify-center text-[7px] font-bold select-none">
+            {getInitials(p.name).slice(0, 1)}
+          </span>
+          <span className={`absolute -bottom-px -right-px w-1.5 h-1.5 rounded-full ring-1 ring-canvas ${STATUS_DOT_CLASS[p.status]}`} />
         </span>
       ))}
       {extra > 0 && <span className="text-[9px] text-graphite/60 ml-1">+{extra}</span>}
-      <span className="sr-only">Seen by {seenBy.map((p) => p.name).join(", ")}</span>
+      <span className="sr-only">Seen by {summary}</span>
     </span>
   );
 }
@@ -68,6 +70,8 @@ interface MessageListProps {
   aiAutoReply?: boolean;
   /** E5: { userId: last_read_at }, shared threads only. */
   seenBy?: Record<string, string>;
+  /** E4 follow-up: { userId: status }, so seen-by avatars can show it. */
+  statuses?: Record<string, StatusId>;
   /** Called when the reader scrolls to (or away from) the bottom. */
   onNearBottomChange?: (near: boolean) => void;
   /** C3 "Load older": pages further back by a created_at cursor. */
@@ -79,6 +83,7 @@ interface MessageListProps {
 const EMPTY_NAMES: Record<string, string> = {};
 const EMPTY_SELECTION = new Set<string>();
 const EMPTY_SEEN_BY: Record<string, string> = {};
+const EMPTY_STATUSES: Record<string, StatusId> = {};
 
 // react-markdown always renders a fenced code block as <pre><code>...</code></pre>,
 // with `children` here being that nested <code> element — walk it to get the raw
@@ -165,7 +170,7 @@ const MessageItem = memo(function MessageItem({
   onTogglePin?: (id: string, currentlyPinned: boolean) => void;
   onDiscussPrivately?: (id: string) => void;
   isHighlighted?: boolean;
-  seenBy?: { id: string; name: string }[];
+  seenBy?: { id: string; name: string; status: StatusId }[];
 }) {
   const isAI = msg.sender_type === "assistant";
   const isSharedFrom = !!msg.shared_by;
@@ -325,6 +330,7 @@ export function MessageList({
   highlightedMessageId,
   aiAutoReply = false,
   seenBy = EMPTY_SEEN_BY,
+  statuses = EMPTY_STATUSES,
   onNearBottomChange,
   onLoadOlder,
   hasMoreOlder = false,
@@ -454,7 +460,10 @@ export function MessageList({
             const previous = messages[virtualRow.index - 1];
             const showSender = !previous || senderKey(previous) !== senderKey(msg) || !!msg.shared_by;
             const messageSeenBy = isSharedThread && currentUserId
-              ? whoHasSeen(msg.created_at, msg.sender_id, seenBy, memberNames, currentUserId)
+              ? whoHasSeen(msg.created_at, msg.sender_id, seenBy, memberNames, currentUserId).map((p) => ({
+                  ...p,
+                  status: statuses[p.id] ?? ("online" as StatusId),
+                }))
               : undefined;
 
             return (

@@ -25,6 +25,7 @@ import { useMemberNames } from "@/hooks/useMemberNames";
 import { useSeenBy } from "@/hooks/useSeenBy";
 import { usePagedMessages } from "@/hooks/usePagedMessages";
 import { useThreadDecisions } from "@/hooks/useThreadDecisions";
+import { useTeammateStatuses, STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 
 import { Thread, Message } from "@/types/database";
 import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE } from "@/utils/ai-errors";
@@ -213,6 +214,9 @@ export function ThreadView({
 
   // ── Presence — who else currently has this thread open ─────────────────────
   const presentUsers = useThreadPresence(thread.id, currentUserName);
+
+  // ── E4 follow-up: teammates' status (online/away/dnd/offline), live ────────
+  const statuses = useTeammateStatuses();
 
   // ── Decisions panel and jump-to-decision UI state ───────────────────────────
   const [decisionsOpen, setDecisionsOpen] = useState(false);
@@ -535,16 +539,26 @@ export function ThreadView({
             {presentUsers.length > 0 && (
               <div
                 className="flex items-center -space-x-2 mr-1"
-                title={presentUsers.map((u) => u.name).join(", ")}
+                title={presentUsers
+                  .map((u) => `${u.name} (${STATUS_LABEL[statuses[u.id] ?? "online"]})`)
+                  .join(", ")}
               >
-                {presentUsers.slice(0, 4).map((u) => (
-                  <div
-                    key={u.id}
-                    className="w-7 h-7 rounded-full bg-accent text-white flex items-center justify-center text-[10px] font-bold ring-2 ring-canvas select-none"
-                  >
-                    {u.name.slice(0, 2).toUpperCase()}
-                  </div>
-                ))}
+                {presentUsers.slice(0, 4).map((u) => {
+                  const status = statuses[u.id] ?? "online";
+                  return (
+                    <div
+                      key={u.id}
+                      className="relative w-7 h-7 rounded-full bg-accent text-white flex items-center justify-center text-[10px] font-bold ring-2 ring-canvas select-none"
+                    >
+                      <span aria-hidden="true">{u.name.slice(0, 2).toUpperCase()}</span>
+                      <span
+                        role="img"
+                        aria-label={`${u.name} — ${STATUS_LABEL[status]}`}
+                        className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-canvas ${STATUS_DOT_CLASS[status]}`}
+                      />
+                    </div>
+                  );
+                })}
                 {presentUsers.length > 4 && (
                   <div className="w-7 h-7 rounded-full bg-surface-hover text-graphite flex items-center justify-center text-[10px] font-bold ring-2 ring-canvas select-none">
                     +{presentUsers.length - 4}
@@ -718,6 +732,7 @@ export function ThreadView({
           highlightedMessageId={highlightedMessageId}
           aiAutoReply={isPrivate && autoReply}
           seenBy={seenBy}
+          statuses={statuses}
           onNearBottomChange={setAtBottom}
           onLoadOlder={paged.loadOlder}
           hasMoreOlder={paged.hasMore}
@@ -809,6 +824,7 @@ export function ThreadView({
           memberNames={threadNames.names}
           namesLoaded={threadNames.loaded}
           seenBy={seenBy}
+          statuses={statuses}
         />
       )}
 

@@ -12,6 +12,8 @@ import { senderOf } from "./MessageStream";
 import { publishedLabel } from "@/utils/display-name";
 import { whoHasSeen } from "@/hooks/useSeenBy";
 import { useDecisionTrailModels } from "@/hooks/useDecisionTrail";
+import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
+import type { StatusId } from "@/app/(main)/profile/actions";
 
 // K3: "from X's private exploration · model" — a detail line, not a panel.
 function DecisionTrail({ decision, possessive }: { decision: Message; possessive: string }) {
@@ -35,12 +37,14 @@ interface NameProps {
 }
 
 const EMPTY_SEEN_BY: Record<string, string> = {};
+const EMPTY_STATUSES: Record<string, StatusId> = {};
 
 export function DecisionsList({
   decisions,
   onJumpTo,
   onUnpin,
   seenBy = EMPTY_SEEN_BY,
+  statuses = EMPTY_STATUSES,
   ...nameProps
 }: NameProps & {
   decisions: Message[];
@@ -48,6 +52,8 @@ export function DecisionsList({
   onUnpin: (id: string) => void;
   /** E5: { userId: last_read_at }. */
   seenBy?: Record<string, string>;
+  /** E4 follow-up: { userId: status }. */
+  statuses?: Record<string, StatusId>;
 }) {
   if (decisions.length === 0) {
     return (
@@ -81,6 +87,14 @@ export function DecisionsList({
               <span className="flex items-center gap-1.5 text-caption text-fg-subtle">
                 <Pin size={12} className="fill-current text-decision" aria-hidden="true" />
                 <span className="font-medium text-fg">{sender.kind === "own" ? "You" : sender.name}</span>
+                {sender.kind !== "ai" && decision.sender_id && (
+                  <span
+                    role="img"
+                    aria-label={`${sender.kind === "own" ? "You" : sender.name} — ${STATUS_LABEL[statuses[decision.sender_id] ?? "online"]}`}
+                    title={STATUS_LABEL[statuses[decision.sender_id] ?? "online"]}
+                    className={`inline-block size-1.5 rounded-full ${STATUS_DOT_CLASS[statuses[decision.sender_id] ?? "online"]}`}
+                  />
+                )}
                 <span aria-hidden="true">·</span>
                 {formatDayLabel(decision.created_at)}
               </span>
@@ -90,7 +104,15 @@ export function DecisionsList({
               {(() => {
                 const seen = whoHasSeen(decision.created_at, decision.sender_id, seenBy, nameProps.names, nameProps.currentUserId);
                 if (seen.length === 0) return null;
-                return <AvatarStack people={seen} max={4} size="xs" label={`Seen by ${seen.map((p) => p.name).join(", ")}`} />;
+                const seenWithStatus = seen.map((p) => ({ ...p, status: statuses[p.id] ?? ("online" as StatusId) }));
+                return (
+                  <AvatarStack
+                    people={seenWithStatus}
+                    max={4}
+                    size="xs"
+                    label={`Seen by ${seenWithStatus.map((p) => `${p.name} (${STATUS_LABEL[p.status]})`).join(", ")}`}
+                  />
+                );
               })()}
               <span className="inline-flex items-center gap-1 text-caption font-medium text-primary">
                 Jump to message <ArrowRight size={12} aria-hidden="true" />

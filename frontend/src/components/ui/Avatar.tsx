@@ -1,5 +1,7 @@
 import { Sparkles } from "lucide-react";
 import { getInitials } from "@/utils/display-name";
+import type { StatusId } from "@/app/(main)/profile/actions";
+import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 import { cn } from "./cn";
 
 // Soft, readable pairs; the same person always gets the same color.
@@ -35,12 +37,14 @@ export interface AvatarProps {
   size?: keyof typeof SIZES;
   /** Shows a green dot, e.g. "viewing this thread now". */
   online?: boolean;
+  /** E4: profile status (online/away/dnd/offline), never shown for the AI. */
+  status?: StatusId;
   /** Decorative avatars next to a visible name should be hidden from screen readers. */
   decorative?: boolean;
   className?: string;
 }
 
-export function Avatar({ name, colorKey, kind = "person", size = "sm", online, decorative = true, className }: AvatarProps) {
+export function Avatar({ name, colorKey, kind = "person", size = "sm", online, status, decorative = true, className }: AvatarProps) {
   return (
     <span
       role={decorative ? undefined : "img"}
@@ -60,6 +64,13 @@ export function Avatar({ name, colorKey, kind = "person", size = "sm", online, d
       {online && (
         <span className="absolute -bottom-px -right-px size-2.5 rounded-full bg-emerald-500 ring-2 ring-bg" />
       )}
+      {status && kind !== "ai" && (
+        <span
+          aria-hidden="true"
+          title={`${name} — ${STATUS_LABEL[status]}`}
+          className={cn("absolute -bottom-px -right-px size-2.5 rounded-full ring-2 ring-bg", STATUS_DOT_CLASS[status])}
+        />
+      )}
     </span>
   );
 }
@@ -70,10 +81,12 @@ export function AvatarStack({
   size = "sm",
   label,
 }: {
-  people: { id: string; name: string }[];
+  people: { id: string; name: string; status?: StatusId }[];
   max?: number;
   size?: keyof typeof SIZES;
-  /** Accessible summary, e.g. "Viewing now: Priya, Arjun". */
+  /** Accessible summary, e.g. "Viewing now: Priya, Arjun". Include status in the text
+   *  yourself (e.g. "Priya (away)") — this stack collapses into one described image,
+   *  so the individual avatars' own labels aren't exposed to screen readers. */
   label: string;
 }) {
   const shown = people.slice(0, max);
@@ -81,7 +94,7 @@ export function AvatarStack({
   return (
     <span role="img" aria-label={label} title={people.map((p) => p.name).join(", ")} className="flex items-center -space-x-1.5">
       {shown.map((person) => (
-        <Avatar key={person.id} name={person.name} colorKey={person.id} size={size} className="ring-2 ring-bg" />
+        <Avatar key={person.id} name={person.name} colorKey={person.id} size={size} status={person.status} className="ring-2 ring-bg" />
       ))}
       {extra > 0 && (
         <span

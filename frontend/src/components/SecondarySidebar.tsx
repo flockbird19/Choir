@@ -6,18 +6,12 @@ import { Settings, Lock, Plus, Hash, Trash2 } from "lucide-react";
 import type { SessionUser } from "@/utils/supabase/access";
 import { getDisplayName, getInitials } from "@/utils/display-name";
 import { Team, Project, Thread } from "@/types/database";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createThread, deleteThread } from "@/app/(main)/thread/[id]/actions";
 import { useToast } from "@/components/Toast";
 import { useDialogA11y } from "@/hooks/useDialogA11y";
-import { getMyStatus, type StatusId } from "@/app/(main)/profile/actions";
-
-const STATUS_COLORS: Record<StatusId, string> = {
-  online: "bg-green-500",
-  away: "bg-amber-400",
-  dnd: "bg-red-500",
-  offline: "bg-graphite/40",
-};
+import type { StatusId } from "@/app/(main)/profile/actions";
+import { useTeammateStatuses, STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 
 interface SecondarySidebarProps {
   user: SessionUser | null;
@@ -31,7 +25,12 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
   const pathname = usePathname();
   const router = useRouter();
   const { success: toastSuccess, error: toastError } = useToast();
-  const [status, setStatus] = useState<StatusId>("online");
+  // E4: status lives in `profiles` now (real, shared state), not per-browser
+  // localStorage. useTeammateStatuses keeps it live over Realtime, including your
+  // own row, so a change on the Profile page (or another device) shows up here
+  // without a focus event or a full page reload.
+  const statuses = useTeammateStatuses();
+  const status: StatusId = (user && statuses[user.id]) || "online";
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [newThreadName, setNewThreadName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -86,24 +85,6 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
       toastError(result.error || "Failed to delete thread.");
     }
   };
-
-  useEffect(() => {
-    // E4: status lives in `profiles` now (real, shared state), not per-browser
-    // localStorage. Re-read on focus so a change made on the Profile page, or on
-    // another device, shows up without waiting for a full page reload.
-    let cancelled = false;
-    const refresh = () => {
-      getMyStatus().then((s) => {
-        if (!cancelled) setStatus(s);
-      });
-    };
-    refresh();
-    window.addEventListener("focus", refresh);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("focus", refresh);
-    };
-  }, []);
 
   const displayName = getDisplayName(user);
   const initials = getInitials(displayName);
@@ -224,12 +205,16 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
             <div className="w-8 h-8 rounded-full bg-accent text-white flex items-center justify-center text-xs font-bold select-none">
               {initials}
             </div>
-            <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-surface rounded-full ${STATUS_COLORS[status]}`} />
+            <div
+              role="img"
+              aria-label={`Status: ${STATUS_LABEL[status]}`}
+              className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-surface rounded-full ${STATUS_DOT_CLASS[status]}`}
+            />
           </div>
           <div className="flex-1 min-w-0 flex flex-col justify-center">
             <p className="text-[13px] font-semibold text-ink leading-tight truncate">{displayName}</p>
             <p className="text-[11px] text-graphite leading-tight truncate capitalize">
-              {status === "dnd" ? "Do Not Disturb" : status}
+              {STATUS_LABEL[status]}
             </p>
           </div>
         </Link>
