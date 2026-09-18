@@ -1,8 +1,10 @@
 import { getCurrentUser } from "@/utils/supabase/access";
+import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import { User as UserIcon } from "lucide-react";
 import { ProfileClient } from "./ProfileClient";
-import { getDisplayName } from "@/utils/display-name";
+import type { StatusId } from "./actions";
+import { getDisplayName, getInitials } from "@/utils/display-name";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -10,18 +12,26 @@ export const metadata: Metadata = {
   description: "Manage your Choir account and profile preferences.",
 };
 
+const STATUS_IDS: StatusId[] = ["online", "away", "dnd", "offline"];
+
 export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const displayName = getDisplayName(user);
+  const supabase = await createClient();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("display_name, status")
+    .eq("id", user.id)
+    .single();
+
+  // profiles is the source of truth (E4); fall back if the row is somehow missing.
+  const displayName = profile?.display_name || getDisplayName(user);
   const email = user.email || "";
-  const initials = displayName
-    .split(" ")
-    .map((n: string) => n[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase() || "?";
+  const initials = getInitials(displayName);
+  const initialStatus: StatusId = STATUS_IDS.includes(profile?.status as StatusId)
+    ? (profile!.status as StatusId)
+    : "online";
 
   return (
     <main className="h-full overflow-y-auto bg-canvas">
@@ -40,6 +50,7 @@ export default async function ProfilePage() {
           initialName={displayName}
           email={email}
           initials={initials}
+          initialStatus={initialStatus}
         />
       </div>
     </main>
