@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Choir frontend
 
-## Getting Started
+Next.js 16 (App Router, React 19, Tailwind v4) app for Choir — a team chat where a small team and an AI
+share context. See the repo root for the full project write-up and design rules.
 
-First, run the development server:
+## Running it
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). You'll need `.env.local` with the Supabase project's
+URL and keys, and the backend (`../backend`) running for `@AI` replies, digests and exports.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Next.js 16 has real breaking changes from older versions — read `AGENTS.md` in this folder before writing
+code here.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Checks
 
-## Learn More
+```bash
+npm run lint        # eslint, 0 errors expected
+npx tsc --noEmit     # type check
+npx next build --webpack   # production build
+```
 
-To learn more about Next.js, take a look at the following resources:
+If `tsc` or the build fail oddly after a change, delete `.next/dev/types` and retry.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Layout
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `src/app/` — routes. `(main)/` is the signed-in app (home, thread, profile, settings); `login/`,
+  `onboarding/`, `invite/[token]/`, `auth/` are signed-out flows; `preview/` is the in-progress redesigned
+  thread view.
+- `src/components/chat/` — the live thread view. `src/components/thread-v2/` — its in-progress replacement.
+- `src/components/ui/` — design-system primitives.
+- `src/utils/supabase/` — Supabase clients and shared queries (`server.ts`, `admin.ts`, `queries.ts`,
+  `member-names.ts`).
+- `src/hooks/` — realtime messages, presence, member names, notifications.
 
-## Deploy on Vercel
+## In a worktree (parallel build lanes)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Turbopack refuses a junctioned `node_modules`, so worktrees run the dev server with webpack:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npx next dev --webpack -p 3103
+```
+
+Junction `node_modules` from the main checkout and copy `.env.local` in first. Never use ports 3000/8000 —
+those are the main checkout's.
