@@ -423,45 +423,60 @@ export function ThreadView({
     });
   }, [thread.id, currentUserId]);
 
-  // ── Streaming state ────────────────────────────────────────────────────────
+  // ── Streaming state (C4: text is flushed once per animation frame) ─────────
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const streamBuffer = useRef("");
+  const streamFrame = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
+  }, []);
 
   const handleStreamStart = useCallback(() => {
     setIsStreaming(true);
     setStreamingContent(null);
+    streamBuffer.current = "";
   }, []);
 
   const handleStreamChunk = useCallback((text: string) => {
-    setStreamingContent((prev) => (prev ?? "") + text);
+    streamBuffer.current += text;
+    if (streamFrame.current !== null) return;
+    streamFrame.current = requestAnimationFrame(() => {
+      streamFrame.current = null;
+      setStreamingContent(streamBuffer.current);
+    });
   }, []);
 
   const handleStreamEnd = useCallback((aiMessageId?: string) => {
+    if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
+    streamFrame.current = null;
     setIsStreaming(false);
+    const currentContent = streamBuffer.current;
+    setStreamingContent(null);
 
     // Optimistically commit the stream content as a real message
-    setStreamingContent((currentContent) => {
-      if (currentContent && aiMessageId) {
-        setLocalMessages((prev) => {
-          if (prev.some(m => m.id === aiMessageId)) return prev; // Prevent React Strict Mode duplicates
-          return [
-            ...prev,
-            {
-              id: aiMessageId,
-              thread_id: thread.id,
-              sender_type: "assistant",
-              content: currentContent,
-              created_at: new Date().toISOString(),
-            } as Message,
-          ];
-        });
-      }
-      return null;
-    });
+    if (currentContent && aiMessageId) {
+      setLocalMessages((prev) => {
+        if (prev.some(m => m.id === aiMessageId)) return prev; // Prevent React Strict Mode duplicates
+        return [
+          ...prev,
+          {
+            id: aiMessageId,
+            thread_id: thread.id,
+            sender_type: "assistant",
+            content: currentContent,
+            created_at: new Date().toISOString(),
+          } as Message,
+        ];
+      });
+    }
   }, [thread.id]);
 
   const missingKeyToastShown = useRef(false);
   const handleStreamError = useCallback((error: string) => {
+    if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
+    streamFrame.current = null;
     setIsStreaming(false);
     setStreamingContent(null);
     if (isPrivate && isMissingKeyError(error)) {

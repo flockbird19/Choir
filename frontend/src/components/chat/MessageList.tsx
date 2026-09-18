@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, memo, useState, isValidElement, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, memo, useState, isValidElement, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Bot, ArrowUpRight, Copy, Check, Loader2, Pin, PinOff, MessageSquareLock } from "lucide-react";
+import { ArrowDown, Bot, ArrowUpRight, Copy, Check, Loader2, Pin, PinOff, MessageSquareLock } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getInitials, publishedLabel } from "@/utils/display-name";
@@ -330,16 +330,35 @@ export function MessageList({
   hasMoreOlder = false,
   loadingOlder = false,
 }: MessageListProps) {
-  const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasNearBottom = useRef(true);
+  const lastMessageCount = useRef(messages.length);
+  const [unseen, setUnseen] = useState(0);
   // Set right before "load older" runs; consumed once the prepended messages have
   // rendered, to keep the reader's spot instead of jumping to the new top.
   const pendingScrollAdjust = useRef<number | null>(null);
 
+  const scrollToEnd = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    wasNearBottom.current = true;
+    setUnseen(0);
+    onNearBottomChange?.(true);
+  }, [onNearBottomChange]);
+
+  // C4: follow new content only when the reader is already at the bottom (a streamed
+  // token no longer yanks the view back down); otherwise count it toward the pill.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent]);
+    const added = messages.length - lastMessageCount.current;
+    lastMessageCount.current = messages.length;
+    const el = scrollRef.current;
+    if (!el) return;
+    if (wasNearBottom.current) {
+      el.scrollTop = el.scrollHeight;
+    } else if (added > 0) {
+      setUnseen((count) => count + added);
+    }
+  }, [messages.length, streamingContent]);
 
   useLayoutEffect(() => {
     if (pendingScrollAdjust.current === null) return;
@@ -355,11 +374,12 @@ export function MessageList({
 
   const handleScroll = () => {
     const el = scrollRef.current;
-    if (!el || !onNearBottomChange) return;
+    if (!el) return;
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    if (near && unseen > 0) setUnseen(0);
     if (near !== wasNearBottom.current) {
       wasNearBottom.current = near;
-      onNearBottomChange(near);
+      onNearBottomChange?.(near);
     }
   };
 
@@ -406,7 +426,7 @@ export function MessageList({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="relative flex-1 flex flex-col min-h-0">
       {(hasMoreOlder || loadingOlder) && (
         <div className="flex justify-center py-2 border-b border-border/60">
           <button
@@ -495,9 +515,18 @@ export function MessageList({
           </div>
         </div>
       )}
-
-        <div ref={endRef} className="h-2" />
       </div>
+
+      {unseen > 0 && (
+        <button
+          type="button"
+          onClick={scrollToEnd}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-accent text-white text-xs font-medium shadow-lg hover:bg-accent/90 transition-colors z-10"
+        >
+          <ArrowDown size={13} />
+          {unseen} new message{unseen === 1 ? "" : "s"}
+        </button>
+      )}
     </div>
   );
 }
