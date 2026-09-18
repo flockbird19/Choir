@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, memo, useState, isValidElement, type ReactNode } from "react";
-import { Bot, ArrowUpRight, Copy, Check, Pin, PinOff, MessageSquareLock } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, memo, useState, isValidElement, type ReactNode } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { ArrowDown, Bot, ArrowUpRight, Copy, Check, Loader2, Pin, PinOff, MessageSquareLock } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getInitials, publishedLabel } from "@/utils/display-name";
+import { whoHasSeen } from "@/hooks/useSeenBy";
 
 interface Message {
   id: string;
@@ -14,8 +16,37 @@ interface Message {
   created_at: string;
   shared_by?: string | null;
   model_name?: string | null;
+  model_provider?: string | null;
   is_decision?: boolean;
   source_thread_id?: string | null;
+  source_message_ids?: string[] | null;
+}
+
+const NEAR_BOTTOM_PX = 120;
+
+// Small "seen by" avatar row (E5). Compact by design — a handful of initials, not a list.
+function SeenByRow({ seenBy, isOwn }: { seenBy: { id: string; name: string }[]; isOwn: boolean }) {
+  if (seenBy.length === 0) return null;
+  const shown = seenBy.slice(0, 3);
+  const extra = seenBy.length - shown.length;
+  return (
+    <span
+      className={`flex items-center -space-x-1 ${isOwn ? "order-first" : ""}`}
+      title={`Seen by ${seenBy.map((p) => p.name).join(", ")}`}
+    >
+      {shown.map((p) => (
+        <span
+          key={p.id}
+          aria-hidden="true"
+          className="w-3.5 h-3.5 rounded-full bg-shared/20 text-shared-fg ring-1 ring-canvas flex items-center justify-center text-[7px] font-bold select-none"
+        >
+          {getInitials(p.name).slice(0, 1)}
+        </span>
+      ))}
+      {extra > 0 && <span className="text-[9px] text-graphite/60 ml-1">+{extra}</span>}
+      <span className="sr-only">Seen by {seenBy.map((p) => p.name).join(", ")}</span>
+    </span>
+  );
 }
 
 interface MessageListProps {
@@ -35,10 +66,19 @@ interface MessageListProps {
   highlightedMessageId?: string | null;
   /** Private thread with AI auto-replies on (changes the empty-state hint). */
   aiAutoReply?: boolean;
+  /** E5: { userId: last_read_at }, shared threads only. */
+  seenBy?: Record<string, string>;
+  /** Called when the reader scrolls to (or away from) the bottom. */
+  onNearBottomChange?: (near: boolean) => void;
+  /** C3 "Load older": pages further back by a created_at cursor. */
+  onLoadOlder?: () => void;
+  hasMoreOlder?: boolean;
+  loadingOlder?: boolean;
 }
 
 const EMPTY_NAMES: Record<string, string> = {};
 const EMPTY_SELECTION = new Set<string>();
+const EMPTY_SEEN_BY: Record<string, string> = {};
 
 // react-markdown always renders a fenced code block as <pre><code>...</code></pre>,
 // with `children` here being that nested <code> element — walk it to get the raw
@@ -112,6 +152,7 @@ const MessageItem = memo(function MessageItem({
   onTogglePin,
   onDiscussPrivately,
   isHighlighted,
+  seenBy,
 }: {
   msg: Message;
   isOwn: boolean;
@@ -124,6 +165,7 @@ const MessageItem = memo(function MessageItem({
   onTogglePin?: (id: string, currentlyPinned: boolean) => void;
   onDiscussPrivately?: (id: string) => void;
   isHighlighted?: boolean;
+  seenBy?: { id: string; name: string }[];
 }) {
   const isAI = msg.sender_type === "assistant";
   const isSharedFrom = !!msg.shared_by;
@@ -229,6 +271,7 @@ const MessageItem = memo(function MessageItem({
                 minute: "2-digit",
               })}
             </span>
+            {seenBy && seenBy.length > 0 && <SeenByRow seenBy={seenBy} isOwn={isOwn} />}
             {isSharedThread && onTogglePin && !selectMode && (
               <button
                 onClick={(e) => {
@@ -281,12 +324,81 @@ export function MessageList({
   onDiscussPrivately,
   highlightedMessageId,
   aiAutoReply = false,
+  seenBy = EMPTY_SEEN_BY,
+  onNearBottomChange,
+  onLoadOlder,
+  hasMoreOlder = false,
+  loadingOlder = false,
 }: MessageListProps) {
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const wasNearBottom = useRef(true);
+  const lastMessageCount = useRef(messages.length);
+  const [unseen, setUnseen] = useState(0);
+  // Set right before "load older" runs; consumed once the prepended messages have
+  // rendered, to keep the reader's spot instead of jumping to the new top.
+  const pendingScrollAdjust = useRef<number | null>(null);
 
+  const scrollToEnd = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    wasNearBottom.current = true;
+    setUnseen(0);
+    onNearBottomChange?.(true);
+  }, [onNearBottomChange]);
+
+  // C4: follow new content only when the reader is already at the bottom (a streamed
+  // token no longer yanks the view back down); otherwise count it toward the pill.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent]);
+    const added = messages.length - lastMessageCount.current;
+    lastMessageCount.current = messages.length;
+    const el = scrollRef.current;
+    if (!el) return;
+    if (wasNearBottom.current) {
+      el.scrollTop = el.scrollHeight;
+    } else if (added > 0) {
+      setUnseen((count) => count + added);
+    }
+  }, [messages.length, streamingContent]);
+
+  useLayoutEffect(() => {
+    if (pendingScrollAdjust.current === null) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop += el.scrollHeight - pendingScrollAdjust.current;
+    pendingScrollAdjust.current = null;
+  }, [messages]);
+
+  const handleLoadOlder = () => {
+    if (scrollRef.current) pendingScrollAdjust.current = scrollRef.current.scrollHeight;
+    onLoadOlder?.();
+  };
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    if (near && unseen > 0) setUnseen(0);
+    if (near !== wasNearBottom.current) {
+      wasNearBottom.current = near;
+      onNearBottomChange?.(near);
+    }
+  };
+
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 96,
+    overscan: 8,
+    getItemKey: (index) => messages[index]?.id ?? index,
+  });
+
+  // "Jump to decision": scroll a specific row into view even when it's not currently
+  // rendered (virtualization only mounts what's visible, so a DOM id lookup won't work).
+  useEffect(() => {
+    if (!highlightedMessageId) return;
+    const index = messages.findIndex((m) => m.id === highlightedMessageId);
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: "center", behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightedMessageId]);
 
   const showTypingBubble = isStreaming && !streamingContent;
   const showStreamingBubble = !!streamingContent;
@@ -314,36 +426,63 @@ export function MessageList({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-3 font-inter">
-      {messages.map((msg, index) => {
-        const isAI = msg.sender_type === "assistant";
-        // Optimistic messages have no sender_id yet; only the current user creates those.
-        const isOwn = !isAI && (!msg.sender_id || msg.sender_id === currentUserId);
-        const senderName = isAI
-          ? "Choir AI"
-          : isOwn
-            ? (currentUserId && memberNames[currentUserId]) || "You"
-            : memberNames[msg.sender_id ?? ""] ?? (namesLoaded ? "Former member" : "Teammate");
-        const previous = messages[index - 1];
-        const showSender = !previous || senderKey(previous) !== senderKey(msg) || !!msg.shared_by;
+    <div className="relative flex-1 flex flex-col min-h-0">
+      {(hasMoreOlder || loadingOlder) && (
+        <div className="flex justify-center py-2 border-b border-border/60">
+          <button
+            onClick={handleLoadOlder}
+            disabled={loadingOlder}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-graphite hover:text-ink hover:bg-surface-hover transition-colors disabled:opacity-60"
+          >
+            {loadingOlder ? <Loader2 size={12} className="animate-spin" /> : null}
+            {loadingOlder ? "Loading older messages…" : "Load older messages"}
+          </button>
+        </div>
+      )}
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 font-inter">
+        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const msg = messages[virtualRow.index];
+            const isAI = msg.sender_type === "assistant";
+            // Optimistic messages have no sender_id yet; only the current user creates those.
+            const isOwn = !isAI && (!msg.sender_id || msg.sender_id === currentUserId);
+            const senderName = isAI
+              ? "Choir AI"
+              : isOwn
+                ? (currentUserId && memberNames[currentUserId]) || "You"
+                : memberNames[msg.sender_id ?? ""] ?? (namesLoaded ? "Former member" : "Teammate");
+            const previous = messages[virtualRow.index - 1];
+            const showSender = !previous || senderKey(previous) !== senderKey(msg) || !!msg.shared_by;
+            const messageSeenBy = isSharedThread && currentUserId
+              ? whoHasSeen(msg.created_at, msg.sender_id, seenBy, memberNames, currentUserId)
+              : undefined;
 
-        return (
-        <MessageItem
-          key={msg.id}
-          msg={msg}
-          isOwn={isOwn}
-          senderName={senderName}
-          showSender={showSender}
-          selectMode={selectMode}
-          isSelected={selectedMessageIds.has(msg.id)}
-          onToggleSelect={onToggleSelect}
-          isSharedThread={isSharedThread}
-          onTogglePin={onTogglePin}
-          onDiscussPrivately={onDiscussPrivately}
-          isHighlighted={highlightedMessageId === msg.id}
-        />
-        );
-      })}
+            return (
+              <div
+                key={virtualRow.key}
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+                style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
+                className="pb-3"
+              >
+                <MessageItem
+                  msg={msg}
+                  isOwn={isOwn}
+                  senderName={senderName}
+                  showSender={showSender}
+                  selectMode={selectMode}
+                  isSelected={selectedMessageIds.has(msg.id)}
+                  onToggleSelect={onToggleSelect}
+                  isSharedThread={isSharedThread}
+                  onTogglePin={onTogglePin}
+                  onDiscussPrivately={onDiscussPrivately}
+                  isHighlighted={highlightedMessageId === msg.id}
+                  seenBy={messageSeenBy}
+                />
+              </div>
+            );
+          })}
+        </div>
 
       {(showTypingBubble || showStreamingBubble) && (
         <div className="flex gap-3 max-w-[85%] mr-auto">
@@ -376,8 +515,18 @@ export function MessageList({
           </div>
         </div>
       )}
+      </div>
 
-      <div ref={endRef} className="h-2" />
+      {unseen > 0 && (
+        <button
+          type="button"
+          onClick={scrollToEnd}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-accent text-white text-xs font-medium shadow-lg hover:bg-accent/90 transition-colors z-10"
+        >
+          <ArrowDown size={13} />
+          {unseen} new message{unseen === 1 ? "" : "s"}
+        </button>
+      )}
     </div>
   );
 }

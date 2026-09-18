@@ -1,8 +1,9 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { getAccessibleThread, getCurrentUser } from "@/utils/supabase/access";
-import { getWorkspace } from "@/utils/supabase/queries";
+import { getDecisions, getMessagesBefore, getWorkspace } from "@/utils/supabase/queries";
 import { getTeamMemberNames } from "@/utils/supabase/member-names";
 import { getDisplayName } from "@/utils/display-name";
 import { revalidatePath } from "next/cache";
@@ -154,7 +155,10 @@ export async function deleteApiKey(
 export async function postToSharedThread(
   sharedThreadId: string,
   content: string,
-  sourceThreadId?: string
+  sourceThreadId?: string,
+  // K3: the private thread's message ids at the time of publishing (the decision
+  // trail). Prefer omitting/null over [] when there's nothing to point at.
+  sourceMessageIds?: string[] | null
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
@@ -187,6 +191,7 @@ export async function postToSharedThread(
     content,
     shared_by: user.id,
     ...(sourceThreadId ? { source_thread_id: sourceThreadId } : {}),
+    ...(sourceMessageIds && sourceMessageIds.length > 0 ? { source_message_ids: sourceMessageIds } : {}),
   });
 
   if (isMissingColumn(error)) {
@@ -411,6 +416,133 @@ export async function createThread(projectId: string, name: string) {
 
   revalidatePath("/");
   return { success: true, threadId: data.id };
+}
+
+// ── C3 pagination ────────────────────────────────────────────────────────────
+
+export async function loadOlderMessages(threadId: string, beforeCreatedAt: string) {
+  const user = await getCurrentUser();
+  if (!user || !(await getAccessibleThread(user.id, threadId))) return [];
+  return getMessagesBefore(threadId, beforeCreatedAt);
+}
+
+// Decisions are shown regardless of how far "load older" has paged back, so they're
+// fetched on their own rather than filtered out of the loaded page.
+export async function getThreadDecisions(threadId: string) {
+  const user = await getCurrentUser();
+  if (!user || !(await getAccessibleThread(user.id, threadId))) return [];
+  return getDecisions(threadId);
+}
+
+// ── K3 decision trail ────────────────────────────────────────────────────────
+// The trail's author and "from X's private exploration" line come straight off the
+// message the caller already has (shared_by / sender). Only the model needs a lookup:
+// the private thread that fed a Decision is invisible to teammates other than its
+// owner under RLS, so reading its messages' model_name needs the admin client, scoped
+// to exactly the ids this Decision's own source_message_ids points at.
+export async function getDecisionTrailModels(sharedMessageId: string): Promise<string[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  const supabase = await createClient();
+  const { data: message } = await supabase
+    .from("messages")
+    .select("source_message_ids")
+    .eq("id", sharedMessageId)
+    .maybeSingle();
+  const sourceIds = message?.source_message_ids as string[] | null | undefined;
+  if (!sourceIds || sourceIds.length === 0) return [];
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("messages")
+    .select("model_name")
+    .in("id", sourceIds)
+    .eq("sender_type", "assistant")
+    .not("model_name", "is", null);
+
+  if (error || !data) return [];
+  return [...new Set(data.map((m) => m.model_name as string))];
+}
+
+// ── E5 "Seen by" ───────────────────────────────────────────────────────────
+// `last_read_at` is separate from `last_seen_at` (the Catch me up position) and is
+// never touched here.
+
+export async function markThreadSeen(threadId: string): Promise<{ success?: boolean; error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not logged in" };
+
+  if (!(await getAccessibleThread(user.id, threadId))) {
+    return { error: NO_THREAD_ACCESS };
+  }
+
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+
+  // Not a plain upsert: PostgREST's ON CONFLICT DO UPDATE rewrites every column in
+  // the payload, including thread_id/user_id, but the grant on this table only
+  // covers last_seen_at/last_read_at — update the row directly, and only insert a
+  // fresh one when there isn't one yet.
+  const { data: updated, error: updateError } = await supabase
+    .from("thread_reads")
+    .update({ last_read_at: now })
+    .eq("thread_id", threadId)
+    .eq("user_id", user.id)
+    .select("thread_id");
+
+  if (isMissingColumn(updateError)) return { error: DATABASE_UPDATE_PENDING };
+  if (updateError) {
+    console.error("Error marking thread seen:", updateError);
+    return { error: updateError.message };
+  }
+  if (updated && updated.length > 0) return { success: true };
+
+  const { error: insertError } = await supabase
+    .from("thread_reads")
+    .insert({ thread_id: threadId, user_id: user.id, last_read_at: now });
+
+  if (isMissingColumn(insertError)) return { error: DATABASE_UPDATE_PENDING };
+  if (insertError) {
+    console.error("Error marking thread seen:", insertError);
+    return { error: insertError.message };
+  }
+  return { success: true };
+}
+
+// Teammates who have seen a shared thread, as { userId: last_read_at }. Uses the admin
+// client: everyone's own read position is private under RLS ("Manage own read state"
+// only exposes your own row), so seeing teammates' requires the service key, same as
+// team member names do.
+export async function getThreadSeenBy(threadId: string): Promise<Record<string, string>> {
+  const user = await getCurrentUser();
+  if (!user) return {};
+
+  const thread = await getAccessibleThread(user.id, threadId);
+  if (!thread || thread.type !== "shared") return {};
+
+  const project = (await getWorkspace(user.id)).projects.find((p) => p.id === thread.project_id);
+  if (!project) return {};
+
+  const admin = createAdminClient();
+  const { data: members } = await admin.from("team_members").select("user_id").eq("team_id", project.team_id);
+  const memberIds = (members ?? []).map((m) => m.user_id as string);
+  if (memberIds.length === 0) return {};
+
+  const { data, error } = await admin
+    .from("thread_reads")
+    .select("user_id, last_read_at")
+    .eq("thread_id", threadId)
+    .in("user_id", memberIds)
+    .not("last_read_at", "is", null);
+
+  if (error || !data) return {};
+
+  const seenBy: Record<string, string> = {};
+  for (const row of data) {
+    if (row.last_read_at) seenBy[row.user_id as string] = row.last_read_at as string;
+  }
+  return seenBy;
 }
 
 export async function deleteThread(threadId: string) {

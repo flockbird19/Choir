@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowDown } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { ArrowDown, Loader2 } from "lucide-react";
 import type { Message } from "@/types/database";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
@@ -9,6 +10,7 @@ import { cn } from "@/components/ui/cn";
 import { Markdown } from "./Markdown";
 import { MessageRow, type SenderKind } from "./MessageRow";
 import { continuesGroup, dayKey, formatDayLabel } from "./format";
+import { whoHasSeen } from "@/hooks/useSeenBy";
 
 const NEAR_BOTTOM_PX = 120;
 const ANNOUNCE_MAX_CHARS = 160;
@@ -39,7 +41,17 @@ export interface MessageStreamProps {
   empty: ReactNode;
   compact?: boolean;
   label: string;
+  /** E5 "Seen by": { userId: last_read_at }, shared threads only. */
+  seenBy?: Record<string, string>;
+  /** Called when the reader scrolls to (or away from) the bottom. */
+  onNearBottomChange?: (near: boolean) => void;
+  /** C3 "Load older": pages further back by a created_at cursor. */
+  onLoadOlder?: () => void;
+  hasMoreOlder?: boolean;
+  loadingOlder?: boolean;
 }
+
+const EMPTY_SEEN_BY: Record<string, string> = {};
 
 export function senderOf(
   message: Message,
@@ -72,11 +84,19 @@ export function MessageStream({
   empty,
   compact = false,
   label,
+  seenBy = EMPTY_SEEN_BY,
+  onNearBottomChange,
+  onLoadOlder,
+  hasMoreOlder = false,
+  loadingOlder = false,
 }: MessageStreamProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
   const lastCount = useRef(messages.length);
   const [unseen, setUnseen] = useState(0);
+  // Set right before "load older" runs; consumed once the prepended messages have
+  // rendered, to keep the reader's spot instead of jumping to the new top.
+  const pendingScrollAdjust = useRef<number | null>(null);
 
   // Screen readers hear each finished message from someone else once. The list itself is not a
   // live region, so a streaming AI reply isn't re-read as every chunk arrives, and your own
@@ -140,12 +160,56 @@ export function MessageStream({
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
+    const wasNear = nearBottom.current;
     nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
     if (nearBottom.current && unseen > 0) setUnseen(0);
+    if (nearBottom.current !== wasNear) onNearBottomChange?.(nearBottom.current);
   };
+
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 96,
+    overscan: 8,
+    getItemKey: (index) => messages[index]?.id ?? index,
+  });
+
+  useLayoutEffect(() => {
+    if (pendingScrollAdjust.current === null) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop += el.scrollHeight - pendingScrollAdjust.current;
+    pendingScrollAdjust.current = null;
+  }, [messages]);
+
+  const handleLoadOlder = () => {
+    if (scrollRef.current) pendingScrollAdjust.current = scrollRef.current.scrollHeight;
+    onLoadOlder?.();
+  };
+
+  // "Jump to decision": scroll a specific row into view even when it's not currently
+  // rendered (virtualization only mounts what's visible, so a DOM id lookup won't work).
+  useEffect(() => {
+    if (!highlightedId) return;
+    const index = messages.findIndex((m) => m.id === highlightedId);
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: "center", behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightedId]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {(hasMoreOlder || loadingOlder) && messages.length > 0 && (
+        <div className="flex shrink-0 justify-center border-b border-line py-1.5">
+          <button
+            type="button"
+            onClick={handleLoadOlder}
+            disabled={loadingOlder}
+            className="flex cursor-pointer items-center gap-1.5 rounded-control px-3 py-1 text-caption font-medium text-fg-muted hover:bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loadingOlder && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
+            {loadingOlder ? "Loading older messages…" : "Load older messages"}
+          </button>
+        </div>
+      )}
       <div
         ref={scrollRef}
         onScroll={onScroll}
@@ -158,35 +222,44 @@ export function MessageStream({
           <div className="flex h-full items-center justify-center">{empty}</div>
         ) : (
           <div className={cn("mx-auto flex w-full max-w-measure flex-col px-4 sm:px-6", compact ? "py-4" : "pb-6 pt-6")}>
-            {messages.map((message, index) => {
-              const previous = messages[index - 1];
-              const newDay = !previous || dayKey(previous.created_at) !== dayKey(message.created_at);
-              const sender = senderOf(message, currentUserId, currentUserName, names, namesLoaded);
-              return (
-                <Fragment key={message.id}>
-                  {newDay && (
-                    <div role="separator" aria-label={formatDayLabel(message.created_at)} className="my-5 flex items-center gap-3 first:mt-0">
-                      <span className="h-px flex-1 bg-line" />
-                      <span className="text-caption font-medium text-fg-subtle">{formatDayLabel(message.created_at)}</span>
-                      <span className="h-px flex-1 bg-line" />
-                    </div>
-                  )}
-                  <MessageRow
-                    message={message}
-                    kind={sender.kind}
-                    senderName={sender.name}
-                    grouped={!newDay && continuesGroup(previous, message)}
-                    canPin={canPin}
-                    selectMode={selectMode}
-                    selected={selectedIds.has(message.id)}
-                    highlighted={highlightedId === message.id}
-                    onToggleSelect={onToggleSelect}
-                    onTogglePin={onTogglePin}
-                    onDiscussPrivately={onDiscussPrivately}
-                  />
-                </Fragment>
-              );
-            })}
+            <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+              {virtualizer.getVirtualItems().map((virtualRow) => {
+                const message = messages[virtualRow.index];
+                const previous = messages[virtualRow.index - 1];
+                const newDay = !previous || dayKey(previous.created_at) !== dayKey(message.created_at);
+                const sender = senderOf(message, currentUserId, currentUserName, names, namesLoaded);
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    {newDay && (
+                      <div role="separator" aria-label={formatDayLabel(message.created_at)} className="mb-5 flex items-center gap-3 first:mt-0">
+                        <span className="h-px flex-1 bg-line" />
+                        <span className="text-caption font-medium text-fg-subtle">{formatDayLabel(message.created_at)}</span>
+                        <span className="h-px flex-1 bg-line" />
+                      </div>
+                    )}
+                    <MessageRow
+                      message={message}
+                      kind={sender.kind}
+                      senderName={sender.name}
+                      grouped={!newDay && continuesGroup(previous, message)}
+                      canPin={canPin}
+                      selectMode={selectMode}
+                      selected={selectedIds.has(message.id)}
+                      highlighted={highlightedId === message.id}
+                      onToggleSelect={onToggleSelect}
+                      onTogglePin={onTogglePin}
+                      onDiscussPrivately={onDiscussPrivately}
+                      seenBy={canPin ? whoHasSeen(message.created_at, message.sender_id, seenBy, names, currentUserId) : undefined}
+                    />
+                  </div>
+                );
+              })}
+            </div>
 
             {streaming && (
               <div className="mt-5 flex gap-3" aria-busy="true">

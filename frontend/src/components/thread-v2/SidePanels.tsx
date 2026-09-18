@@ -1,15 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Pin, PinOff, Users } from "lucide-react";
+import { ArrowRight, MessageSquareLock, Pin, PinOff, Users } from "lucide-react";
 import type { Message, Thread } from "@/types/database";
-import { Avatar } from "@/components/ui/Avatar";
+import { Avatar, AvatarStack } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/components/ui/cn";
 import { Markdown } from "./Markdown";
 import { formatDayLabel, formatTime } from "./format";
 import { senderOf } from "./MessageStream";
 import { publishedLabel } from "@/utils/display-name";
+import { whoHasSeen } from "@/hooks/useSeenBy";
+import { useDecisionTrailModels } from "@/hooks/useDecisionTrail";
+
+// K3: "from X's private exploration · model" — a detail line, not a panel.
+function DecisionTrail({ decision, possessive }: { decision: Message; possessive: string }) {
+  const hasTrail = !!decision.source_message_ids && decision.source_message_ids.length > 0;
+  const models = useDecisionTrailModels(decision.id, hasTrail);
+  if (!hasTrail) return null;
+  return (
+    <span className="flex items-center gap-1 text-caption text-fg-subtle">
+      <MessageSquareLock size={11} aria-hidden="true" className="shrink-0" />
+      From {possessive} private exploration
+      {models.length > 0 && <span className="font-mono">· {models.join(", ")}</span>}
+    </span>
+  );
+}
 
 interface NameProps {
   currentUserId: string;
@@ -18,15 +34,20 @@ interface NameProps {
   namesLoaded: boolean;
 }
 
+const EMPTY_SEEN_BY: Record<string, string> = {};
+
 export function DecisionsList({
   decisions,
   onJumpTo,
   onUnpin,
+  seenBy = EMPTY_SEEN_BY,
   ...nameProps
 }: NameProps & {
   decisions: Message[];
   onJumpTo: (id: string) => void;
   onUnpin: (id: string) => void;
+  /** E5: { userId: last_read_at }. */
+  seenBy?: Record<string, string>;
 }) {
   if (decisions.length === 0) {
     return (
@@ -65,6 +86,12 @@ export function DecisionsList({
               </span>
               <span className="line-clamp-4 text-body-sm text-fg [overflow-wrap:anywhere]">{decision.content}</span>
               {pinner && <span className="text-caption text-fg-subtle">Pinned by {pinner}</span>}
+              <DecisionTrail decision={decision} possessive={sender.kind === "own" ? "your own" : `${sender.name}'s`} />
+              {(() => {
+                const seen = whoHasSeen(decision.created_at, decision.sender_id, seenBy, nameProps.names, nameProps.currentUserId);
+                if (seen.length === 0) return null;
+                return <AvatarStack people={seen} max={4} size="xs" label={`Seen by ${seen.map((p) => p.name).join(", ")}`} />;
+              })()}
               <span className="inline-flex items-center gap-1 text-caption font-medium text-primary">
                 Jump to message <ArrowRight size={12} aria-hidden="true" />
               </span>

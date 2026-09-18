@@ -8,8 +8,9 @@ export interface ModelOption {
 
 export const AVAILABLE_MODELS: ModelOption[] = [
   { provider: "anthropic", id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
-  { provider: "anthropic", id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" },
-  { provider: "anthropic", id: "claude-opus-4-5", name: "Claude Opus 4.5" },
+  { provider: "anthropic", id: "claude-sonnet-5", name: "Sonnet 5" },
+  { provider: "anthropic", id: "claude-opus-5", name: "Opus 5" },
+  { provider: "anthropic", id: "claude-fable-5-1", name: "Fable 5.1" },
   { provider: "openai", id: "gpt-4o", name: "GPT-4o" },
   { provider: "openai", id: "gpt-4o-mini", name: "GPT-4o Mini" },
   { provider: "openai", id: "o3", name: "o3" },

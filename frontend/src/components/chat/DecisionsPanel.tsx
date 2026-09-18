@@ -1,8 +1,10 @@
 "use client";
 
-import { X, Pin } from "lucide-react";
+import { X, Pin, Eye, MessageSquareLock } from "lucide-react";
 import { Message } from "@/types/database";
 import { useDialogA11y } from "@/hooks/useDialogA11y";
+import { whoHasSeen } from "@/hooks/useSeenBy";
+import { useDecisionTrailModels } from "@/hooks/useDecisionTrail";
 
 interface DecisionsPanelProps {
   isOpen: boolean;
@@ -13,6 +15,24 @@ interface DecisionsPanelProps {
   currentUserId: string;
   memberNames: Record<string, string>;
   namesLoaded: boolean;
+  /** E5: { userId: last_read_at }. */
+  seenBy?: Record<string, string>;
+}
+
+const EMPTY_SEEN_BY: Record<string, string> = {};
+
+// K3: "from X's private exploration · model" — a detail line, not a panel.
+function DecisionTrail({ msg, possessive }: { msg: Message; possessive: string }) {
+  const hasTrail = !!msg.source_message_ids && msg.source_message_ids.length > 0;
+  const models = useDecisionTrailModels(msg.id, hasTrail);
+  if (!hasTrail) return null;
+  return (
+    <p className="flex items-center gap-1 text-[10px] text-graphite/60 mb-1.5">
+      <MessageSquareLock size={10} aria-hidden="true" className="shrink-0" />
+      From {possessive} private exploration
+      {models.length > 0 && <span className="font-mono">· {models.join(", ")}</span>}
+    </p>
+  );
 }
 
 export function DecisionsPanel({
@@ -24,6 +44,7 @@ export function DecisionsPanel({
   currentUserId,
   memberNames,
   namesLoaded,
+  seenBy = EMPTY_SEEN_BY,
 }: DecisionsPanelProps) {
   const dialogRef = useDialogA11y(isOpen, onClose);
 
@@ -99,11 +120,15 @@ export function DecisionsPanel({
                       <> · pinned by {msg.pinned_by === currentUserId ? "you" : personName(msg.pinned_by)}</>
                     )}
                   </p>
+                  <DecisionTrail
+                    msg={msg}
+                    possessive={msg.sender_id === currentUserId ? "your own" : `${authorName(msg)}'s`}
+                  />
                   <p className="text-sm text-ink leading-relaxed line-clamp-4 whitespace-pre-wrap">
                     {msg.content}
                   </p>
                   <div className="flex items-center justify-between mt-2">
-                    <span className="text-[10px] text-graphite/50">
+                    <span className="flex items-center gap-1.5 text-[10px] text-graphite/50">
                       {msg.pinned_at
                         ? new Date(msg.pinned_at).toLocaleString(undefined, {
                             month: "short",
@@ -112,6 +137,19 @@ export function DecisionsPanel({
                             minute: "2-digit",
                           })
                         : ""}
+                      {(() => {
+                        const seen = whoHasSeen(msg.created_at, msg.sender_id, seenBy, memberNames, currentUserId);
+                        if (seen.length === 0) return null;
+                        return (
+                          <span
+                            className="flex items-center gap-0.5"
+                            title={`Seen by ${seen.map((p) => p.name).join(", ")}`}
+                          >
+                            <Eye size={10} aria-hidden="true" />
+                            {seen.length}
+                          </span>
+                        );
+                      })()}
                     </span>
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                       <button

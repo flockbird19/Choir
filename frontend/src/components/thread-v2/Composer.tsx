@@ -51,7 +51,9 @@ export interface ComposerCallbacks {
   onMessageFailed: (id: string) => void;
   onStreamStart: (model: ModelOption) => void;
   onStreamChunk: (text: string) => void;
-  onStreamEnd: (aiMessageId?: string) => void;
+  /** FU-4: the backend may answer with a different model than the one picked (e.g. a
+   * shared thread uses the team key's model), reported on the final frame when known. */
+  onStreamEnd: (aiMessageId?: string, modelProvider?: string, modelName?: string) => void;
   onStreamError: (error: string) => void;
   /** e.g. "Using Ravi's key" when the reply switched to a lent key; `model` is the model now answering. */
   onStreamNotice?: (notice: string, model?: string) => void;
@@ -168,7 +170,12 @@ export function Composer({
           }
           if (event.text) callbacks.onStreamChunk(String(event.text));
           if (event.done) {
-            callbacks.onStreamEnd(event.message_id as string | undefined);
+            // FU-4: present only once Lane A's backend change ships; read it when there.
+            callbacks.onStreamEnd(
+              event.message_id as string | undefined,
+              typeof event.model_provider === "string" ? event.model_provider : undefined,
+              typeof event.model_name === "string" ? event.model_name : undefined
+            );
             return;
           }
         }

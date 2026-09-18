@@ -47,6 +47,8 @@ export interface Message {
   pinned_at?: string | null;
   // K2: set on a Team Space post published from the poster's own private thread.
   source_thread_id?: string | null;
+  // K3: the private messages a published post came from (the decision trail).
+  source_message_ids?: string[] | null;
 }
 
 export interface TeamInvitation {

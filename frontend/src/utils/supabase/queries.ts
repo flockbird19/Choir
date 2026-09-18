@@ -38,17 +38,65 @@ export const getWorkspace = cache(async (userId: string): Promise<Workspace> => 
   };
 });
 
-// Callers must check access first with getAccessibleThread (access.ts).
-export async function getMessages(threadId: string): Promise<Message[]> {
+// C3: initial load is capped so opening a long thread doesn't render its whole
+// history; "load older" (getMessagesBefore) pages further back on demand.
+export const MESSAGE_PAGE_SIZE = 50;
+
+// Callers must check access first with getAccessibleThread (access.ts). Returns the
+// most recent `limit` messages, oldest first (uses the messages(thread_id, created_at) index).
+export async function getMessages(threadId: string, limit = MESSAGE_PAGE_SIZE): Promise<Message[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("messages")
     .select("*")
     .eq("thread_id", threadId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false })
+    .limit(limit);
 
   if (error) {
     console.error("Error fetching messages:", error);
+    return [];
+  }
+  return (data as Message[]).reverse();
+}
+
+// C3 "Load older": the `limit` messages immediately before a `created_at` cursor,
+// oldest first. ponytail: a plain created_at cursor can in theory skip a same-instant
+// duplicate; add an id tiebreaker if that ever shows up in practice.
+export async function getMessagesBefore(
+  threadId: string,
+  beforeCreatedAt: string,
+  limit = MESSAGE_PAGE_SIZE
+): Promise<Message[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("thread_id", threadId)
+    .lt("created_at", beforeCreatedAt)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error("Error fetching older messages:", error);
+    return [];
+  }
+  return (data as Message[]).reverse();
+}
+
+// C3: Decisions are shown regardless of how far back pagination has loaded, so they
+// need their own always-fetch-everything query rather than filtering the loaded page.
+export async function getDecisions(threadId: string): Promise<Message[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("thread_id", threadId)
+    .eq("is_decision", true)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching decisions:", error);
     return [];
   }
   return data as Message[];

@@ -18,6 +18,8 @@ interface CatchMeUpModalProps {
   needsApiKey?: boolean;
   /** Pinned Decisions, shown without AI when there's no key. */
   decisions?: Message[];
+  /** Display names, keyed by user id, so each decision can say who pinned it. */
+  names?: Record<string, string>;
 }
 
 const MAX_DECISIONS_SHOWN = 5;
@@ -30,6 +32,7 @@ export function CatchMeUpModal({
   messageCount,
   needsApiKey = false,
   decisions = [],
+  names = {},
 }: CatchMeUpModalProps) {
   const dialogRef = useDialogA11y(isOpen, onClose);
 
@@ -69,7 +72,7 @@ export function CatchMeUpModal({
               Summarizing what you missed…
             </div>
           ) : needsApiKey ? (
-            <NoKeyState decisions={decisions} onNavigate={onClose} />
+            <NoKeyState decisions={decisions} names={names} onNavigate={onClose} />
           ) : (
             <>
               <div className="text-sm text-ink leading-relaxed">
@@ -100,7 +103,15 @@ export function CatchMeUpModal({
   );
 }
 
-function NoKeyState({ decisions, onNavigate }: { decisions: Message[]; onNavigate: () => void }) {
+function NoKeyState({
+  decisions,
+  names,
+  onNavigate,
+}: {
+  decisions: Message[];
+  names: Record<string, string>;
+  onNavigate: () => void;
+}) {
   const shown = [...decisions]
     .sort((a, b) => Date.parse(b.pinned_at ?? b.created_at) - Date.parse(a.pinned_at ?? a.created_at))
     .slice(0, MAX_DECISIONS_SHOWN);
@@ -136,7 +147,12 @@ function NoKeyState({ decisions, onNavigate }: { decisions: Message[]; onNavigat
             {shown.map((d) => (
               <li key={d.id} className="flex gap-2 text-ink">
                 <Pin size={13} className="mt-1 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
-                <span className="line-clamp-2 whitespace-pre-wrap">{d.content}</span>
+                <div>
+                  <span className="line-clamp-2 whitespace-pre-wrap">{d.content}</span>
+                  {d.pinned_by && (
+                    <p className="text-[11px] text-graphite/60">Pinned by {names[d.pinned_by] ?? "a teammate"}</p>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
