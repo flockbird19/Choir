@@ -9,6 +9,7 @@ import { cn } from "@/components/ui/cn";
 import { Markdown } from "./Markdown";
 import { MessageRow, type SenderKind } from "./MessageRow";
 import { continuesGroup, dayKey, formatDayLabel } from "./format";
+import { whoHasSeen } from "@/hooks/useSeenBy";
 
 const NEAR_BOTTOM_PX = 120;
 const ANNOUNCE_MAX_CHARS = 160;
@@ -39,7 +40,13 @@ export interface MessageStreamProps {
   empty: ReactNode;
   compact?: boolean;
   label: string;
+  /** E5 "Seen by": { userId: last_read_at }, shared threads only. */
+  seenBy?: Record<string, string>;
+  /** Called when the reader scrolls to (or away from) the bottom. */
+  onNearBottomChange?: (near: boolean) => void;
 }
+
+const EMPTY_SEEN_BY: Record<string, string> = {};
 
 export function senderOf(
   message: Message,
@@ -72,6 +79,8 @@ export function MessageStream({
   empty,
   compact = false,
   label,
+  seenBy = EMPTY_SEEN_BY,
+  onNearBottomChange,
 }: MessageStreamProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
@@ -140,8 +149,10 @@ export function MessageStream({
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
+    const wasNear = nearBottom.current;
     nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
     if (nearBottom.current && unseen > 0) setUnseen(0);
+    if (nearBottom.current !== wasNear) onNearBottomChange?.(nearBottom.current);
   };
 
   return (
@@ -183,6 +194,7 @@ export function MessageStream({
                     onToggleSelect={onToggleSelect}
                     onTogglePin={onTogglePin}
                     onDiscussPrivately={onDiscussPrivately}
+                    seenBy={canPin ? whoHasSeen(message.created_at, message.sender_id, seenBy, names, currentUserId) : undefined}
                   />
                 </Fragment>
               );

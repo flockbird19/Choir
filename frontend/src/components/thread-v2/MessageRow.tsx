@@ -4,7 +4,7 @@ import { memo, useState } from "react";
 import { ArrowUpRight, Check, Copy, Ellipsis, MessageSquareLock, Pin, PinOff } from "lucide-react";
 import type { Message } from "@/types/database";
 import { publishedLabel } from "@/utils/display-name";
-import { Avatar } from "@/components/ui/Avatar";
+import { Avatar, AvatarStack } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Menu, MenuItem } from "@/components/ui/Menu";
 import { cn } from "@/components/ui/cn";
@@ -27,6 +27,8 @@ interface MessageRowProps {
   onTogglePin: (id: string, pinned: boolean) => void;
   /** Shared threads only: start a private thread about this message. */
   onDiscussPrivately?: (id: string) => void;
+  /** E5 "Seen by": teammates whose last-read time is at or after this message. */
+  seenBy?: { id: string; name: string }[];
 }
 
 // Pointer devices only (touch screens get the actions menu below), so 28px meets the 24px web minimum.
@@ -165,6 +167,7 @@ export const MessageRow = memo(function MessageRow({
   onToggleSelect,
   onTogglePin,
   onDiscussPrivately,
+  seenBy = [],
 }: MessageRowProps) {
   const pinned = !!message.is_decision;
   const sharedFromPrivate = !!message.shared_by;
@@ -199,6 +202,9 @@ export const MessageRow = memo(function MessageRow({
       <time dateTime={message.created_at} className="text-fg-subtle">
         {time}
       </time>
+      {seenBy.length > 0 && (
+        <AvatarStack people={seenBy} max={3} size="xs" label={`Seen by ${seenBy.map((p) => p.name).join(", ")}`} />
+      )}
     </div>
   );
 

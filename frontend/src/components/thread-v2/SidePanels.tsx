@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { ArrowRight, Pin, PinOff, Users } from "lucide-react";
 import type { Message, Thread } from "@/types/database";
-import { Avatar } from "@/components/ui/Avatar";
+import { Avatar, AvatarStack } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { cn } from "@/components/ui/cn";
 import { Markdown } from "./Markdown";
 import { formatDayLabel, formatTime } from "./format";
 import { senderOf } from "./MessageStream";
 import { publishedLabel } from "@/utils/display-name";
+import { whoHasSeen } from "@/hooks/useSeenBy";
 
 interface NameProps {
   currentUserId: string;
@@ -18,15 +19,20 @@ interface NameProps {
   namesLoaded: boolean;
 }
 
+const EMPTY_SEEN_BY: Record<string, string> = {};
+
 export function DecisionsList({
   decisions,
   onJumpTo,
   onUnpin,
+  seenBy = EMPTY_SEEN_BY,
   ...nameProps
 }: NameProps & {
   decisions: Message[];
   onJumpTo: (id: string) => void;
   onUnpin: (id: string) => void;
+  /** E5: { userId: last_read_at }. */
+  seenBy?: Record<string, string>;
 }) {
   if (decisions.length === 0) {
     return (
@@ -65,6 +71,11 @@ export function DecisionsList({
               </span>
               <span className="line-clamp-4 text-body-sm text-fg [overflow-wrap:anywhere]">{decision.content}</span>
               {pinner && <span className="text-caption text-fg-subtle">Pinned by {pinner}</span>}
+              {(() => {
+                const seen = whoHasSeen(decision.created_at, decision.sender_id, seenBy, nameProps.names, nameProps.currentUserId);
+                if (seen.length === 0) return null;
+                return <AvatarStack people={seen} max={4} size="xs" label={`Seen by ${seen.map((p) => p.name).join(", ")}`} />;
+              })()}
               <span className="inline-flex items-center gap-1 text-caption font-medium text-primary">
                 Jump to message <ArrowRight size={12} aria-hidden="true" />
               </span>

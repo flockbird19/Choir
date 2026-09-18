@@ -22,6 +22,7 @@ import { useToast } from "../Toast";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useThreadPresence } from "@/hooks/useThreadPresence";
 import { useMemberNames } from "@/hooks/useMemberNames";
+import { useSeenBy } from "@/hooks/useSeenBy";
 
 import { Thread, Message } from "@/types/database";
 import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE } from "@/utils/ai-errors";
@@ -171,11 +172,15 @@ export function ThreadView({
     handleSharedRealtimeUpdate
   );
 
+  // ── Seen by (E5) — throttled read-position updates + who else has seen what ───
+  const [atBottom, setAtBottom] = useState(true);
+  const seenBy = useSeenBy(thread.id, atBottom, !isPrivate);
+
   // ── Sender names — who wrote each message ─────────────────────────────────
-  // Pinners too, so the Decisions panel can name who pinned each one.
+  // Pinners and seen-by readers too, so their names can be shown.
   const threadNames = useMemberNames(
     thread.id,
-    localMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
+    localMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]).concat(Object.keys(seenBy))
   );
   const sharedNames = useMemberNames(
     isPrivate ? sharedThread?.id : undefined,
@@ -670,6 +675,8 @@ export function ThreadView({
           onDiscussPrivately={isPrivate ? undefined : handleDiscussPrivately}
           highlightedMessageId={highlightedMessageId}
           aiAutoReply={isPrivate && autoReply}
+          seenBy={seenBy}
+          onNearBottomChange={setAtBottom}
         />
 
         {/* Chat Input or Selection Action Bar */}
@@ -756,6 +763,7 @@ export function ThreadView({
           currentUserId={currentUserId}
           memberNames={threadNames.names}
           namesLoaded={threadNames.loaded}
+          seenBy={seenBy}
         />
       )}
 

@@ -1,8 +1,10 @@
 "use client";
 
-import { X, Pin } from "lucide-react";
+import { X, Pin, Eye } from "lucide-react";
 import { Message } from "@/types/database";
 import { useDialogA11y } from "@/hooks/useDialogA11y";
+import { whoHasSeen } from "@/hooks/useSeenBy";
+import { getInitials } from "@/utils/display-name";
 
 interface DecisionsPanelProps {
   isOpen: boolean;
@@ -13,7 +15,11 @@ interface DecisionsPanelProps {
   currentUserId: string;
   memberNames: Record<string, string>;
   namesLoaded: boolean;
+  /** E5: { userId: last_read_at }. */
+  seenBy?: Record<string, string>;
 }
+
+const EMPTY_SEEN_BY: Record<string, string> = {};
 
 export function DecisionsPanel({
   isOpen,
@@ -24,6 +30,7 @@ export function DecisionsPanel({
   currentUserId,
   memberNames,
   namesLoaded,
+  seenBy = EMPTY_SEEN_BY,
 }: DecisionsPanelProps) {
   const dialogRef = useDialogA11y(isOpen, onClose);
 
@@ -103,7 +110,7 @@ export function DecisionsPanel({
                     {msg.content}
                   </p>
                   <div className="flex items-center justify-between mt-2">
-                    <span className="text-[10px] text-graphite/50">
+                    <span className="flex items-center gap-1.5 text-[10px] text-graphite/50">
                       {msg.pinned_at
                         ? new Date(msg.pinned_at).toLocaleString(undefined, {
                             month: "short",
@@ -112,6 +119,19 @@ export function DecisionsPanel({
                             minute: "2-digit",
                           })
                         : ""}
+                      {(() => {
+                        const seen = whoHasSeen(msg.created_at, msg.sender_id, seenBy, memberNames, currentUserId);
+                        if (seen.length === 0) return null;
+                        return (
+                          <span
+                            className="flex items-center gap-0.5"
+                            title={`Seen by ${seen.map((p) => p.name).join(", ")}`}
+                          >
+                            <Eye size={10} aria-hidden="true" />
+                            {seen.length}
+                          </span>
+                        );
+                      })()}
                     </span>
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                       <button

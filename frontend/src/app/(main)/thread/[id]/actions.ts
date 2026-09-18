@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { getAccessibleThread, getCurrentUser } from "@/utils/supabase/access";
 import { getWorkspace } from "@/utils/supabase/queries";
 import { getTeamMemberNames } from "@/utils/supabase/member-names";
@@ -411,6 +412,69 @@ export async function createThread(projectId: string, name: string) {
 
   revalidatePath("/");
   return { success: true, threadId: data.id };
+}
+
+// ── E5 "Seen by" ───────────────────────────────────────────────────────────
+// `last_read_at` is separate from `last_seen_at` (the Catch me up position) and is
+// never touched here.
+
+export async function markThreadSeen(threadId: string): Promise<{ success?: boolean; error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not logged in" };
+
+  if (!(await getAccessibleThread(user.id, threadId))) {
+    return { error: NO_THREAD_ACCESS };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("thread_reads")
+    .upsert(
+      { thread_id: threadId, user_id: user.id, last_read_at: new Date().toISOString() },
+      { onConflict: "thread_id,user_id" }
+    );
+
+  if (isMissingColumn(error)) return { error: DATABASE_UPDATE_PENDING };
+  if (error) {
+    console.error("Error marking thread seen:", error);
+    return { error: error.message };
+  }
+  return { success: true };
+}
+
+// Teammates who have seen a shared thread, as { userId: last_read_at }. Uses the admin
+// client: everyone's own read position is private under RLS ("Manage own read state"
+// only exposes your own row), so seeing teammates' requires the service key, same as
+// team member names do.
+export async function getThreadSeenBy(threadId: string): Promise<Record<string, string>> {
+  const user = await getCurrentUser();
+  if (!user) return {};
+
+  const thread = await getAccessibleThread(user.id, threadId);
+  if (!thread || thread.type !== "shared") return {};
+
+  const project = (await getWorkspace(user.id)).projects.find((p) => p.id === thread.project_id);
+  if (!project) return {};
+
+  const admin = createAdminClient();
+  const { data: members } = await admin.from("team_members").select("user_id").eq("team_id", project.team_id);
+  const memberIds = (members ?? []).map((m) => m.user_id as string);
+  if (memberIds.length === 0) return {};
+
+  const { data, error } = await admin
+    .from("thread_reads")
+    .select("user_id, last_read_at")
+    .eq("thread_id", threadId)
+    .in("user_id", memberIds)
+    .not("last_read_at", "is", null);
+
+  if (error || !data) return {};
+
+  const seenBy: Record<string, string> = {};
+  for (const row of data) {
+    if (row.last_read_at) seenBy[row.user_id as string] = row.last_read_at as string;
+  }
+  return seenBy;
 }
 
 export async function deleteThread(threadId: string) {

@@ -32,6 +32,7 @@ import {
 import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE } from "@/utils/ai-errors";
 import { useMemberNames } from "@/hooks/useMemberNames";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
+import { useSeenBy } from "@/hooks/useSeenBy";
 import { useThreadPresence } from "@/hooks/useThreadPresence";
 import { useToast } from "@/components/Toast";
 import { usePublishFindings } from "@/components/PublishFindingsDialog";
@@ -111,8 +112,15 @@ export function ThreadScreen({
     useCallback((m: Message) => setLocalShared((prev) => merge(prev, m)), [])
   );
 
-  // Pinners too, so the Decisions panel can name who pinned each one.
-  const names = useMemberNames(thread.id, localMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]));
+  // ── Seen by (E5) — throttled read-position updates + who else has seen what ───
+  const [atBottom, setAtBottom] = useState(true);
+  const seenBy = useSeenBy(thread.id, atBottom, !isPrivate);
+
+  // Pinners and seen-by readers too, so their names can be shown.
+  const names = useMemberNames(
+    thread.id,
+    localMessages.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]).concat(Object.keys(seenBy))
+  );
   const sharedNames = useMemberNames(isPrivate ? sharedThread?.id : undefined, localShared.map((m) => m.sender_id ?? ""));
   const present = useThreadPresence(thread.id, user.name);
   const memberCount = Object.keys(names.names).length;
@@ -467,6 +475,7 @@ export function ThreadScreen({
         currentUserName={user.name}
         names={names.names}
         namesLoaded={names.loaded}
+        seenBy={seenBy}
       />
     ) : panel === "team" && sharedThread ? (
       <TeamSpacePeek
@@ -704,6 +713,8 @@ export function ThreadScreen({
           scrollToEndSignal={scrollSignal}
           empty={emptyState}
           label={`Messages in ${threadName}`}
+          seenBy={seenBy}
+          onNearBottomChange={setAtBottom}
         />
 
         {selectMode ? (
