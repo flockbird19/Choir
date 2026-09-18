@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/client";
 import type { StatusId } from "@/app/(main)/profile/actions";
@@ -37,6 +37,11 @@ function normalizeStatus(status: string | null | undefined): StatusId {
  */
 export function useTeammateStatuses(): Record<string, StatusId> {
   const [statuses, setStatuses] = useState<Record<string, StatusId>>({});
+  // createBrowserClient (and so its Realtime socket) is a singleton per tab, so two
+  // components mounting this hook at once (e.g. the sidebar and the open thread) would
+  // otherwise both try to subscribe the same fixed topic — the second `.on()` call
+  // then fails because the channel is already joined. A per-instance id keeps them apart.
+  const instanceId = useId().replace(/[^a-zA-Z0-9]/g, "");
 
   useEffect(() => {
     const supabase = createClient();
@@ -65,7 +70,7 @@ export function useTeammateStatuses(): Record<string, StatusId> {
 
       let hasSubscribed = false;
       channel = supabase
-        .channel("profiles:statuses")
+        .channel(`profiles:statuses:${instanceId}`)
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, (payload) => {
           const row = payload.new as { id?: string; status?: string | null };
           if (row?.id) setStatuses((prev) => ({ ...prev, [row.id!]: normalizeStatus(row.status) }));
@@ -85,7 +90,7 @@ export function useTeammateStatuses(): Record<string, StatusId> {
       cancelled = true;
       if (channel) supabase.removeChannel(channel);
     };
-  }, []);
+  }, [instanceId]);
 
   return statuses;
 }
