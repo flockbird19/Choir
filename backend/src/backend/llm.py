@@ -69,16 +69,40 @@ def _fetch_project(project_id: str) -> dict[str, Any] | None:
     return data[0] if data else None
 
 
-def _fetch_messages(thread_id: str) -> list[dict[str, Any]]:
+# How many messages are ever read out of Supabase for one reply. The D3 budget below
+# trims what is *sent* to the model, but this is what is *read*: an unbounded query
+# pulled a thread's entire history over the network on every single turn, which is the
+# opposite of what the budget is for. 200 comfortably covers the 40-message verbatim
+# window plus the SUMMARY_REFRESH_THRESHOLD of older messages a refresh folds in.
+MESSAGE_FETCH_LIMIT = 200
+
+
+def _fetch_messages(thread_id: str, limit: int = MESSAGE_FETCH_LIMIT) -> list[dict[str, Any]]:
+    """The most recent `limit` messages for a thread, oldest first."""
     db = get_db()
     resp = (
         db.table("messages")
         .select("*")
         .eq("thread_id", thread_id)
-        .order("created_at")
+        .order("created_at", desc=True)
+        .limit(limit)
         .execute()
     )
-    return cast(list[dict[str, Any]], resp.data)
+    return list(reversed(cast(list[dict[str, Any]], resp.data)))
+
+
+def _fetch_message_in_thread(message_id: str, thread_id: str) -> dict[str, Any] | None:
+    """One message, but only if it really belongs to `thread_id`."""
+    db = get_db()
+    resp = (
+        db.table("messages")
+        .select("*")
+        .eq("id", message_id)
+        .eq("thread_id", thread_id)
+        .execute()
+    )
+    data = cast(list[dict[str, Any]], resp.data)
+    return data[0] if data else None
 
 
 def _fetch_messages_since(thread_id: str, since: str | None) -> list[dict[str, Any]]:
@@ -265,14 +289,19 @@ def _format_shared_as_system_context(
 
 
 def _fork_focus_context(
-    thread: dict[str, Any], shared_msgs: list[dict[str, Any]], names: dict[str, str]
+    thread: dict[str, Any], shared_thread_id: str | None, names: dict[str, str]
 ) -> str:
     """
     D2 "Discuss privately": a private thread started from a shared message is about that
-    message. Only messages from this project's shared thread are used, so nothing else leaks in.
+    message. The message is looked up by id *and* shared thread id, so nothing outside
+    this project's shared thread can leak in. Looking it up directly rather than scanning
+    the loaded history also means the focus still works when the original message is
+    older than MESSAGE_FETCH_LIMIT.
     """
     forked_id = thread.get("forked_from_message_id")
-    focus = next((m for m in shared_msgs if forked_id and m.get("id") == forked_id), None)
+    if not forked_id or not shared_thread_id:
+        return ""
+    focus = _fetch_message_in_thread(forked_id, shared_thread_id)
     if not focus:
         return ""
     return (
@@ -421,18 +450,23 @@ def _take_usable_key(candidates: list[KeyCandidate]) -> tuple[KeyCandidate, str]
 
 def _resolve_provider_and_model(
     thread: dict[str, Any], user_id: str, override_provider: str | None = None, override_model: str | None = None
-) -> tuple[str, str] | None:
+) -> tuple[str, str, str] | None:
     """
-    Determine which provider + model to use for this thread.
+    Determine which provider + model to use for this thread, and hand back the
+    decrypted key that proved the choice was usable.
     If overrides are provided, uses them (fails if no key).
     For private threads: use thread.model_provider / thread.model_name if set,
     otherwise fall back to the first provider for which the user has a key.
-    Returns (provider, model) or None if no key is available.
+    Returns (provider, model, api_key) or None if no key is available.
+
+    The key is returned rather than looked up again by the caller: every caller
+    needs it immediately, and re-fetching cost a second round trip to Supabase
+    (300-500ms) plus a second decryption on every reply, digest and findings draft.
     """
     if override_provider and override_model:
         key = get_api_key(user_id, override_provider)
         if key:
-            return override_provider, override_model
+            return override_provider, override_model, key
         return None
 
     thread_provider = thread.get("model_provider")
@@ -449,13 +483,8 @@ def _resolve_provider_and_model(
     for provider in candidates:
         key = get_api_key(user_id, provider)
         if key:
-            default_model = (
-                ANTHROPIC_DEFAULT_MODEL
-                if provider == "anthropic"
-                else OPENAI_COMPAT_PROVIDERS[provider]["default_model"]
-            )
-            model = thread_model if (thread_provider == provider and thread_model) else default_model
-            return provider, model
+            model = thread_model if (thread_provider == provider and thread_model) else _default_model(provider)
+            return provider, model, key
 
     return None
 
@@ -582,6 +611,7 @@ def stream_ai_response(
     override_provider: str | None = None,
     override_model: str | None = None,
     user_name: str | None = None,
+    thread: dict[str, Any] | None = None,
 ) -> Generator[str, None, None]:
     """
     Core generator: assembles context, calls the LLM, streams SSE chunks to the
@@ -594,7 +624,9 @@ def stream_ai_response(
       { "done": true, "message_id": ..., "model_provider": ..., "model_name": ... } — stream finished
     """
     # ── Fetch thread ──────────────────────────────────────────────────────────
-    thread = _fetch_thread(thread_id)
+    # The caller's access check has already read this row; reuse it rather than
+    # spending another round trip on the same query.
+    thread = thread or _fetch_thread(thread_id)
     if not thread:
         yield _sse({"error": "Thread not found."})
         return
@@ -632,12 +664,7 @@ def stream_ai_response(
             )
             return
 
-        provider, model = resolved
-        caller_key = get_api_key(user_id, provider)
-        if not caller_key:
-            yield _sse({"error": f"Could not retrieve API key for {provider}."})
-            return
-        api_key = caller_key
+        provider, model, api_key = resolved
         key_owner_id = user_id
 
     # ── Assemble context ──────────────────────────────────────────────────────
@@ -677,18 +704,15 @@ def stream_ai_response(
             .execute()
         )
         shared_rows = cast(list[dict[str, Any]], shared_resp.data)
-        full_shared_msgs: list[dict[str, Any]] = []
-        if shared_rows:
-            full_shared_msgs = _fetch_messages(shared_rows[0]["id"])
+        shared_thread_id = shared_rows[0]["id"] if shared_rows else None
 
-        # The fork focus looks at the *full* shared history — the focused message
-        # might be older than the verbatim budget window, but it must never be lost.
-        fork_context = _fork_focus_context(thread, full_shared_msgs, names)
+        # Fetched by id, so the focus survives even when it predates the read limit.
+        fork_context = _fork_focus_context(thread, shared_thread_id, names)
 
         team_space_block = "[No shared team context yet]"
-        if shared_rows:
+        if shared_thread_id:
             kept_shared, shared_summary = _budget_and_summarize(
-                shared_rows[0]["id"], full_shared_msgs, names, provider, model, api_key
+                shared_thread_id, _fetch_messages(shared_thread_id), names, provider, model, api_key
             )
             team_space_block = _format_shared_as_system_context(kept_shared, names, user_id)
             if shared_summary:
@@ -713,10 +737,17 @@ def stream_ai_response(
             "CONTEXT: The team's shared thread is below for alignment. Only answer the user's immediate private questions.\n"
             + fork_context
         )
-        system_volatile = f"You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
+        # D3: the bulky, slow-changing material (this thread's rolling summary and the
+        # Team Space context) belongs in the CACHED block, not the volatile one. Anthropic
+        # only caches a block once it passes a minimum length (roughly 1,024 tokens, and
+        # 2,048 on the small Haiku models); the role/style boilerplate alone is a few
+        # hundred, so while the context sat in the volatile half nothing was ever long
+        # enough to cache and the cache_control below never actually did anything.
+        # Only the line naming who is speaking really changes from turn to turn.
         if own_summary:
-            system_volatile += f"\nEARLIER PRIVATE CONVERSATION (summarized): {own_summary}\n"
-        system_volatile += "\n" + team_space_block
+            system_stable += f"\nEARLIER PRIVATE CONVERSATION (summarized): {own_summary}\n"
+        system_stable += "\n" + team_space_block + "\n"
+        system_volatile = f"You are currently talking to: {user_name_ctx}. User role: {role_ctx}.\n"
         # Only the owner writes in a private thread, so no sender labels are needed.
         chat_messages = _to_chat_messages(kept_own)
 
@@ -734,9 +765,11 @@ def stream_ai_response(
             "comment on how people are using Choir or tell anyone not to ask. When you disagree with "
             "an idea, do it kindly and specifically, never with the person. No lecturing, no scolding."
         )
-        system_volatile = f"You are currently talking to: {user_name_ctx}. User role: {role_ctx}."
+        # As in the private branch: the rolling summary is slow-changing bulk, so it goes
+        # in the cached block and only the speaker line stays volatile.
         if summary:
-            system_volatile += f"\nEARLIER CONTEXT (summarized): {summary}\n"
+            system_stable += f"\nEARLIER CONTEXT (summarized): {summary}\n"
+        system_volatile = f"You are currently talking to: {user_name_ctx}. User role: {role_ctx}."
         chat_messages = _to_chat_messages(kept, names)
 
     # ── Stream from LLM ───────────────────────────────────────────────────────
@@ -839,10 +872,7 @@ def generate_digest(thread_id: str, user_id: str) -> dict[str, Any]:
             "No API key found. Please add one in Settings → API Keys before using Catch Me Up."
         )
 
-    provider, model = resolved
-    api_key = get_api_key(user_id, provider)
-    if not api_key:
-        raise NoApiKeyError(f"Could not retrieve API key for {provider}.")
+    provider, model, api_key = resolved
 
     last_seen = _fetch_thread_read(thread_id, user_id)
     new_messages = _fetch_messages_since(thread_id, last_seen)

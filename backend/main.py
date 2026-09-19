@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
+import random
 import re
 from typing import Any, cast
 
@@ -12,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.auth import get_current_user
-from backend.db import find_missing_tables, get_db, verify_thread_access
+from backend.db import find_missing_tables, get_accessible_thread, get_db, verify_thread_access
 from backend.errors import ErrorMiddleware, safe_sse_stream
 from backend.findings import draft_findings
 from backend.keys import (
@@ -127,6 +128,8 @@ class ChatRequest(BaseModel):
 
 
 MAX_REQUESTS_PER_MINUTE = 15
+# How often the opportunistic cleanup below actually runs (see _check_and_record_rate_limit).
+CLEANUP_PROBABILITY = 0.02
 
 
 def _check_and_record_rate_limit(user_id: str) -> None:
@@ -141,10 +144,13 @@ def _check_and_record_rate_limit(user_id: str) -> None:
     now = datetime.now(timezone.utc)
     window_start = (now - timedelta(seconds=60)).isoformat()
 
-    # Opportunistic cleanup so the log table doesn't grow unbounded — cheap at
-    # this scale and avoids needing a separate cron job.
-    stale_cutoff = (now - timedelta(hours=1)).isoformat()
-    db.table("ai_request_log").delete().lt("requested_at", stale_cutoff).execute()
+    # Opportunistic cleanup so the log table doesn't grow unbounded. This used to run
+    # on every request, which cost a whole round trip to Supabase (300-500ms) on every
+    # single AI call just to delete rows that are almost always already gone. Once in
+    # every ~50 requests keeps the table just as small and avoids a cron job.
+    if random.random() < CLEANUP_PROBABILITY:
+        stale_cutoff = (now - timedelta(hours=1)).isoformat()
+        db.table("ai_request_log").delete().lt("requested_at", stale_cutoff).execute()
 
     recent = (
         db.table("ai_request_log")
@@ -174,7 +180,8 @@ def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
     """
     _check_and_record_rate_limit(user_id)
 
-    if not verify_thread_access(user_id, body.thread_id):
+    thread = get_accessible_thread(user_id, body.thread_id)
+    if not thread:
         raise HTTPException(
             status_code=403,
             detail="You do not have access to this thread.",
@@ -182,7 +189,9 @@ def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
 
     return StreamingResponse(
         safe_sse_stream(
-            stream_ai_response(body.thread_id, user_id, body.model_provider, body.model_name, body.user_name)
+            stream_ai_response(
+                body.thread_id, user_id, body.model_provider, body.model_name, body.user_name, thread=thread
+            )
         ),
         media_type="text/event-stream",
         headers={
@@ -313,7 +322,7 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
                 {**msg, "sender_name": sender_label(msg, names), "published_from": _published_from(msg, names)}
                 for msg in messages
             ],
-            "exported_at": datetime.utcnow().isoformat()
+            "exported_at": datetime.now(timezone.utc).isoformat()
         }
         filename = f"{_safe_filename(thread_name)}_export.json"
 
@@ -328,7 +337,7 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
     # Fallback to Markdown format
     md_lines = []
     md_lines.append(f"# {thread_name}")
-    md_lines.append(f"**Exported:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    md_lines.append(f"**Exported:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
     md_lines.append(f"**Type:** {thread.get('type', 'Unknown').capitalize()}")
     md_lines.append("")
     md_lines.append("---")

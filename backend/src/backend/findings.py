@@ -7,7 +7,6 @@ post itself is written by the frontend (postToSharedThread with source_thread_id
 
 from typing import Any
 
-from backend.keys import get_api_key
 from backend.llm import (
     NoApiKeyError,
     _fetch_messages,
@@ -56,10 +55,7 @@ def draft_findings(thread_id: str, user_id: str) -> dict[str, str]:
         raise NoApiKeyError(
             "No API key found. Please add one in Settings → API Keys before using Publish findings."
         )
-    provider, model = resolved
-    api_key = get_api_key(user_id, provider)
-    if not api_key:
-        raise NoApiKeyError(f"Could not retrieve API key for {provider}.")
+    provider, model, api_key = resolved
 
     user_prompt = f"Here is my private thread:\n\n{_transcript(messages)}"
     draft = complete_once(provider, model, api_key, FINDINGS_SYSTEM_PROMPT, user_prompt, max_tokens=700)

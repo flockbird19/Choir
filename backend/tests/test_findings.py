@@ -53,7 +53,6 @@ def _backend(keys: dict[str, str], captured: dict, has_access: bool = True):
         patch.object(main, "verify_thread_access", return_value=has_access),
         patch.object(llm, "get_db", return_value=DB),
         patch.object(llm, "get_api_key", side_effect=lookup),
-        patch.object(findings, "get_api_key", side_effect=lookup),
         patch.dict(sys.modules, {"anthropic": _fake_anthropic(captured)}),
     ):
         yield

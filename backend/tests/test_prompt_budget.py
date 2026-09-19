@@ -169,7 +169,6 @@ def test_draft_findings_uses_the_same_shared_helper_as_digest():
     with (
         patch.object(llm, "get_db", return_value=db),
         patch.object(llm, "get_api_key", return_value="sk-test"),
-        patch.object(findings, "get_api_key", return_value="sk-test"),
         patch.object(findings, "complete_once", return_value="## Summary\nDraft") as mock_complete,
     ):
         result = findings.draft_findings("t1", "u1")

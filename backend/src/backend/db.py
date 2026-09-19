@@ -59,40 +59,48 @@ def find_missing_tables(db: Client) -> list[str]:
                 raise
     return missing
 
-def verify_thread_access(user_id: str, thread_id: str) -> bool:
+def get_accessible_thread(user_id: str, thread_id: str) -> dict[str, Any] | None:
     """
-    Manually verify if a user has access to a thread.
-    Returns True if access is allowed, False otherwise.
+    The thread row if this user may open it, otherwise None.
+
+    Returns the row rather than just a yes/no so callers that go on to use the
+    thread don't fetch it a second time. Every Supabase round trip costs 300-500ms
+    against the hosted project, and /api/chat used to pay for this one twice.
     """
     db = get_db()
-    
+
     # Get the thread
     response = db.table("threads").select("*").eq("id", thread_id).execute()
     data = cast(list[dict[str, Any]], response.data)
     if not data:
-        return False
-        
+        return None
+
     thread = data[0]
-    
+
     if thread["type"] == "private":
-        return thread["owner_id"] == user_id
-        
+        return thread if thread["owner_id"] == user_id else None
+
     elif thread["type"] == "shared":
         # Check if the user is in the team that owns the project
         project_id = thread["project_id"]
         proj_response = db.table("projects").select("team_id").eq("id", project_id).execute()
         proj_data = cast(list[dict[str, Any]], proj_response.data)
         if not proj_data:
-            return False
-            
+            return None
+
         team_id = proj_data[0]["team_id"]
-        
+
         # Check team_members
         member_response = db.table("team_members").select("user_id").eq("team_id", team_id).eq("user_id", user_id).execute()
         member_data = cast(list[dict[str, Any]], member_response.data)
-        return len(member_data) > 0
-        
-    return False
+        return thread if member_data else None
+
+    return None
+
+
+def verify_thread_access(user_id: str, thread_id: str) -> bool:
+    """Whether the user may open this thread. Use get_accessible_thread if you need the row."""
+    return get_accessible_thread(user_id, thread_id) is not None
 
 def verify_team_access(user_id: str, team_id: str) -> bool:
     """
