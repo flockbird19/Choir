@@ -3,13 +3,17 @@
 import { useState, useTransition } from "react";
 import { Pencil, Check, X, LogOut } from "lucide-react";
 import { updateDisplayName, updateStatus, signOut, type StatusId } from "./actions";
+import { STATUS_DOT_CLASS, STATUS_RING_CLASS } from "@/hooks/useTeammateStatuses";
 
+// Colours come from STATUS_DOT_CLASS / STATUS_RING_CLASS so the dot you pick here is
+// literally the same token teammates see on your avatar. These used to be a separate
+// hardcoded set, so the green here never matched the green everywhere else.
 const STATUS_OPTIONS = [
-  { id: "online", label: "Online", color: "bg-green-500", ring: "ring-green-400" },
-  { id: "away", label: "Away", color: "bg-amber-400", ring: "ring-amber-300" },
-  { id: "dnd", label: "Do Not Disturb", color: "bg-red-500", ring: "ring-red-400" },
-  { id: "offline", label: "Offline", color: "bg-graphite/40", ring: "ring-graphite/30" },
-] as const satisfies readonly { id: StatusId; label: string; color: string; ring: string }[];
+  { id: "online", label: "Online" },
+  { id: "away", label: "Away" },
+  { id: "dnd", label: "Do Not Disturb" },
+  { id: "offline", label: "Offline" },
+] as const satisfies readonly { id: StatusId; label: string }[];
 
 interface ProfileClientProps {
   initialName: string;
@@ -48,8 +52,6 @@ export function ProfileClient({ initialName, email, initials, initialStatus }: P
     });
   };
 
-  const currentStatus = STATUS_OPTIONS.find(s => s.id === status)!;
-
   return (
     <div className="space-y-6">
 
@@ -60,7 +62,7 @@ export function ProfileClient({ initialName, email, initials, initialStatus }: P
             {initials}
           </div>
           {/* Status indicator */}
-          <div className={`absolute bottom-1 right-1 w-5 h-5 rounded-full border-2 border-surface ${currentStatus.color}`} />
+          <div className={`absolute bottom-1 right-1 w-5 h-5 rounded-full border-2 border-surface ${STATUS_DOT_CLASS[status]}`} />
         </div>
         <p className="text-xs text-graphite/60">Profile picture via Google OAuth</p>
       </div>
@@ -119,11 +121,11 @@ export function ProfileClient({ initialName, email, initials, initialStatus }: P
               aria-pressed={status === option.id}
               className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
                 status === option.id
-                  ? `border-current ring-2 ${option.ring} ring-offset-2 ring-offset-canvas bg-surface text-ink`
+                  ? `border-current ring-2 ${STATUS_RING_CLASS[option.id]} ring-offset-2 ring-offset-canvas bg-surface text-ink`
                   : 'border-border bg-surface text-graphite hover:text-ink hover:border-graphite/30'
               }`}
             >
-              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${option.color}`} aria-hidden="true" />
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${STATUS_DOT_CLASS[option.id]}`} aria-hidden="true" />
               {option.label}
             </button>
           ))}

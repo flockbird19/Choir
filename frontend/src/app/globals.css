@@ -73,6 +73,14 @@
   --color-ai-from: var(--ds-ai-from);
   --color-ai-to: var(--ds-ai-to);
 
+  /* Presence status (FU-9). Its own palette on purpose: DESIGN.md 3.2 forbids reusing a
+     meaning colour for something that doesn't have that meaning, and presence is not the
+     same idea as a private thread or a Decision. See DESIGN.md 3.6. */
+  --color-presence-online: var(--ds-presence-online);
+  --color-presence-away: var(--ds-presence-away);
+  --color-presence-dnd: var(--ds-presence-dnd);
+  --color-presence-offline: var(--ds-presence-offline);
+
   --shadow-raised: var(--ds-shadow-raised);
   --shadow-overlay: var(--ds-shadow-overlay);
 }
@@ -225,6 +233,10 @@
   --ds-ai-soft:         #EEF0FF;
   --ds-ai-from:         #6366F1;
   --ds-ai-to:           #A855F7;
+  --ds-presence-online:  #1B7A4D;
+  --ds-presence-away:    #8F5405;
+  --ds-presence-dnd:     #C2362B;
+  --ds-presence-offline: #686C78;
   --ds-shadow-raised:   0 1px 2px rgb(16 17 35 / 0.06), 0 8px 24px -12px rgb(16 17 35 / 0.22);
   --ds-shadow-overlay:  0 2px 6px rgb(16 17 35 / 0.08), 0 32px 64px -20px rgb(16 17 35 / 0.4);
   --ds-duration-fast:   150ms;
@@ -295,6 +307,10 @@
   --ds-ai-soft:         #1B1C3A;
   --ds-ai-from:         #818CF8;
   --ds-ai-to:           #C084FC;
+  --ds-presence-online:  #4CC38A;
+  --ds-presence-away:    #E9A94B;
+  --ds-presence-dnd:     #F07167;
+  --ds-presence-offline: #8D919E;
   --ds-shadow-raised:   0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.6);
   --ds-shadow-overlay:  0 2px 6px rgb(0 0 0 / 0.5), 0 32px 64px -20px rgb(0 0 0 / 0.8);
 }

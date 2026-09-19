@@ -1,10 +1,10 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
 import { safeRedirectPath } from "@/utils/safe-redirect";
+import { siteOrigin } from "@/utils/site-origin";
 import {
   describeAuthError,
   readSecret,
@@ -14,11 +14,6 @@ import {
   type AuthFormState,
   type FieldErrors,
 } from "./auth-shared";
-
-async function siteOrigin(): Promise<string> {
-  const requestHeaders = await headers();
-  return process.env.NEXT_PUBLIC_SITE_URL || requestHeaders.get("origin") || "http://localhost:3000";
-}
 
 function hasErrors(errors: FieldErrors): boolean {
   return Object.values(errors).some(Boolean);

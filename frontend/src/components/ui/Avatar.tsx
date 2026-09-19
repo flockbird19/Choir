@@ -35,8 +35,6 @@ export interface AvatarProps {
   colorKey?: string;
   kind?: "person" | "ai";
   size?: keyof typeof SIZES;
-  /** Shows a green dot, e.g. "viewing this thread now". */
-  online?: boolean;
   /** E4: profile status (online/away/dnd/offline), never shown for the AI. */
   status?: StatusId;
   /** Decorative avatars next to a visible name should be hidden from screen readers. */
@@ -44,13 +42,17 @@ export interface AvatarProps {
   className?: string;
 }
 
-export function Avatar({ name, colorKey, kind = "person", size = "sm", online, status, decorative = true, className }: AvatarProps) {
+export function Avatar({ name, colorKey, kind = "person", size = "sm", status, decorative = true, className }: AvatarProps) {
+  // Colour alone never carries the status: when this avatar is announced at all, the
+  // status is spoken with the name (the four presence colours are near-identical in
+  // luminance, so a dot on its own tells a colour-blind reader nothing).
+  const label = status && kind !== "ai" ? name + " - " + STATUS_LABEL[status] : name;
   return (
     <span
       role={decorative ? undefined : "img"}
-      aria-label={decorative ? undefined : name}
+      aria-label={decorative ? undefined : label}
       aria-hidden={decorative || undefined}
-      title={decorative ? undefined : name}
+      title={decorative ? undefined : label}
       className={cn(
         "relative inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold",
         SIZES[size],
@@ -61,13 +63,10 @@ export function Avatar({ name, colorKey, kind = "person", size = "sm", online, s
       )}
     >
       {kind === "ai" ? <Sparkles aria-hidden="true" /> : size === "xs" ? getInitials(name).slice(0, 1) : getInitials(name)}
-      {online && (
-        <span className="absolute -bottom-px -right-px size-2.5 rounded-full bg-emerald-500 ring-2 ring-bg" />
-      )}
       {status && kind !== "ai" && (
         <span
           aria-hidden="true"
-          title={`${name} — ${STATUS_LABEL[status]}`}
+          title={label}
           className={cn("absolute -bottom-px -right-px size-2.5 rounded-full ring-2 ring-bg", STATUS_DOT_CLASS[status])}
         />
       )}

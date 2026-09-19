@@ -13,18 +13,28 @@ export const STATUS_LABEL: Record<StatusId, string> = {
   offline: "offline",
 };
 
-// DESIGN.md doesn't have a palette of its own yet for presence status (§3.2 only
-// covers team/private/decision/danger/success), so this reuses those already-checked
-// hexes rather than inventing new, unvetted colours. Each pair passes WCAG 3:1 against
-// both bg and card in light and dark (checked against DESIGN.md §3.5's own numbers,
-// since these are the same "strong" tokens used there as 4.5:1 text colours).
+// Presence has its own palette (--ds-presence-*, see DESIGN.md 3.6) rather than borrowing
+// the private / decision / danger meaning colours: DESIGN.md 3.2 forbids using a meaning
+// colour for something that does not carry that meaning, and 'this person is around' is
+// not the same idea as 'this thread is private'. Each pair clears WCAG 3:1 against every
+// surface a dot can sit on, in both themes.
+//
+// The four statuses sit close together in luminance, so a dot must never be the only
+// signal. Every place that renders one also exposes STATUS_LABEL as text.
 export const STATUS_DOT_CLASS: Record<StatusId, string> = {
-  online: "bg-[#1B7A4D] dark:bg-[#4CC38A]",
-  away: "bg-[#8F5405] dark:bg-[#E9A94B]",
-  dnd: "bg-[#C2362B] dark:bg-[#F07167]",
-  offline: "bg-[#686C78] dark:bg-[#8D919E]",
+  online: "bg-presence-online",
+  away: "bg-presence-away",
+  dnd: "bg-presence-dnd",
+  offline: "bg-presence-offline",
 };
 
+/** Ring colour for the selected option in the profile status picker. */
+export const STATUS_RING_CLASS: Record<StatusId, string> = {
+  online: "ring-presence-online",
+  away: "ring-presence-away",
+  dnd: "ring-presence-dnd",
+  offline: "ring-presence-offline",
+};
 function normalizeStatus(status: string | null | undefined): StatusId {
   return status === "away" || status === "dnd" || status === "offline" ? status : "online";
 }

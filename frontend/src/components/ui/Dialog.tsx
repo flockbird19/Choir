@@ -154,8 +154,3 @@ export function Sheet({
     </dialog>
   );
 }
-
-/** Closes the nearest open dialog or sheet, e.g. from a link inside it. */
-export function closeNearestDialog(element: Element | null) {
-  element?.closest("dialog")?.close();
-}
