@@ -82,7 +82,7 @@ export function CommandPalette() {
       >
 
         {/* Search Input */}
-        <div className="flex items-center px-6 border-b-2 border-line has-[:focus-visible]:border-team transition-colors">
+        <div className="flex items-center px-6 border-b border-line has-[:focus-visible]:border-team has-[:focus-visible]:bg-sunken/50 transition-colors">
           <Search size={22} className="text-fg-muted shrink-0" aria-hidden="true" />
           <input
             ref={inputRef}
@@ -91,7 +91,7 @@ export function CommandPalette() {
             placeholder="Search threads, messages, ideas..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full bg-transparent border-none px-5 py-6 text-fg placeholder:text-fg-subtle outline-none focus:outline-none focus-visible:outline-none text-xl font-medium"
+            className="focus-ring-in-container w-full bg-transparent border-none px-5 py-6 text-fg placeholder:text-fg-subtle text-xl font-medium"
           />
           {isSearching && (
             <>
