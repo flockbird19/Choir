@@ -107,7 +107,7 @@ function ModeTabs({ view, onChange }: { view: AuthView; onChange: (view: AuthVie
     <div
       role="tablist"
       aria-label="Sign in or create an account"
-      className="relative mb-6 grid grid-cols-2 rounded-xl border border-line bg-card p-1 shadow-soft"
+      className="relative mb-6 grid grid-cols-2 rounded-card border border-line bg-card p-1 shadow-soft"
       onKeyDown={(event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
         event.preventDefault();
@@ -244,7 +244,7 @@ function CheckInbox({
 }) {
   return (
     <div className={riseClass}>
-      <span className="mb-5 flex size-12 items-center justify-center rounded-2xl bg-primary-soft text-primary">
+      <span className="mb-5 flex size-12 items-center justify-center rounded-card bg-primary-soft text-primary">
         <MailCheck size={22} aria-hidden="true" />
       </span>
       <h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.02em]">Check your inbox</h1>
@@ -430,7 +430,7 @@ function SignedInCard({ email, next }: { email: string; next: string }) {
   return (
     <div className={riseClass}>
       <Heading title="You're already signed in" subtitle="Continue to your workspace, or sign out to use a different account." />
-      <div className="mb-6 flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3 shadow-soft">
+      <div className="mb-6 flex items-center gap-3 rounded-card border border-line bg-card px-4 py-3 shadow-soft">
         <span
           aria-hidden="true"
           className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold uppercase text-primary"
