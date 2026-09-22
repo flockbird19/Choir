@@ -47,7 +47,7 @@ function LendChoice({
   const name = useId();
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-      <span id={`${name}-label`} className="text-sm font-semibold text-ink">
+      <span id={`${name}-label`} className="text-sm font-semibold text-fg">
         {providerName(provider)} key
       </span>
       <div role="radiogroup" aria-labelledby={`${name}-label`} className="flex flex-wrap gap-1.5">
@@ -64,10 +64,10 @@ function LendChoice({
             />
             <span
               className={
-                "flex min-h-11 cursor-pointer items-center whitespace-nowrap rounded-full border px-3.5 text-xs font-medium transition-colors sm:min-h-8 " +
-                "border-border text-graphite hover:text-ink hover:border-graphite/40 " +
-                "peer-checked:border-ink peer-checked:bg-ink peer-checked:text-canvas " +
-                "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent " +
+                "flex min-h-11 cursor-pointer items-center whitespace-nowrap rounded-pill border px-3.5 text-xs font-medium transition-colors sm:min-h-8 " +
+                "border-line-strong text-fg-muted hover:text-fg hover:border-fg-subtle " +
+                "peer-checked:border-fg peer-checked:bg-fg peer-checked:text-bg " +
+                "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-team " +
                 "peer-disabled:cursor-wait peer-disabled:opacity-60"
               }
             >
@@ -176,36 +176,36 @@ export function SharedKeysPanel({ savedProviders }: { savedProviders: string[] }
 
   return (
     <section aria-labelledby={`${selectId}-heading`} className="mt-10">
-      <h2 id={`${selectId}-heading`} className="text-xs font-bold uppercase tracking-widest text-graphite mb-3 px-1">
+      <h2 id={`${selectId}-heading`} className="text-[11px] font-mono font-medium uppercase tracking-[0.08em] text-fg-subtle mb-3 px-1">
         Shared keys
       </h2>
 
-      <div className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-5">
-        <div className="flex flex-col gap-2 text-sm text-graphite leading-relaxed">
+      <div className="bg-card border border-line rounded-card p-5 flex flex-col gap-5">
+        <div className="flex flex-col gap-2 text-sm text-fg-muted leading-relaxed">
           <p>
             Lend one of your saved keys to a project so Team Space keeps working for everyone. Teammates see that
             you lend a key, never the key itself.
           </p>
           <ul className="flex flex-col gap-1">
             <li>
-              <span className="font-medium text-ink">Fallback:</span> used only when the key in use hits its rate
+              <span className="font-medium text-fg">Fallback:</span> used only when the key in use hits its rate
               limit.
             </li>
             <li>
-              <span className="font-medium text-ink">Pool:</span> Team Space replies take turns across every pooled
+              <span className="font-medium text-fg">Pool:</span> Team Space replies take turns across every pooled
               key.
             </li>
           </ul>
         </div>
 
         {!setupLoaded ? (
-          <p className="text-sm text-graphite">Loading your projects…</p>
+          <p className="text-sm text-fg-muted">Loading your projects…</p>
         ) : !setup || setup.projects.length === 0 ? (
-          <p className="text-sm text-graphite">Join or create a workspace to lend a key to its Team Space.</p>
+          <p className="text-sm text-fg-muted">Join or create a workspace to lend a key to its Team Space.</p>
         ) : (
           <>
             <div className="flex flex-col gap-1.5">
-              <label htmlFor={selectId} className="text-xs font-medium text-graphite">
+              <label htmlFor={selectId} className="text-xs font-medium text-fg-muted">
                 Project
               </label>
               <select
@@ -218,7 +218,7 @@ export function SharedKeysPanel({ savedProviders }: { savedProviders: string[] }
                   setError(null);
                   setProjectId(e.target.value);
                 }}
-                className="min-h-11 sm:min-h-10 w-full px-3 text-sm bg-canvas border border-border rounded-xl text-ink outline-none focus:border-accent/50 focus-visible:ring-2 focus-visible:ring-accent/30"
+                className="focus-ring-in-container min-h-11 sm:min-h-10 w-full px-3 text-sm bg-card border border-field-line rounded-control text-fg outline-none focus:border-team focus:ring-2 focus:ring-team/25"
               >
                 {setup.projects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -229,11 +229,11 @@ export function SharedKeysPanel({ savedProviders }: { savedProviders: string[] }
             </div>
 
             <div className="flex flex-col gap-3">
-              <h3 className="text-sm font-semibold text-ink">Your keys</h3>
+              <h3 className="text-sm font-semibold text-fg">Your keys</h3>
               {lendable.length === 0 ? (
-                <p className="text-sm text-graphite">Save a key above to lend it.</p>
+                <p className="text-sm text-fg-muted">Save a key above to lend it.</p>
               ) : rows === null ? (
-                <p className="text-sm text-graphite">Loading…</p>
+                <p className="text-sm text-fg-muted">Loading…</p>
               ) : (
                 lendable.map((provider) => (
                   <LendChoice
@@ -252,24 +252,24 @@ export function SharedKeysPanel({ savedProviders }: { savedProviders: string[] }
               )}
             </div>
 
-            <div className="flex flex-col gap-2 border-t border-border pt-4">
-              <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
-                <Users size={15} strokeWidth={1.75} aria-hidden="true" className="text-graphite" />
+            <div className="flex flex-col gap-2 border-t border-line pt-4">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
+                <Users size={15} strokeWidth={1.75} aria-hidden="true" className="text-fg-muted" />
                 Teammates lending to {project?.name ?? "this project"}
               </h3>
               {rows === null ? (
-                <p className="text-sm text-graphite">Loading…</p>
+                <p className="text-sm text-fg-muted">Loading…</p>
               ) : others.length === 0 ? (
-                <p className="text-sm text-graphite">Nobody else lends a key to this project yet.</p>
+                <p className="text-sm text-fg-muted">Nobody else lends a key to this project yet.</p>
               ) : (
                 <ul className="flex flex-col gap-1.5">
                   {others.map((row) => (
                     <li key={row.id} className="flex items-center justify-between gap-3 text-sm">
-                      <span className="min-w-0 truncate text-ink">
+                      <span className="min-w-0 truncate text-fg">
                         {setup.names[row.user_id] ?? "Former member"}{" "}
-                        <span className="text-graphite">· {providerName(row.provider)}</span>
+                        <span className="text-fg-muted">· {providerName(row.provider)}</span>
                       </span>
-                      <span className="shrink-0 rounded-full border border-border px-2.5 py-0.5 text-xs text-graphite">
+                      <span className="shrink-0 rounded-pill border border-line px-2.5 py-0.5 text-xs text-fg-muted">
                         {CHOICES.find((c) => c.value === row.mode)?.label ?? row.mode}
                       </span>
                     </li>

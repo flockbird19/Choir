@@ -5,7 +5,8 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 import { deleteTeam } from "./actions";
 import { Team } from "@/types/database";
 import { useToast } from "@/components/Toast";
-import { useDialogA11y } from "@/hooks/useDialogA11y";
+import { Button } from "@/components/ui/Button";
+import { Dialog } from "@/components/ui/Dialog";
 
 export function DangerZone({ teams, currentUserId }: { teams: Team[], currentUserId: string }) {
   const ownedTeams = teams.filter(t => t.created_by === currentUserId);
@@ -13,7 +14,7 @@ export function DangerZone({ teams, currentUserId }: { teams: Team[], currentUse
   const { error: toastError, success: toastSuccess } = useToast();
 
   const [confirmTeamId, setConfirmTeamId] = useState<string | null>(null);
-  const dialogRef = useDialogA11y(!!confirmTeamId, () => setConfirmTeamId(null));
+  const confirmTeam = ownedTeams.find((t) => t.id === confirmTeamId) ?? null;
 
   if (ownedTeams.length === 0) return null;
 
@@ -33,67 +34,51 @@ export function DangerZone({ teams, currentUserId }: { teams: Team[], currentUse
   };
 
   return (
-    <div className="mt-12 pt-8 border-t border-red-500/20">
-      <h2 className="text-xs font-bold uppercase tracking-widest text-red-500 mb-3 px-1 flex items-center gap-2">
+    <div className="mt-12 pt-8 border-t border-danger-line">
+      <h2 className="text-[11px] font-mono font-medium uppercase tracking-[0.08em] text-danger mb-3 px-1 flex items-center gap-2">
         <AlertTriangle size={14} />
         Danger Zone
       </h2>
-      <div className="bg-red-50/50 dark:bg-red-950/10 border border-red-500/20 rounded-2xl p-5 space-y-4">
+      <div className="bg-danger-soft border border-danger-line rounded-card p-5 space-y-4">
         {ownedTeams.map(team => (
           <div key={team.id} className="flex items-center justify-between gap-4">
             <div>
-              <p className="font-semibold text-sm text-ink">{team.name}</p>
-              <p className="text-xs text-graphite">Permanently delete this workspace and all data.</p>
+              <p className="font-semibold text-sm text-fg">{team.name}</p>
+              <p className="text-xs text-fg-muted">Permanently delete this workspace and all data.</p>
             </div>
-            <button
+            <Button
+              variant="ghost"
               onClick={() => setConfirmTeamId(team.id)}
               disabled={isPending}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 border border-red-200 dark:border-red-800/50 rounded-xl transition-all hover:scale-[0.98] active:scale-95 disabled:opacity-50"
+              leadingIcon={<Trash2 size={16} />}
+              className="text-danger hover:bg-danger-soft hover:text-danger"
             >
-              <Trash2 size={16} />
               {isPending && confirmTeamId === team.id ? "Deleting..." : "Delete Workspace"}
-            </button>
+            </Button>
           </div>
         ))}
       </div>
 
-      {/* ── Custom Confirm Modal ── */}
-      {confirmTeamId && (
-        <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-ink/40 backdrop-blur-sm"
-          onClick={() => !isPending && setConfirmTeamId(null)}
-        >
-          <div
-            ref={dialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-workspace-title"
-            onClick={(e) => e.stopPropagation()}
-            className="bg-surface p-6 rounded-2xl shadow-xl w-full max-w-sm border border-red-500/20 mx-4"
-          >
-            <h3 id="delete-workspace-title" className="text-base font-semibold text-ink mb-2">Delete Workspace?</h3>
-            <p className="text-sm text-graphite mb-6 leading-relaxed">
-              Are you absolutely sure? This will <span className="font-bold text-red-500">permanently delete</span> the workspace, all its projects, threads, and messages for everyone.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmTeamId(null)}
-                disabled={isPending}
-                className="px-4 py-2 rounded-xl text-sm font-medium text-graphite hover:text-ink hover:bg-surface-hover transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={executeDelete}
-                disabled={isPending}
-                className="px-4 py-2 rounded-xl text-sm font-medium bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-[0.98] active:scale-95 flex items-center gap-2"
-              >
-                {isPending ? "Deleting..." : "Yes, Delete It"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog
+        open={!!confirmTeam}
+        onClose={() => setConfirmTeamId(null)}
+        title="Delete workspace?"
+        description={
+          confirmTeam
+            ? `Are you absolutely sure? This will permanently delete "${confirmTeam.name}", all its projects, threads, and messages for everyone.`
+            : undefined
+        }
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmTeamId(null)} disabled={isPending}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={executeDelete} loading={isPending}>
+              Yes, delete it
+            </Button>
+          </>
+        }
+      />
     </div>
   );
 }

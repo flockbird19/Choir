@@ -4,6 +4,9 @@ import { useState, useTransition, useEffect } from "react";
 import { Check, Trash2, KeyRound, ExternalLink } from "lucide-react";
 import { saveApiKey, deleteApiKey } from "@/app/(main)/thread/[id]/actions";
 import { SharedKeysPanel } from "./SharedKeysPanel";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 
 interface Provider {
   id: string;
@@ -87,30 +90,25 @@ function KeyCard({ provider, isSaved, onSaved, onDeleted }: KeyCardProps) {
   };
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-3">
+    <div className="bg-card border border-line rounded-card p-5 flex flex-col gap-3">
       {/* Header row */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-surface-hover flex items-center justify-center shrink-0">
-            <KeyRound size={16} className="text-graphite" />
+          <div className="w-9 h-9 rounded-control bg-hover flex items-center justify-center shrink-0">
+            <KeyRound size={16} className="text-fg-muted" />
           </div>
           <div>
-            <p className="font-semibold text-sm text-ink">{provider.label}</p>
-            <p className="text-xs text-graphite mt-0.5">{provider.hint}</p>
+            <p className="font-semibold text-sm text-fg">{provider.label}</p>
+            <p className="text-xs text-fg-muted mt-0.5">{provider.hint}</p>
           </div>
         </div>
 
         {/* Status badge */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="shrink-0">
           {isSaved ? (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/50 px-2.5 py-1 rounded-full">
-              <Check size={11} />
-              Saved
-            </span>
+            <Badge tone="success" icon={<Check size={11} />}>Saved</Badge>
           ) : (
-            <span className="text-xs text-graphite/60 bg-surface-hover border border-border px-2.5 py-1 rounded-full">
-              Not set
-            </span>
+            <Badge tone="neutral">Not set</Badge>
           )}
         </div>
       </div>
@@ -119,10 +117,10 @@ function KeyCard({ provider, isSaved, onSaved, onDeleted }: KeyCardProps) {
       {feedback && (
         <p
           role={feedback.type === "error" ? "alert" : "status"}
-          className={`text-xs px-3 py-2 rounded-lg border ${
+          className={`text-xs px-3 py-2 rounded-control border ${
             feedback.type === "success"
-              ? "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800/50"
-              : "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800/50"
+              ? "text-success bg-success-soft border-success/25"
+              : "text-danger bg-danger-soft border-danger-line"
           }`}
         >
           {feedback.message}
@@ -131,62 +129,59 @@ function KeyCard({ provider, isSaved, onSaved, onDeleted }: KeyCardProps) {
 
       {/* Input (shown when editing) */}
       {showInput && (
-        <div className="flex gap-2">
-          <input
+        <div className="flex gap-2 items-end">
+          <Input
+            label={`${provider.label} key`}
+            hideLabel
             type="password"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSave()}
             placeholder={provider.placeholder}
-            aria-label={`${provider.label} API key`}
             autoFocus
-            className="flex-1 px-3 py-2 text-sm bg-canvas border border-border rounded-xl outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10 text-ink placeholder:text-graphite/40 font-mono"
+            className="font-mono"
           />
-          <button
-            onClick={handleSave}
-            disabled={!inputValue.trim() || isPending}
-            className="px-4 py-2 text-sm font-medium bg-accent text-white rounded-xl hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {isPending ? "Saving…" : "Save"}
-          </button>
-          <button
+          <Button variant="primary" size="md" onClick={handleSave} disabled={!inputValue.trim() || isPending} loading={isPending}>
+            Save
+          </Button>
+          <Button
+            variant="secondary"
+            size="md"
             onClick={() => {
               setShowInput(false);
               setInputValue("");
             }}
-            className="px-3 py-2 text-sm text-graphite bg-surface-hover border border-border rounded-xl hover:text-ink transition-colors"
           >
             Cancel
-          </button>
+          </Button>
         </div>
       )}
 
       {/* Action buttons */}
       {!showInput && (
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowInput(true)}
-            className="px-3 py-1.5 text-xs font-medium bg-surface-hover border border-border text-graphite hover:text-ink hover:border-graphite/30 rounded-lg transition-colors"
-          >
+          <Button variant="secondary" size="sm" onClick={() => setShowInput(true)}>
             {isSaved ? "Update key" : "Add key"}
-          </button>
+          </Button>
 
           {isSaved && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={handleDelete}
               disabled={isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 border border-transparent hover:border-red-200 dark:hover:border-red-800/50 rounded-lg transition-colors disabled:opacity-50"
+              leadingIcon={<Trash2 size={12} />}
+              className="text-danger hover:bg-danger-soft hover:text-danger"
             >
-              <Trash2 size={12} />
               Remove
-            </button>
+            </Button>
           )}
 
           <a
             href={provider.docsUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="ml-auto flex items-center gap-1 text-xs text-graphite/50 hover:text-graphite transition-colors"
+            className="ml-auto flex items-center gap-1 text-xs text-fg-subtle hover:text-fg-muted transition-colors"
           >
             Get key
             <ExternalLink size={11} />

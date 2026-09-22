@@ -74,9 +74,9 @@ export function InviteLinks({ teams, invites }: { teams: Team[]; invites: Active
   if (teams.length === 0) return null;
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-5 mt-8">
-      <h2 className="text-sm font-semibold text-ink mb-1">Invite Members</h2>
-      <p className="text-xs text-graphite mb-4">
+    <div className="bg-card border border-line rounded-card p-5 mt-8">
+      <h2 className="text-sm font-semibold text-fg mb-1">Invite Members</h2>
+      <p className="text-xs text-fg-muted mb-4">
         Generate a unique link to invite people to your team.
       </p>
 
@@ -86,7 +86,7 @@ export function InviteLinks({ teams, invites }: { teams: Team[]; invites: Active
             value={selectedTeam}
             onChange={(e) => setSelectedTeam(e.target.value)}
             aria-label="Select team to invite to"
-            className="px-3 py-2 text-sm bg-canvas border border-border rounded-xl text-ink outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10"
+            className="focus-ring-in-container px-3 py-2 text-sm bg-card border border-field-line rounded-control text-fg outline-none focus:border-team focus:ring-2 focus:ring-team/25"
           >
             {teams.map((t) => (
               <option key={t.id} value={t.id}>
@@ -97,7 +97,7 @@ export function InviteLinks({ teams, invites }: { teams: Team[]; invites: Active
         )}
 
         {error && (
-          <div role="alert" className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 px-3 py-2 rounded-lg">
+          <div role="alert" className="text-xs text-danger bg-danger-soft border border-danger-line px-3 py-2 rounded-control">
             {error}
           </div>
         )}
@@ -109,45 +109,40 @@ export function InviteLinks({ teams, invites }: { teams: Team[]; invites: Active
               readOnly
               value={inviteLink}
               aria-label="Invite link"
-              className="flex-1 px-3 py-2 text-sm bg-canvas border border-border rounded-xl text-ink font-mono"
+              className="focus-ring-in-container flex-1 px-3 py-2 text-sm bg-card border border-field-line rounded-control text-fg font-mono outline-none focus:border-team focus:ring-2 focus:ring-team/25"
             />
-            <button
-              onClick={handleCopy}
-              className="px-4 py-2 text-sm font-medium bg-accent text-white rounded-xl hover:bg-accent/90 transition-colors flex items-center gap-1.5"
-            >
-              {copied ? <Check size={14} /> : <LinkIcon size={14} />}
+            <Button variant="primary" onClick={handleCopy} leadingIcon={copied ? <Check size={14} /> : <LinkIcon size={14} />}>
               {copied ? "Copied" : "Copy"}
-            </button>
-            <button
-              onClick={() => setInviteLink(null)}
-              className="px-3 py-2 text-sm text-graphite bg-surface-hover border border-border rounded-xl hover:text-ink transition-colors"
-            >
+            </Button>
+            <Button variant="secondary" onClick={() => setInviteLink(null)}>
               New
-            </button>
+            </Button>
           </div>
         ) : (
-          <button
+          <Button
+            variant="secondary"
             onClick={handleGenerate}
             disabled={loading || !selectedTeam}
-            className="w-full sm:w-auto px-4 py-2 text-sm font-medium bg-surface-hover text-ink border border-border rounded-xl hover:bg-canvas transition-colors self-start"
+            loading={loading}
+            className="w-full sm:w-auto self-start"
           >
-            {loading ? "Generating..." : "Generate Invite Link"}
-          </button>
+            Generate Invite Link
+          </Button>
         )}
 
         <div className="mt-2">
-          <h3 className="text-xs font-semibold text-ink mb-2">Active links</h3>
+          <h3 className="text-xs font-semibold text-fg mb-2">Active links</h3>
           {teamInvites.length === 0 ? (
-            <p className="text-xs text-graphite">No active invite links.</p>
+            <p className="text-xs text-fg-muted">No active invite links.</p>
           ) : (
-            <ul className="divide-y divide-border border border-border rounded-xl">
+            <ul className="divide-y divide-line border border-line rounded-control">
               {teamInvites.map((invite) => (
                 <li key={invite.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-2">
                   <div className="min-w-0">
-                    <p className="text-sm text-ink">
+                    <p className="text-sm text-fg">
                       Link ending <span className="font-mono">{invite.token.slice(-6)}</span>
                     </p>
-                    <p className="text-xs text-graphite">
+                    <p className="text-xs text-fg-muted">
                       Created <InviteDate iso={invite.created_at} />, expires <InviteDate iso={invite.expires_at} />
                     </p>
                   </div>
