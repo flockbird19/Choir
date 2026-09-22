@@ -1,10 +1,10 @@
 @import "tailwindcss";
 
 @theme inline {
-  /* Text is DM Sans; code and model names are JetBrains Mono. Screens still using
-     font-inter get DM Sans too, so Inter no longer downloads (L8). */
-  --font-sans: var(--font-dm-sans);
-  --font-inter: var(--font-dm-sans);
+  /* Text is Hanken Grotesk; code and model names are JetBrains Mono. Screens still
+     using font-inter get Hanken Grotesk too (DESIGN.md 4.1: only three families load). */
+  --font-sans: var(--font-hanken-grotesk);
+  --font-inter: var(--font-hanken-grotesk);
   --font-mono: var(--font-jetbrains-mono);
   --color-canvas: var(--color-canvas);
   --color-surface: var(--color-surface);
@@ -22,9 +22,9 @@
   --color-shared-muted: var(--color-shared-muted);
   --color-shared-fg: var(--color-shared-fg);
 
-  /* New design system (auth screens first; rest of the app migrates in E2) */
-  --font-display: var(--font-space-grotesk);
-  --font-body: var(--font-dm-sans);
+  /* Design system per DESIGN.md 4.1 (auth + landing first; rest of the app migrates in E2) */
+  --font-display: var(--font-newsreader);
+  --font-body: var(--font-hanken-grotesk);
   --color-bg: var(--ds-bg);
   --color-card: var(--ds-card);
   --color-field: var(--ds-field);
@@ -199,16 +199,16 @@
   --ds-line-strong:   #CDD0DA;
   /* Borders that identify a text field: 3:1 against the field and page (WCAG 1.4.11). */
   --ds-field-line:    #878C9E;
-  --ds-primary:       #4F46E5;
-  --ds-primary-hover: #4338CA;
+  --ds-primary:       #25508F;
+  --ds-primary-hover: #1D3F72;
   --ds-on-primary:    #FFFFFF;
-  --ds-primary-soft:  #EEF0FF;
-  --ds-ring:          #6366F1;
-  --ds-danger:        #B42318;
-  --ds-danger-soft:   #FEF3F2;
+  --ds-primary-soft:  #E9EFF8;
+  --ds-ring:          #25508F;
+  --ds-danger:        #C2362B;
+  --ds-danger-soft:   #FCEBEA;
   --ds-danger-line:   #FECDCA;
-  --ds-success:       #067647;
-  --ds-success-soft:  #ECFDF3;
+  --ds-success:       #1B7A4D;
+  --ds-success-soft:  #E6F5EC;
   --ds-panel:         #111230;
   --ds-shadow-soft:   0 1px 2px rgb(16 17 35 / 0.06), 0 1px 1px rgb(16 17 35 / 0.03);
   --ds-shadow-float:  0 1px 2px rgb(16 17 35 / 0.08), 0 24px 48px -16px rgb(16 17 35 / 0.35);
@@ -220,19 +220,19 @@
   --ds-scrim:           rgb(12 13 24 / 0.42);
   --ds-bubble-own:      #EEF0FF;
   --ds-bubble-own-line: #DADDFB;
-  --ds-shared:          #0F766E;
-  --ds-shared-soft:     #EBF7F5;
-  --ds-shared-line:     #B7E2DB;
-  --ds-private:         #4B5064;
-  --ds-private-soft:    #F1F2F6;
-  --ds-private-line:    #D9DBE3;
-  --ds-decision:        #9A4A08;
-  --ds-decision-soft:   #FEF6E7;
-  --ds-decision-line:   #F3D39B;
-  --ds-ai:              #4F46E5;
-  --ds-ai-soft:         #EEF0FF;
-  --ds-ai-from:         #6366F1;
-  --ds-ai-to:           #A855F7;
+  --ds-shared:          #25508F;
+  --ds-shared-soft:     #E9EFF8;
+  --ds-shared-line:     #D6E2F2;
+  --ds-private:         #1B7A4D;
+  --ds-private-soft:    #E6F5EC;
+  --ds-private-line:    #CDE9D8;
+  --ds-decision:        #8F5405;
+  --ds-decision-soft:   #FBF1E1;
+  --ds-decision-line:   #F0DDBD;
+  --ds-ai:              #25508F;
+  --ds-ai-soft:         #E9EFF8;
+  --ds-ai-from:         #2C5698;
+  --ds-ai-to:           #1D3F72;
   --ds-presence-online:  #1B7A4D;
   --ds-presence-away:    #8F5405;
   --ds-presence-dnd:     #C2362B;
@@ -274,16 +274,16 @@
   --ds-line:          #23252F;
   --ds-line-strong:   #343746;
   --ds-field-line:    #5F6374;
-  --ds-primary:       #818CF8;
-  --ds-primary-hover: #A5B4FC;
+  --ds-primary:       #7FA8E0;
+  --ds-primary-hover: #9EBBE6;
   --ds-on-primary:    #0A0B10;
-  --ds-primary-soft:  #1B1C3A;
-  --ds-ring:          #818CF8;
-  --ds-danger:        #FDA29B;
-  --ds-danger-soft:   #2A1413;
+  --ds-primary-soft:  #0E192A;
+  --ds-ring:          #7FA8E0;
+  --ds-danger:        #F07167;
+  --ds-danger-soft:   #3A1716;
   --ds-danger-line:   #5A2320;
-  --ds-success:       #75E0A7;
-  --ds-success-soft:  #0F2A1E;
+  --ds-success:       #4CC38A;
+  --ds-success-soft:  #13291D;
   --ds-panel:         #0E0F24;
   --ds-shadow-soft:   0 1px 2px rgb(0 0 0 / 0.4);
   --ds-shadow-float:  0 1px 2px rgb(0 0 0 / 0.5), 0 24px 48px -16px rgb(0 0 0 / 0.7);
@@ -294,25 +294,48 @@
   --ds-scrim:           rgb(0 0 0 / 0.6);
   --ds-bubble-own:      #1C1E3C;
   --ds-bubble-own-line: #2D3063;
-  --ds-shared:          #5EEAD4;
-  --ds-shared-soft:     #0C2522;
-  --ds-shared-line:     #1D4A44;
-  --ds-private:         #B4B8C8;
-  --ds-private-soft:    #171821;
-  --ds-private-line:    #2A2C38;
-  --ds-decision:        #FCD34D;
-  --ds-decision-soft:   #261D09;
-  --ds-decision-line:   #574213;
-  --ds-ai:              #A5B4FC;
-  --ds-ai-soft:         #1B1C3A;
-  --ds-ai-from:         #818CF8;
-  --ds-ai-to:           #C084FC;
+  --ds-shared:          #7FA8E0;
+  --ds-shared-soft:     #0E192A;
+  --ds-shared-line:     #1C2E4A;
+  --ds-private:         #4CC38A;
+  --ds-private-soft:    #13291D;
+  --ds-private-line:    #1F4A34;
+  --ds-decision:        #E9A94B;
+  --ds-decision-soft:   #2A200F;
+  --ds-decision-line:   #5A4118;
+  --ds-ai:              #7FA8E0;
+  --ds-ai-soft:         #0E192A;
+  --ds-ai-from:         #9EBBE6;
+  --ds-ai-to:           #3466B2;
   --ds-presence-online:  #4CC38A;
   --ds-presence-away:    #E9A94B;
   --ds-presence-dnd:     #F07167;
   --ds-presence-offline: #8D919E;
   --ds-shadow-raised:   0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.6);
   --ds-shadow-overlay:  0 2px 6px rgb(0 0 0 / 0.5), 0 32px 64px -20px rgb(0 0 0 / 0.8);
+}
+
+/* ─── Landing page (DESIGN.md 2: light only, forced, never inherits a dark
+   ancestor's values) ────────────────────────────── */
+:root {
+  --landing-ink:           #16171D;
+  --landing-muted:         #5B5F6B;
+  --landing-subtle:        #686C78;
+  --landing-line:          #E6E8EF;
+  --landing-line-strong:   #D5D8E2;
+  --landing-paper:         #FFFFFF;
+  --landing-canvas:        #FAFAFA;
+  --landing-navy:          #25508F;
+  --landing-navy-soft:     #E9EFF8;
+  --landing-navy-line:     #D6E2F2;
+  --landing-green:         #1B7A4D;
+  --landing-green-soft:    #E6F5EC;
+  --landing-green-line:    #CDE9D8;
+  --landing-amber:         #8F5405;
+  --landing-amber-soft:    #FBF1E1;
+  --landing-amber-line:    #F0DDBD;
+  --landing-charcoal-from: #3B3F5C;
+  --landing-charcoal-to:   #262838;
 }
 
 /* ─── Base ──────────────────────────────────────── */

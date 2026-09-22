@@ -41,7 +41,7 @@ export default async function ProfilePage() {
             <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
               <UserIcon size={18} className="text-accent" />
             </div>
-            <h1 className="font-serif text-3xl text-ink">Profile</h1>
+            <h1 className="font-display text-3xl text-ink">Profile</h1>
           </div>
           <p className="text-graphite text-sm ml-[52px]">Manage your account and preferences.</p>
         </div>

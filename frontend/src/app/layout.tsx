@@ -1,33 +1,32 @@
 import type { Metadata } from "next";
-import { Instrument_Serif, JetBrains_Mono, Space_Grotesk, DM_Sans } from "next/font/google";
+import { Newsreader, Hanken_Grotesk, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "../components/ThemeProvider";
 import { ToastProvider } from "../components/Toast";
 import { CookieBanner } from "../components/CookieBanner";
 import { CommandPalette } from "../components/CommandPalette";
 import "./globals.css";
 
-// Design-system fonts: DM Sans for text, Space Grotesk for display, JetBrains Mono for
-// code and model names. Instrument Serif stays only until the old headings are
-// redesigned (E2 rollout); Inter was dropped (globals.css maps font-inter to DM Sans).
+// DESIGN.md 4.1: only three families load app-wide. Newsreader for headings
+// (font-display), Hanken Grotesk for text (font-sans / font-body), JetBrains Mono for
+// code, timestamps and model names. This replaces Space Grotesk, DM Sans and
+// Instrument Serif everywhere, including the old font-serif headings (home, profile,
+// settings, 404), which now point at font-display instead.
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
   subsets: ["latin"],
 });
 
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-serif",
-  weight: "400",
+const newsreader = Newsreader({
+  variable: "--font-newsreader",
   subsets: ["latin"],
+  weight: ["400", "500"],
+  style: ["normal", "italic"],
 });
 
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-space-grotesk",
+const hankenGrotesk = Hanken_Grotesk({
+  variable: "--font-hanken-grotesk",
   subsets: ["latin"],
-});
-
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -43,7 +42,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className="h-full antialiased">
       <body
-        className={`${jetbrainsMono.variable} ${instrumentSerif.variable} ${spaceGrotesk.variable} ${dmSans.variable} h-full bg-canvas text-ink font-sans flex flex-col selection:bg-accent selection:text-accent-fg overflow-hidden`}
+        className={`${jetbrainsMono.variable} ${newsreader.variable} ${hankenGrotesk.variable} h-full bg-canvas text-ink font-sans flex flex-col selection:bg-accent selection:text-accent-fg overflow-hidden`}
       >
         <ThemeProvider
           attribute="class"

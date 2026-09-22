@@ -29,7 +29,7 @@ export default async function SettingsPage() {
             <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
               <KeyRound size={18} className="text-accent" />
             </div>
-            <h1 className="font-serif text-3xl text-ink">Settings</h1>
+            <h1 className="font-display text-3xl text-ink">Settings</h1>
           </div>
           <p className="text-graphite text-sm leading-relaxed">
             Choir uses a{" "}

@@ -9,7 +9,7 @@ export default function NotFound() {
           <FileQuestion size={28} className="text-graphite/60" aria-hidden="true" />
         </div>
 
-        <h1 className="font-serif text-4xl text-ink mb-3">Page not found</h1>
+        <h1 className="font-display text-4xl text-ink mb-3">Page not found</h1>
         <p className="text-graphite text-base mb-8 leading-relaxed">
           We couldn&rsquo;t find the page you were looking for. It might have been moved or deleted.
         </p>

@@ -32,7 +32,7 @@ export default async function Home() {
           <Logo className="w-7 h-7 text-accent" />
         </div>
 
-        <h1 className="font-serif text-4xl text-ink mb-2">
+        <h1 className="font-display text-4xl text-ink mb-2">
           Hello, {firstName}
         </h1>
         <p className="text-graphite text-base mb-10 leading-relaxed">
