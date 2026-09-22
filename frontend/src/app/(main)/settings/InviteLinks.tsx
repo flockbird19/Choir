@@ -89,6 +89,7 @@ export function InviteLinks({ teams, invites }: { teams: Team[]; invites: Active
               <button
                 {...props}
                 type="button"
+                aria-label="Select team to invite to"
                 className="focus-ring-in-container flex w-full items-center justify-between gap-2 px-3.5 h-11 sm:h-10 text-sm bg-card border border-field-line rounded-control text-fg outline-none focus:border-team focus:ring-2 focus:ring-team/25"
               >
                 <span className="truncate">{teams.find((t) => t.id === selectedTeam)?.name ?? "Select a team"}</span>
