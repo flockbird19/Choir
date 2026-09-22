@@ -33,7 +33,7 @@ export function ContextDrawer({
       <div
         onClick={onClose}
         aria-hidden="true"
-        className={`fixed inset-0 bg-ink/40 z-30 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
+        className={`fixed inset-0 bg-scrim z-30 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
           isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         }`}
       />
@@ -47,21 +47,21 @@ export function ContextDrawer({
         aria-hidden={!isOpen}
         className={`
           fixed top-0 right-0 h-full w-80 md:w-[360px]
-          bg-surface border-l border-border
+          bg-card border-l border-line
           flex flex-col z-40
           transform transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform
-          ${isOpen ? "translate-x-0 shadow-2xl" : "translate-x-full"}
+          ${isOpen ? "translate-x-0 shadow-overlay" : "translate-x-full"}
         `}
       >
         {/* Header */}
-        <div className="px-4 py-3.5 border-b border-border flex items-center justify-between bg-canvas sticky top-0 z-10 shrink-0">
+        <div className="px-4 py-3.5 border-b border-line flex items-center justify-between bg-sunken sticky top-0 z-10 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-shared/12 flex items-center justify-center shrink-0">
-              <Users size={13} className="text-shared" />
+            <div className="w-7 h-7 rounded-control bg-team-soft flex items-center justify-center shrink-0">
+              <Users size={13} className="text-team" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-shared-fg">Team Space</h3>
-              <p className="text-[10px] text-graphite">Read-only · your thread is behind this panel</p>
+              <h3 className="text-sm font-semibold text-team font-display">Team Space</h3>
+              <p className="text-[10px] text-fg-subtle">Read-only · your thread is behind this panel</p>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -69,7 +69,7 @@ export function ContextDrawer({
               <Link
                 href={`/thread/${sharedThread.id}`}
                 onClick={onClose}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-graphite hover:text-shared-fg hover:bg-shared/8 transition-colors"
+                className="flex items-center gap-1 px-2 py-1 rounded-control text-[11px] font-medium text-fg-muted hover:text-team hover:bg-team-soft transition-colors"
                 title="Open Team Space"
               >
                 Open
@@ -78,7 +78,7 @@ export function ContextDrawer({
             )}
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-graphite hover:text-ink"
+              className="p-1.5 rounded-control hover:bg-hover transition-colors text-fg-muted hover:text-fg"
               aria-label="Close context drawer"
             >
               <X size={16} />
@@ -97,8 +97,8 @@ export function ContextDrawer({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2.5 border-t border-border bg-canvas/60 shrink-0">
-          <p className="text-[10px] text-graphite/50 text-center leading-relaxed">
+        <div className="px-4 py-2.5 border-t border-line bg-sunken shrink-0">
+          <p className="text-[10px] text-fg-subtle text-center leading-relaxed">
             Viewing Team Space · tap anywhere outside to close
           </p>
         </div>

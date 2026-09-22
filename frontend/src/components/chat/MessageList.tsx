@@ -39,13 +39,13 @@ function SeenByRow({ seenBy, isOwn }: { seenBy: { id: string; name: string; stat
     >
       {shown.map((p) => (
         <span key={p.id} aria-hidden="true" className="relative inline-flex">
-          <span className="w-3.5 h-3.5 rounded-full bg-shared/20 text-shared-fg ring-1 ring-canvas flex items-center justify-center text-[7px] font-bold select-none">
+          <span className="w-3.5 h-3.5 rounded-full bg-team-soft text-team ring-1 ring-sunken flex items-center justify-center text-[7px] font-bold select-none">
             {getInitials(p.name).slice(0, 1)}
           </span>
-          <span className={`absolute -bottom-px -right-px w-1.5 h-1.5 rounded-full ring-1 ring-canvas ${STATUS_DOT_CLASS[p.status]}`} />
+          <span className={`absolute -bottom-px -right-px w-1.5 h-1.5 rounded-full ring-1 ring-sunken ${STATUS_DOT_CLASS[p.status]}`} />
         </span>
       ))}
-      {extra > 0 && <span className="text-[9px] text-graphite/60 ml-1">+{extra}</span>}
+      {extra > 0 && <span className="text-[9px] text-fg-subtle ml-1">+{extra}</span>}
       <span className="sr-only">Seen by {summary}</span>
     </span>
   );
@@ -110,12 +110,12 @@ const CodeBlock: Components["pre"] = ({ children, ...props }) => {
     <div className="relative group my-3">
       <button
         onClick={handleCopy}
-        className="absolute top-2 right-2 p-1.5 rounded-md bg-surface-hover border border-border text-graphite/60 opacity-0 group-hover:opacity-100 hover:text-ink transition-all z-10"
+        className="absolute top-2 right-2 p-1.5 rounded-md bg-hover border border-line text-fg-subtle opacity-0 group-hover:opacity-100 hover:text-fg transition-all z-10"
         title="Copy to clipboard"
       >
-        {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+        {copied ? <Check size={14} className="text-private" /> : <Copy size={14} />}
       </button>
-      <pre className="bg-canvas border border-border rounded-xl p-3 overflow-x-auto text-xs font-mono w-full m-0" {...props}>
+      <pre className="bg-sunken border border-line rounded-bubble p-3 overflow-x-auto text-xs font-mono w-full m-0" {...props}>
         {children}
       </pre>
     </div>
@@ -140,9 +140,9 @@ export const markdownComponents: Components = {
   code: ({ node: _node, className, ...props }) =>
     /language-(\w+)/.test(className || "")
       ? <code className="font-mono text-xs" {...props} />
-      : <code className="bg-canvas border border-border px-1.5 py-0.5 rounded text-xs font-mono text-accent" {...props} />,
-  a: ({ node: _node, ...props }) => <a className="text-accent hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
-  blockquote: ({ node: _node, ...props }) => <blockquote className="border-l-2 border-border pl-3 italic text-ink/80 my-2" {...props} />,
+      : <code className="bg-sunken border border-line px-1.5 py-0.5 rounded text-xs font-mono text-team" {...props} />,
+  a: ({ node: _node, ...props }) => <a className="text-team hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
+  blockquote: ({ node: _node, ...props }) => <blockquote className="border-l-2 border-line pl-3 italic text-fg-muted my-2" {...props} />,
 };
 
 const MessageItem = memo(function MessageItem({
@@ -179,13 +179,13 @@ const MessageItem = memo(function MessageItem({
   return (
     <div
       id={`message-${msg.id}`}
-      className={`rounded-2xl transition-colors duration-700 ${
-        isHighlighted ? "bg-accent/8 ring-2 ring-accent/40" : ""
+      className={`rounded-bubble transition-colors duration-700 ${
+        isHighlighted ? "bg-team-soft ring-2 ring-team/40" : ""
       }`}
     >
       {isSharedFrom && (
         <div
-          className={`flex items-center gap-1.5 text-[11px] text-shared-fg font-medium mb-1.5 ${
+          className={`flex items-center gap-1.5 text-[11px] text-private font-medium mb-1.5 ${
             isOwn ? "justify-end mr-10" : "ml-10"
           }`}
         >
@@ -199,9 +199,9 @@ const MessageItem = memo(function MessageItem({
       )}
 
       {showSender && !isOwn && (
-        <p className="text-[11px] font-semibold text-graphite mb-1 ml-10">
+        <p className="text-[11px] font-semibold text-fg-muted mb-1 ml-10">
           {senderName}
-          {isAI && msg.model_name && <span className="ml-1.5 font-normal font-mono text-graphite/50">{msg.model_name}</span>}
+          {isAI && msg.model_name && <span className="ml-1.5 font-normal font-mono text-fg-subtle">{msg.model_name}</span>}
         </p>
       )}
 
@@ -218,8 +218,8 @@ const MessageItem = memo(function MessageItem({
             <div
               className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
                 isSelected
-                  ? "bg-accent border-accent text-white"
-                  : "border-graphite/40 group-hover:border-accent/60"
+                  ? "bg-private border-private text-white"
+                  : "border-line-strong group-hover:border-private/60"
               }`}
             >
               {isSelected && (
@@ -235,7 +235,7 @@ const MessageItem = memo(function MessageItem({
           aria-hidden="true"
           title={senderName}
           className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold select-none
-            ${isOwn ? "bg-accent/12 text-accent" : isAI ? "bg-ink/6 text-graphite" : "bg-shared/12 text-shared-fg"}
+            ${isOwn ? "bg-private-soft text-private" : isAI ? "bg-team-soft text-team" : "bg-selected text-fg-muted"}
             ${showSender || isOwn ? "" : "invisible"}`}
         >
           {isAI ? <Bot size={13} /> : getInitials(senderName)}
@@ -243,16 +243,18 @@ const MessageItem = memo(function MessageItem({
 
         <div className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
           <div
-            className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed
+            className={`px-4 py-2.5 rounded-bubble text-sm leading-relaxed
               ${
                 isOwn
-                  ? "bg-accent text-white rounded-tr-sm shadow-sm shadow-accent/20"
+                  ? "bg-private-soft border border-private-line text-fg rounded-br-[4px]"
+                  : isAI
+                  ? "bg-team-soft border border-team-line text-fg rounded-bl-[4px]"
                   : isSharedFrom
-                  ? "bg-shared-muted border border-shared/25 text-ink rounded-tl-sm"
-                  : "bg-surface border border-border text-ink rounded-tl-sm"
+                  ? "bg-team-soft border border-team-line text-fg rounded-bl-[4px]"
+                  : "bg-card border border-line text-fg rounded-bl-[4px]"
               }
-              ${selectMode && isSelected ? "ring-2 ring-accent ring-offset-2 ring-offset-canvas" : ""}
-              ${isPinned ? "border-l-2 border-l-amber-600 dark:border-l-amber-400" : ""}
+              ${selectMode && isSelected ? "ring-2 ring-private ring-offset-2 ring-offset-sunken" : ""}
+              ${isPinned ? "border-l-2 border-l-decision" : ""}
             `}
           >
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -262,15 +264,15 @@ const MessageItem = memo(function MessageItem({
 
           <div className="flex items-center gap-2 mt-1 mx-1">
             {isPinned && (
-              <span className="flex items-center gap-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+              <span className="flex items-center gap-1 text-[10px] font-medium text-decision">
                 <Pin size={10} className="fill-current" />
                 Decision
               </span>
             )}
             {msg.model_name && isAI && !showSender && (
-              <span className="text-[10px] text-graphite/40 font-mono">{msg.model_name}</span>
+              <span className="text-[10px] text-fg-subtle font-mono">{msg.model_name}</span>
             )}
-            <span className="text-[10px] text-graphite/50">
+            <span className="text-[10px] text-fg-subtle font-mono">
               {new Date(msg.created_at).toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
@@ -285,7 +287,7 @@ const MessageItem = memo(function MessageItem({
                 }}
                 title={isPinned ? "Unpin decision" : "Pin as decision"}
                 aria-label={isPinned ? "Unpin decision" : "Pin as decision"}
-                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 min-w-[24px] min-h-[24px] flex items-center justify-center rounded-md text-graphite/50 hover:text-amber-500 hover:bg-amber-500/10 transition-all"
+                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 min-w-[24px] min-h-[24px] flex items-center justify-center rounded-md text-fg-subtle hover:text-decision hover:bg-decision-soft transition-all"
               >
                 {isPinned ? <PinOff size={11} /> : <Pin size={11} />}
               </button>
@@ -298,7 +300,7 @@ const MessageItem = memo(function MessageItem({
                 }}
                 title="Discuss privately"
                 aria-label="Discuss privately"
-                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 min-w-[24px] min-h-[24px] pointer-coarse:min-w-11 pointer-coarse:min-h-11 flex items-center justify-center rounded-md text-graphite/50 hover:text-accent hover:bg-accent/10 focus-visible:outline-2 focus-visible:outline-accent transition-all"
+                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 min-w-[24px] min-h-[24px] pointer-coarse:min-w-11 pointer-coarse:min-h-11 flex items-center justify-center rounded-md text-fg-subtle hover:text-team hover:bg-team-soft focus-visible:outline-2 focus-visible:outline-team transition-all"
               >
                 <MessageSquareLock size={11} aria-hidden="true" />
               </button>
@@ -411,19 +413,19 @@ export function MessageList({
 
   if (!messages || messages.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-center p-8 select-none font-inter">
-        <div className="w-12 h-12 rounded-full border-2 border-dashed border-border flex items-center justify-center mb-4">
-          <span className="text-graphite text-lg leading-none">✦</span>
+      <div className="flex-1 flex flex-col items-center justify-center text-center p-8 select-none">
+        <div className="w-12 h-12 rounded-full border-2 border-dashed border-line flex items-center justify-center mb-4">
+          <span className="text-fg-subtle text-lg leading-none">✦</span>
         </div>
-        <p className="text-base font-medium text-ink mb-1">Start the conversation</p>
+        <p className="text-base font-medium text-fg mb-1 font-display">Start the conversation</p>
         {aiAutoReply ? (
-          <p className="text-sm text-graphite max-w-xs leading-relaxed">
+          <p className="text-sm text-fg-muted max-w-xs leading-relaxed">
             Send a message below. The AI replies to every message in this private thread.
           </p>
         ) : (
-          <p className="text-sm text-graphite max-w-xs leading-relaxed">
+          <p className="text-sm text-fg-muted max-w-xs leading-relaxed">
             Send a message below. Use{" "}
-            <span className="font-mono text-accent bg-accent/8 px-1 rounded">@AI</span>
+            <span className="font-mono text-team bg-team-soft px-1 rounded">@AI</span>
             {" "}to bring the assistant into the conversation.
           </p>
         )}
@@ -434,18 +436,18 @@ export function MessageList({
   return (
     <div className="relative flex-1 flex flex-col min-h-0">
       {(hasMoreOlder || loadingOlder) && (
-        <div className="flex justify-center py-2 border-b border-border/60">
+        <div className="flex justify-center py-2 border-b border-line">
           <button
             onClick={handleLoadOlder}
             disabled={loadingOlder}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium text-graphite hover:text-ink hover:bg-surface-hover transition-colors disabled:opacity-60"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-control text-xs font-medium text-fg-muted hover:text-fg hover:bg-hover transition-colors disabled:opacity-60"
           >
             {loadingOlder ? <Loader2 size={12} className="animate-spin" /> : null}
             {loadingOlder ? "Loading older messages…" : "Load older messages"}
           </button>
         </div>
       )}
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 font-inter">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 sm:px-6 py-6">
         <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const msg = messages[virtualRow.index];
@@ -495,20 +497,20 @@ export function MessageList({
 
       {(showTypingBubble || showStreamingBubble) && (
         <div className="flex gap-3 max-w-[85%] mr-auto">
-          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-ink/6 text-graphite">
+          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 bg-team-soft text-team">
             <Bot size={13} />
           </div>
           <div className="flex flex-col items-start">
-            <div className={`px-4 py-2.5 rounded-2xl rounded-tl-sm text-sm leading-relaxed text-ink transition-all duration-300 ease-in-out ${
+            <div className={`px-4 py-2.5 rounded-bubble rounded-bl-[4px] text-sm leading-relaxed text-fg transition-all duration-300 ease-in-out ${
               showStreamingBubble
-                ? "bg-surface border-2 border-accent/40 shadow-[0_0_12px_rgba(37,99,235,0.15)] ring-1 ring-accent/10"
-                : "bg-surface border border-border"
+                ? "bg-team-soft border border-team-line"
+                : "bg-card border border-line"
             }`}>
               {showTypingBubble ? (
                 <span className="flex gap-1 items-center h-4">
-                  <span className="w-1.5 h-1.5 rounded-full bg-graphite/50 animate-bounce [animation-delay:0ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-graphite/50 animate-bounce [animation-delay:150ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-graphite/50 animate-bounce [animation-delay:300ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce [animation-delay:300ms]" />
                 </span>
               ) : (
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -517,7 +519,7 @@ export function MessageList({
               )}
             </div>
             {showStreamingBubble && (
-              <span className="text-[10px] text-graphite/40 mt-1 mx-1 animate-pulse">
+              <span className="text-[10px] text-fg-subtle mt-1 mx-1 animate-pulse">
                 AI is typing…
               </span>
             )}
@@ -530,7 +532,7 @@ export function MessageList({
         <button
           type="button"
           onClick={scrollToEnd}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-accent text-white text-xs font-medium shadow-lg hover:bg-accent/90 transition-colors z-10"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 h-8 px-3.5 rounded-pill bg-team text-white text-xs font-medium shadow-raised hover:opacity-90 transition-opacity z-10"
         >
           <ArrowDown size={13} />
           {unseen} new message{unseen === 1 ? "" : "s"}

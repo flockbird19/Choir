@@ -6,6 +6,7 @@ import { useDialogA11y } from "@/hooks/useDialogA11y";
 import { whoHasSeen } from "@/hooks/useSeenBy";
 import { useDecisionTrailModels } from "@/hooks/useDecisionTrail";
 import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
+import { stripMarkdownSyntax } from "@/utils/markdown-preview";
 import type { StatusId } from "@/app/(main)/profile/actions";
 
 interface DecisionsPanelProps {
@@ -32,7 +33,7 @@ function DecisionTrail({ msg, possessive }: { msg: Message; possessive: string }
   const models = useDecisionTrailModels(msg.id, hasTrail);
   if (!hasTrail) return null;
   return (
-    <p className="flex items-center gap-1 text-[10px] text-graphite/60 mb-1.5">
+    <p className="flex items-center gap-1 text-[10px] text-fg-subtle mb-1.5">
       <MessageSquareLock size={10} aria-hidden="true" className="shrink-0" />
       From {possessive} private exploration
       {models.length > 0 && <span className="font-mono">· {models.join(", ")}</span>}
@@ -64,7 +65,7 @@ export function DecisionsPanel({
       <div
         onClick={onClose}
         aria-hidden="true"
-        className={`fixed inset-0 bg-ink/40 z-30 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
+        className={`fixed inset-0 bg-scrim z-30 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
           isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         }`}
       />
@@ -78,28 +79,28 @@ export function DecisionsPanel({
         aria-hidden={!isOpen}
         className={`
           fixed top-0 right-0 h-full w-80 md:w-[360px]
-          bg-surface border-l border-border
+          bg-card border-l border-line
           flex flex-col z-40
           transform transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform
-          ${isOpen ? "translate-x-0 shadow-2xl" : "translate-x-full"}
+          ${isOpen ? "translate-x-0 shadow-overlay" : "translate-x-full"}
         `}
       >
         {/* Header */}
-        <div className="px-4 py-3.5 border-b border-border flex items-center justify-between bg-canvas sticky top-0 z-10 shrink-0">
+        <div className="px-4 py-3.5 border-b border-line flex items-center justify-between bg-sunken sticky top-0 z-10 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-amber-400/15 flex items-center justify-center shrink-0">
-              <Pin size={13} className="text-amber-500" />
+            <div className="w-7 h-7 rounded-control bg-decision-soft flex items-center justify-center shrink-0">
+              <Pin size={13} className="text-decision" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-ink">Decisions</h3>
-              <p className="text-[10px] text-graphite">
+              <h3 className="text-sm font-semibold text-fg font-display">Decisions</h3>
+              <p className="text-[10px] text-fg-subtle">
                 {decisions.length} pinned in this Team Space
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-surface-hover transition-colors text-graphite hover:text-ink"
+            className="p-1.5 rounded-control hover:bg-hover transition-colors text-fg-muted hover:text-fg"
             aria-label="Close decisions panel"
           >
             <X size={16} />
@@ -110,18 +111,18 @@ export function DecisionsPanel({
         <div className="flex-1 overflow-y-auto">
           {decisions.length === 0 ? (
             <div className="p-8 text-center">
-              <Pin size={20} className="text-graphite/30 mx-auto mb-2" />
-              <p className="text-sm font-medium text-ink mb-1">No decisions pinned yet</p>
-              <p className="text-xs text-graphite leading-relaxed">
+              <Pin size={20} className="text-fg-subtle mx-auto mb-2" />
+              <p className="text-sm font-medium text-fg mb-1">No decisions pinned yet</p>
+              <p className="text-xs text-fg-muted leading-relaxed">
                 Hover any message in the Team Space and pin it to record it here.
               </p>
             </div>
           ) : (
             <div className="p-3 space-y-2">
               {decisions.map((msg) => (
-                <div key={msg.id} className="p-3 rounded-xl border border-border bg-canvas group">
-                  <p className="text-[11px] text-graphite mb-1">
-                    <span className="font-semibold text-ink">{authorName(msg)}</span>
+                <div key={msg.id} className="p-3 rounded-card border border-line bg-sunken group">
+                  <p className="text-[11px] text-fg-muted mb-1">
+                    <span className="font-semibold text-fg">{authorName(msg)}</span>
                     {msg.sender_type !== "assistant" && msg.sender_id && (
                       <span
                         role="img"
@@ -138,11 +139,11 @@ export function DecisionsPanel({
                     msg={msg}
                     possessive={msg.sender_id === currentUserId ? "your own" : `${authorName(msg)}'s`}
                   />
-                  <p className="text-sm text-ink leading-relaxed line-clamp-4 whitespace-pre-wrap">
-                    {msg.content}
+                  <p className="text-sm text-fg leading-relaxed line-clamp-4 whitespace-pre-wrap">
+                    {stripMarkdownSyntax(msg.content)}
                   </p>
                   <div className="flex items-center justify-between mt-2">
-                    <span className="flex items-center gap-1.5 text-[10px] text-graphite/50">
+                    <span className="flex items-center gap-1.5 text-[10px] font-mono text-fg-subtle">
                       {msg.pinned_at
                         ? new Date(msg.pinned_at).toLocaleString(undefined, {
                             month: "short",
@@ -168,14 +169,14 @@ export function DecisionsPanel({
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                       <button
                         onClick={() => onJumpTo(msg.id)}
-                        className="text-[11px] font-medium text-accent hover:underline"
+                        className="text-[11px] font-medium text-team hover:underline"
                       >
                         Jump to
                       </button>
-                      <span className="text-graphite/30">·</span>
+                      <span className="text-fg-subtle">·</span>
                       <button
                         onClick={() => onUnpin(msg.id)}
-                        className="text-[11px] font-medium text-graphite hover:text-red-500 transition-colors"
+                        className="text-[11px] font-medium text-fg-muted hover:text-danger transition-colors"
                       >
                         Unpin
                       </button>
@@ -188,8 +189,8 @@ export function DecisionsPanel({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2.5 border-t border-border bg-canvas/60 shrink-0">
-          <p className="text-[10px] text-graphite/50 text-center leading-relaxed">
+        <div className="px-4 py-2.5 border-t border-line bg-sunken shrink-0">
+          <p className="text-[10px] text-fg-subtle text-center leading-relaxed">
             Pinned messages are visible to the whole team
           </p>
         </div>

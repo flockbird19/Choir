@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Hash, Lock, MessageSquare, Loader2 } from "lucide-react";
 import { globalSearch, type GlobalSearchThread, type GlobalSearchMessage } from "@/app/(main)/actions";
+import { stripMarkdownSyntax } from "@/utils/markdown-preview";
 
 export function CommandPalette() {
   const [isOpen, setIsOpen] = useState(false);
@@ -163,7 +164,7 @@ export function CommandPalette() {
                             </span>
                           </div>
                           <p className="text-sm text-ink line-clamp-2 leading-relaxed">
-                            {msg.content}
+                            {stripMarkdownSyntax(msg.content)}
                           </p>
                         </div>
                       </button>

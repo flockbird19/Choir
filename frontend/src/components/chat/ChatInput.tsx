@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send } from "lucide-react";
+import { Send, Cpu } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { sendMessage } from "@/app/(main)/thread/[id]/actions";
+import { Menu, MenuLabel, MenuRadioItem } from "@/components/ui/Menu";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -44,6 +45,13 @@ const AVAILABLE_MODELS = [
   { provider: "groq", id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
 ];
 
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  google: "Google",
+  groq: "Groq",
+};
+
 const PLACEHOLDERS: Record<NonNullable<ChatInputProps["aiMode"]>, string> = {
   mention: "Message… type @AI to call the assistant",
   auto: "Message the AI… it replies to every message here",
@@ -73,6 +81,12 @@ export function ChatInput({
   const [selectedModelStr, setSelectedModelStr] = useState<string>(
     `${AVAILABLE_MODELS[0].provider}:${AVAILABLE_MODELS[0].id}`
   );
+  const selectedModel =
+    AVAILABLE_MODELS.find((m) => `${m.provider}:${m.id}` === selectedModelStr) ?? AVAILABLE_MODELS[0];
+  const modelsByProvider = AVAILABLE_MODELS.reduce<Record<string, typeof AVAILABLE_MODELS>>((groups, m) => {
+    (groups[m.provider] ??= []).push(m);
+    return groups;
+  }, {});
 
   // Load from local storage
   useEffect(() => {
@@ -256,45 +270,27 @@ export function ChatInput({
   };
 
   return (
-    <div className="px-4 pb-4 pt-2 bg-canvas/80 backdrop-blur-md border-t border-border sticky bottom-0 w-full z-10 font-inter">
+    <div className="px-4 pb-3 pt-1 sticky bottom-0 w-full z-10">
 
       {/* Error banner */}
       {sendError && (
         <div
           role="alert"
-          className="max-w-3xl mx-auto mb-2 px-3 py-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 text-red-600 dark:text-red-400 text-xs rounded-lg"
+          className="max-w-3xl mx-auto mb-2 px-3 py-2 bg-danger-soft border border-danger/20 text-danger text-xs rounded-control"
         >
           {sendError}
         </div>
       )}
 
-      <div className="max-w-3xl mx-auto flex flex-col gap-1.5">
-        
-        {/* Model Selector Bar */}
-        <div className="flex items-center justify-end px-1">
-           <select
-             value={selectedModelStr}
-             onChange={e => handleModelChange(e.target.value)}
-             className="text-[11px] font-medium text-graphite bg-surface/50 hover:bg-surface border border-transparent hover:border-border rounded-md px-1.5 py-0.5 outline-none transition-colors appearance-none cursor-pointer"
-             title="Select AI Model"
-             aria-label="Select AI model"
-           >
-             {AVAILABLE_MODELS.map(m => (
-               <option key={`${m.provider}:${m.id}`} value={`${m.provider}:${m.id}`}>
-                 {m.name}
-               </option>
-             ))}
-           </select>
-        </div>
-
-        {/* Input container */}
+      <div className="max-w-3xl mx-auto">
+        {/* Input container — the pill is the only "object" here; no outer panel around it */}
         <div
-          className={`relative flex items-end gap-2 bg-surface border rounded-2xl px-3 py-2
-            transition-all shadow-sm
+          className={`relative flex items-center gap-2 bg-card border rounded-pill pl-4 pr-1.5 min-h-11
+            transition-all shadow-raised
             ${
               hasAITrigger
-                ? "border-accent/40 ring-2 ring-accent/10"
-                : "border-border focus-within:border-graphite/40 focus-within:shadow-md"
+                ? "border-team/50 ring-2 ring-team/15"
+                : "border-line-strong focus-within:border-team/60 focus-within:ring-2 focus-within:ring-team/15"
             }`}
         >
           <textarea
@@ -304,42 +300,77 @@ export function ChatInput({
             onKeyDown={handleKeyDown}
             aria-label="Message"
             placeholder={PLACEHOLDERS[aiMode]}
-            className="flex-1 max-h-[200px] bg-transparent resize-none outline-none py-1.5 text-ink placeholder:text-graphite/50 text-sm leading-relaxed"
+            className="focus-ring-in-container flex-1 max-h-[200px] bg-transparent resize-none outline-none py-2.5 text-fg placeholder:text-fg-subtle text-sm leading-normal"
             rows={1}
             disabled={isSubmitting || disabled}
           />
 
-          <div className="flex items-center gap-2 pb-0.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             {/* @AI indicator */}
             {hasAITrigger && (
-              <span className="text-[11px] font-semibold text-accent bg-accent/10 px-2 py-0.5 rounded-full whitespace-nowrap">
+              <span className="text-[11px] font-semibold text-team bg-team-soft px-2 py-0.5 rounded-pill whitespace-nowrap">
                 @AI
               </span>
             )}
 
-            {/* Send button */}
+            {/* Model picker — icon-only; the model isn't shown inline (it crowds the pill and
+                a name like "Claude Haiku 4.5" only fits truncated). Current model is the
+                tooltip and the checked row in the menu. */}
+            <Menu
+              label="Choose an AI model"
+              align="end"
+              side="top"
+              trigger={(props) => (
+                <button
+                  {...props}
+                  type="button"
+                  title={`AI model: ${selectedModel.name}`}
+                  aria-label={`AI model: ${selectedModel.name}`}
+                  className="grid size-8 shrink-0 place-items-center rounded-full text-fg-subtle transition-colors hover:bg-hover hover:text-fg-muted"
+                >
+                  <Cpu size={15} />
+                </button>
+              )}
+            >
+              {Object.entries(modelsByProvider).map(([provider, models]) => (
+                <div key={provider}>
+                  <MenuLabel>{PROVIDER_LABELS[provider] ?? provider}</MenuLabel>
+                  {models.map((m) => (
+                    <MenuRadioItem
+                      key={`${m.provider}:${m.id}`}
+                      checked={selectedModelStr === `${m.provider}:${m.id}`}
+                      onSelect={() => handleModelChange(`${m.provider}:${m.id}`)}
+                    >
+                      {m.name}
+                    </MenuRadioItem>
+                  ))}
+                </div>
+              ))}
+            </Menu>
+
+            {/* Send button — private colour: it's your message, regardless of thread */}
             <button
               onClick={handleSubmit}
               disabled={!content.trim() || isSubmitting || disabled}
               aria-label="Send message"
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all
+              className={`size-11 rounded-full flex items-center justify-center transition-all shrink-0
                 ${
                   content.trim() && !isSubmitting && !disabled
-                    ? "bg-accent text-white shadow-sm hover:bg-accent/90 active:scale-95"
-                    : "bg-surface-hover text-graphite cursor-not-allowed"
+                    ? "bg-private text-white shadow-soft hover:opacity-90 active:scale-95"
+                    : "bg-hover text-fg-subtle cursor-not-allowed"
                 }`}
             >
               {isSubmitting ? (
                 <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
               ) : (
-                <Send size={14} className={content.trim() ? "translate-x-px" : ""} />
+                <Send size={16} className={content.trim() ? "translate-x-px" : ""} />
               )}
             </button>
           </div>
         </div>
 
         {/* Footer hint */}
-        <p className="text-center text-[10px] text-graphite/35 mt-1 tracking-wide select-none">
+        <p className="text-center text-[10px] text-fg-subtle mt-1.5 tracking-wide select-none">
           Enter to send · Shift+Enter for new line
         </p>
       </div>

@@ -510,27 +510,24 @@ export function ThreadView({
       <div className="flex-1 flex flex-col min-w-0 h-full">
 
         {/* Header */}
-        <div className="px-5 py-3.5 border-b border-border bg-canvas/80 backdrop-blur-md flex items-center justify-between sticky top-0 z-10">
+        <div className="px-5 py-3.5 border-b border-line bg-card/90 backdrop-blur-md flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
             {/* Thread type icon */}
             <div
-              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0
+              className={`w-9 h-9 rounded-control flex items-center justify-center shrink-0 border
                 ${isPrivate
-                  ? "bg-surface-hover text-graphite"
-                  : "bg-shared/12 text-shared"
+                  ? "bg-private-soft text-private border-private-line"
+                  : "bg-team-soft text-team border-team-line"
                 }`}
             >
               {isPrivate ? <Lock size={16} /> : <Users size={16} />}
             </div>
 
             <div>
-              <h2
-                className={`font-semibold text-base leading-tight
-                  ${isPrivate ? "text-ink" : "text-shared-fg"}`}
-              >
+              <h2 className="font-display font-medium text-[17px] leading-tight text-fg">
                 {thread.name || (isPrivate ? "Private Thread" : "Team Space")}
               </h2>
-              <p className="text-xs text-graphite leading-tight mt-0.5">
+              <p className="text-xs text-fg-subtle leading-tight mt-0.5">
                 {isPrivate
                   ? autoReply
                     ? "Only visible to you · AI replies to every message"
@@ -554,19 +551,19 @@ export function ThreadView({
                   return (
                     <div
                       key={u.id}
-                      className="relative w-7 h-7 rounded-full bg-accent text-white flex items-center justify-center text-[10px] font-bold ring-2 ring-canvas select-none"
+                      className="relative w-7 h-7 rounded-full bg-team text-white flex items-center justify-center text-[10px] font-bold ring-2 ring-card select-none"
                     >
                       <span aria-hidden="true">{u.name.slice(0, 2).toUpperCase()}</span>
                       <span
                         role="img"
                         aria-label={`${u.name} — ${STATUS_LABEL[status]}`}
-                        className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-canvas ${STATUS_DOT_CLASS[status]}`}
+                        className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-card ${STATUS_DOT_CLASS[status]}`}
                       />
                     </div>
                   );
                 })}
                 {presentUsers.length > 4 && (
-                  <div className="w-7 h-7 rounded-full bg-surface-hover text-graphite flex items-center justify-center text-[10px] font-bold ring-2 ring-canvas select-none">
+                  <div className="w-7 h-7 rounded-full bg-hover text-fg-muted flex items-center justify-center text-[10px] font-bold ring-2 ring-card select-none">
                     +{presentUsers.length - 4}
                   </div>
                 )}
@@ -574,25 +571,25 @@ export function ThreadView({
             )}
 
             {/* Export buttons */}
-            <div className="flex items-center rounded-lg border border-border bg-surface overflow-hidden">
+            <div className="flex items-center rounded-pill border border-line-strong bg-card overflow-hidden">
               <button
                 onClick={() => handleExport("md")}
                 disabled={isExporting !== false}
                 title="Export as Markdown"
                 aria-label="Export thread as Markdown"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-all text-graphite hover:bg-surface-hover hover:text-ink disabled:opacity-50 border-r border-border"
+                className="flex items-center gap-1.5 pl-3.5 pr-3 py-1.5 text-sm font-medium transition-all text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-50 border-r border-line"
               >
                 <Download size={15} />
-                <span className="hidden sm:inline">{isExporting === "md" ? "..." : "MD"}</span>
+                <span className="hidden sm:inline">{isExporting === "md" ? "…" : "MD"}</span>
               </button>
               <button
                 onClick={() => handleExport("json")}
                 disabled={isExporting !== false}
                 title="Export as JSON Data"
                 aria-label="Export thread as JSON"
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-all text-graphite hover:bg-surface-hover hover:text-ink disabled:opacity-50"
+                className="flex items-center gap-1.5 pl-3 pr-3.5 py-1.5 text-sm font-medium transition-all text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-50"
               >
-                <span className="hidden sm:inline">{isExporting === "json" ? "..." : "JSON"}</span>
+                <span className="hidden sm:inline">{isExporting === "json" ? "…" : "JSON"}</span>
               </button>
             </div>
 
@@ -602,7 +599,8 @@ export function ThreadView({
                 onClick={handleCatchMeUp}
                 title="Catch me up on what you missed"
                 aria-label="Catch me up on what you missed"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border bg-surface text-graphite border-border hover:border-accent/40 hover:text-accent"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all text-on-primary"
+                style={{ backgroundImage: "linear-gradient(180deg, var(--ds-primary-from, var(--color-primary)), var(--ds-primary-to, var(--color-primary)))" }}
               >
                 <Sparkles size={15} />
                 <span className="hidden sm:inline">Catch me up</span>
@@ -616,10 +614,10 @@ export function ThreadView({
                 title="View pinned decisions"
                 aria-label={`View pinned decisions${decisions.length > 0 ? ` (${decisions.length})` : ""}`}
                 aria-pressed={decisionsOpen}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border
                   ${decisionsOpen
-                    ? "bg-amber-400/10 text-amber-700 dark:text-amber-400 border-amber-400/30"
-                    : "bg-surface text-graphite border-border hover:border-amber-400/40 hover:text-amber-700 dark:hover:text-amber-400"
+                    ? "bg-decision-soft text-decision border-decision-line"
+                    : "bg-card text-fg-muted border-line-strong hover:border-decision-line hover:text-decision"
                   }`}
               >
                 <Pin size={15} />
@@ -635,10 +633,10 @@ export function ThreadView({
                 title={autoReply ? "Mute AI replies in this thread" : "Turn AI replies back on"}
                 aria-label="AI replies"
                 aria-pressed={autoReply}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border disabled:opacity-60
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border disabled:opacity-60
                   ${autoReply
-                    ? "bg-accent/10 text-accent border-accent/20"
-                    : "bg-surface text-graphite border-border hover:border-graphite/40 hover:text-ink"
+                    ? "bg-team-soft text-team border-team-line"
+                    : "bg-card text-fg-muted border-line-strong hover:border-line-strong hover:text-fg"
                   }`}
               >
                 {autoReply ? <Bot size={15} /> : <BotOff size={15} />}
@@ -655,10 +653,10 @@ export function ThreadView({
                 }}
                 aria-label="Select messages to post to Team Space"
                 aria-pressed={selectMode}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border
                   ${selectMode
-                    ? "bg-accent/10 text-accent border-accent/20"
-                    : "bg-surface text-graphite border-border hover:border-graphite/40 hover:text-ink"
+                    ? "bg-private-soft text-private border-private-line"
+                    : "bg-card text-fg-muted border-line-strong hover:border-line-strong hover:text-fg"
                   }`}
               >
                 <CheckSquare size={15} />
@@ -672,7 +670,7 @@ export function ThreadView({
                 onClick={() => void findings.start()}
                 title="Publish findings to Team Space"
                 aria-label="Publish findings"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border bg-surface text-graphite border-border hover:border-accent/40 hover:text-accent"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border bg-card text-fg-muted border-line-strong hover:border-team-line hover:text-team"
               >
                 <Megaphone size={15} aria-hidden="true" />
                 <span className="hidden sm:inline">Publish findings</span>
@@ -686,10 +684,10 @@ export function ThreadView({
                 title="Peek at Team Space"
                 aria-label="Peek at Team Space"
                 aria-pressed={drawerOpen}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border
                   ${drawerOpen
-                    ? "bg-shared-muted text-shared-fg border-shared/30"
-                    : "bg-surface text-graphite border-border hover:border-shared/30 hover:text-shared-fg hover:bg-shared-muted/50"
+                    ? "bg-team-soft text-team border-team-line"
+                    : "bg-card text-fg-muted border-line-strong hover:border-team-line hover:text-team"
                   }`}
               >
                 <PanelRightOpen size={15} />
@@ -701,11 +699,11 @@ export function ThreadView({
 
         {/* Shared thread — thin blue accent bar below header */}
         {!isPrivate && (
-          <div className="h-px bg-gradient-to-r from-transparent via-shared/40 to-transparent" />
+          <div className="h-px bg-gradient-to-r from-transparent via-team/40 to-transparent" />
         )}
 
         {isForking && (
-          <div role="status" className="px-5 py-2 border-b border-border bg-surface-hover text-xs text-graphite flex items-center gap-2">
+          <div role="status" className="px-5 py-2 border-b border-line bg-hover text-xs text-fg-muted flex items-center gap-2">
             <MessageSquareLock size={13} aria-hidden="true" />
             Starting a private thread about this message…
           </div>
@@ -747,9 +745,9 @@ export function ThreadView({
 
         {/* Chat Input or Selection Action Bar */}
         {selectMode ? (
-          <div className="mx-4 mb-4 mt-2 px-5 py-4 bg-surface border border-accent/20 rounded-2xl shadow-sm flex items-center justify-between">
+          <div className="mx-4 mb-4 mt-2 px-5 py-4 bg-private-soft border border-private-line rounded-card shadow-soft flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-ink">
+              <span className="text-sm font-medium text-fg">
                 {selectedMessageIds.size} message{selectedMessageIds.size === 1 ? "" : "s"} selected
               </span>
             </div>
@@ -759,17 +757,17 @@ export function ThreadView({
                   setSelectMode(false);
                   setSelectedMessageIds(new Set());
                 }}
-                className="px-4 py-2 text-sm font-medium text-graphite hover:text-ink transition-colors"
+                className="px-4 py-2 text-sm font-medium text-fg-muted hover:text-fg transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handlePostToShared}
                 disabled={selectedMessageIds.size === 0 || isPosting}
-                className={`flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white rounded-xl shadow-sm transition-all duration-300 ${
+                className={`flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white rounded-pill shadow-soft transition-all duration-300 ${
                   isPosting
-                    ? "bg-accent/80 scale-[0.98] cursor-wait shadow-inner"
-                    : "bg-accent shadow-accent/25 hover:bg-accent/90 hover:-translate-y-px active:scale-95 disabled:opacity-50 disabled:hover:bg-accent disabled:hover:translate-y-0"
+                    ? "bg-private/80 scale-[0.98] cursor-wait shadow-inner"
+                    : "bg-private hover:opacity-90 hover:-translate-y-px active:scale-95 disabled:opacity-50 disabled:hover:translate-y-0"
                 }`}
               >
                 {isPosting ? (
