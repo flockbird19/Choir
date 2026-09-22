@@ -1,7 +1,6 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
-import { getWorkspace } from "@/utils/supabase/queries";
 import { getCurrentUser } from "@/utils/supabase/access";
 import { getTeamMemberNames } from "@/utils/supabase/member-names";
 import { getDisplayName } from "@/utils/display-name";
@@ -38,16 +37,15 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
   const user = await getCurrentUser();
   if (!user) return { threads: [], messages: [], error: "Unauthorized" };
 
-  const { threads: accessibleThreads, projects } = await getWorkspace(user.id);
-  const threadIds = accessibleThreads.map((t) => t.id);
-  if (threadIds.length === 0) return { threads: [], messages: [] };
-
   const supabase = await createClient();
 
+  // RLS (can_access_thread) already scopes both tables to what this user can see,
+  // so search doesn't need its own copy of that access check — reusing a second,
+  // client-side computation of "accessible threads" here previously drifted out of
+  // sync with the real RLS rule and hid results it shouldn't have.
   const { data: threads } = await supabase
     .from("threads")
     .select("id, name, type")
-    .in("id", threadIds)
     .ilike("name", `%${query}%`)
     .limit(5);
 
@@ -66,15 +64,25 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
         type
       )
     `)
-    .in("thread_id", threadIds)
     .ilike("content", `%${query}%`)
     .limit(10);
 
   const rows = (messages as unknown as (Omit<GlobalSearchMessage, "sender_name"> & { thread_id: string })[] | null) || [];
 
-  // Names only for the teams these results belong to (all of them the user's own teams).
+  // Names only for the teams these results belong to. Looked up directly from the
+  // (RLS-scoped) thread/project rows rather than getWorkspace's list, so a result
+  // never shows "Former member" just because that list didn't happen to include it.
+  const resultThreadIds = [...new Set(rows.map((m) => m.thread_id))];
+  const { data: resultThreads } = resultThreadIds.length
+    ? await supabase.from("threads").select("id, project_id").in("id", resultThreadIds)
+    : { data: [] as { id: string; project_id: string }[] };
+  const projectIds = [...new Set((resultThreads ?? []).map((t) => t.project_id))];
+  const { data: resultProjects } = projectIds.length
+    ? await supabase.from("projects").select("id, team_id").in("id", projectIds)
+    : { data: [] as { id: string; team_id: string }[] };
+  const teamOfProject = new Map((resultProjects ?? []).map((p) => [p.id, p.team_id]));
   const teamOfThread = new Map(
-    accessibleThreads.map((t) => [t.id, projects.find((p) => p.id === t.project_id)?.team_id])
+    (resultThreads ?? []).map((t) => [t.id, teamOfProject.get(t.project_id)])
   );
   const teamIds = [...new Set(rows.map((m) => teamOfThread.get(m.thread_id)).filter((id): id is string => !!id))];
   const names: Record<string, string> = Object.assign(
