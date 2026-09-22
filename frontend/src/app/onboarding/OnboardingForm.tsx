@@ -10,15 +10,18 @@ import {
   primaryButtonClass,
   secondaryButtonClass,
 } from "@/components/auth/fields";
+import { KeyCard, PROVIDERS } from "@/app/(main)/settings/SettingsClient";
 import { createWorkspace, type WorkspaceSetupResult } from "./actions";
 
 type ReadyWorkspace = Extract<WorkspaceSetupResult, { inviteLink: string }>;
+type Step = "name" | "key" | "ready";
 
 const riseClass = "animate-rise motion-reduce:animate-none";
 
 export function OnboardingForm() {
   const [error, setError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<ReadyWorkspace | null>(null);
+  const [step, setStep] = useState<Step>("name");
   const [pending, startTransition] = useTransition();
   const alertRef = useRef<HTMLDivElement>(null);
 
@@ -34,18 +37,22 @@ export function OnboardingForm() {
       try {
         const result = await createWorkspace(formData);
         if ("error" in result) setError(result.error);
-        else setWorkspace(result);
+        else {
+          setWorkspace(result);
+          setStep("key");
+        }
       } catch {
         setError("Something went wrong. Check your connection and try again.");
       }
     });
   };
 
-  if (workspace) return <WorkspaceReady workspace={workspace} />;
+  if (step === "key" && workspace) return <KeyStep onContinue={() => setStep("ready")} />;
+  if (step === "ready" && workspace) return <WorkspaceReady workspace={workspace} />;
 
   return (
     <div className={riseClass}>
-      <p className="text-[13px] font-medium uppercase tracking-[0.08em] text-primary">Step 1 of 1</p>
+      <p className="text-[13px] font-medium uppercase tracking-[0.08em] text-primary">Step 1 of 2</p>
       <h1 className="mt-2 font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-fg">
         Create your workspace
       </h1>
@@ -83,10 +90,65 @@ export function OnboardingForm() {
   );
 }
 
+function KeyStep({ onContinue }: { onContinue: () => void }) {
+  const [savedProviders, setSavedProviders] = useState<string[]>([]);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
+  return (
+    <div className={riseClass}>
+      <p className="text-[13px] font-medium uppercase tracking-[0.08em] text-primary">Step 2 of 2</p>
+      <h1
+        ref={headingRef}
+        tabIndex={-1}
+        className="mt-2 font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-fg outline-none"
+      >
+        Add an AI key
+      </h1>
+      <p className="mt-2 text-[15px] leading-relaxed text-fg-muted">
+        Only one person on the team needs to do this — Team Space already runs on whichever key gets
+        added first. Skip it now and add one later in Settings any time.
+      </p>
+
+      <div className="mt-7 flex flex-col gap-3">
+        {PROVIDERS.map((provider) => (
+          <KeyCard
+            key={provider.id}
+            provider={provider}
+            isSaved={savedProviders.includes(provider.id)}
+            onSaved={() =>
+              setSavedProviders((prev) => (prev.includes(provider.id) ? prev : [...prev, provider.id]))
+            }
+            onDeleted={() => setSavedProviders((prev) => prev.filter((id) => id !== provider.id))}
+          />
+        ))}
+      </div>
+
+      <button type="button" onClick={onContinue} className={`${primaryButtonClass} mt-7`}>
+        {savedProviders.length > 0 ? (
+          <>
+            Continue <ArrowRight size={17} aria-hidden="true" />
+          </>
+        ) : (
+          "Skip for now"
+        )}
+      </button>
+    </div>
+  );
+}
+
 function WorkspaceReady({ workspace }: { workspace: ReadyWorkspace }) {
   const [copied, setCopied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
 
   useEffect(() => () => {
     if (resetTimer.current) clearTimeout(resetTimer.current);
@@ -109,7 +171,11 @@ function WorkspaceReady({ workspace }: { workspace: ReadyWorkspace }) {
       <p className="inline-flex items-center gap-1.5 rounded-full bg-success-soft px-2.5 py-1 text-[13px] font-medium text-success">
         <Check size={14} aria-hidden="true" /> Workspace ready
       </p>
-      <h1 className="mt-3 font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-fg [overflow-wrap:anywhere]">
+      <h1
+        ref={headingRef}
+        tabIndex={-1}
+        className="mt-3 font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-fg outline-none [overflow-wrap:anywhere]"
+      >
         {workspace.teamName}
       </h1>
       <p className="mt-2 text-[15px] leading-relaxed text-fg-muted">

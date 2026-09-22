@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
-interface Provider {
+export interface Provider {
   id: string;
   label: string;
   placeholder: string;
@@ -16,7 +16,7 @@ interface Provider {
   hint: string;
 }
 
-const PROVIDERS: Provider[] = [
+export const PROVIDERS: Provider[] = [
   {
     id: "anthropic",
     label: "Anthropic (Claude)",
@@ -47,14 +47,14 @@ const PROVIDERS: Provider[] = [
   },
 ];
 
-interface KeyCardProps {
+export interface KeyCardProps {
   provider: Provider;
   isSaved: boolean;
   onSaved: () => void;
   onDeleted: () => void;
 }
 
-function KeyCard({ provider, isSaved, onSaved, onDeleted }: KeyCardProps) {
+export function KeyCard({ provider, isSaved, onSaved, onDeleted }: KeyCardProps) {
   const [inputValue, setInputValue] = useState("");
   const [showInput, setShowInput] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
