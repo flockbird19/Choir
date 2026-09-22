@@ -6,6 +6,7 @@ import { Search, Hash, Lock, MessageSquare, Loader2 } from "lucide-react";
 import { globalSearch, type GlobalSearchThread, type GlobalSearchMessage } from "@/app/(main)/actions";
 import { stripMarkdownSyntax } from "@/utils/markdown-preview";
 import { Kbd } from "@/components/ui/Badge";
+import { trapTabKey } from "@/components/ui/focusTrap";
 
 type ResultItem =
   | { kind: "thread"; id: string; navigateTo: string; data: GlobalSearchThread }
@@ -130,28 +131,8 @@ export function CommandPalette() {
     router.push(`/thread/${threadId}`);
   };
 
-  // Belt-and-suspenders focus trap: native <dialog>.showModal() is supposed to keep
-  // Tab cycling inside the dialog on its own, but with very few focusable descendants
-  // (just the input plus one result) Chromium was observed letting Tab fall through
-  // to document.body instead of wrapping — so wrap it explicitly instead of trusting
-  // that alone.
   const handleDialogKeyDown = (e: React.KeyboardEvent<HTMLDialogElement>) => {
-    if (e.key !== "Tab") return;
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    const focusable = Array.from(
-      dialog.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
-    ).filter((el) => !el.hasAttribute("disabled") && el.offsetParent !== null);
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
+    if (dialogRef.current) trapTabKey(dialogRef.current, e);
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

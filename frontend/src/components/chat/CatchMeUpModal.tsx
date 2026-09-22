@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { X, Sparkles, KeyRound, Pin } from "lucide-react";
+import { Sparkles, KeyRound, Pin } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { markdownComponents } from "./MessageList";
-import { useDialogA11y } from "@/hooks/useDialogA11y";
+import { Button, Dialog } from "@/components/ui";
 import { stripMarkdownSyntax } from "@/utils/markdown-preview";
 import type { Message } from "@/types/database";
 
@@ -35,72 +35,46 @@ export function CatchMeUpModal({
   decisions = [],
   names = {},
 }: CatchMeUpModalProps) {
-  const dialogRef = useDialogA11y(isOpen, onClose);
-
-  if (!isOpen) return null;
-
   return (
-    <div
-      ref={dialogRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Catch me up"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim backdrop-blur-sm px-4"
+    <Dialog
+      open={isOpen}
+      onClose={onClose}
+      title={
+        <span className="flex items-center gap-2.5">
+          <span className="w-8 h-8 rounded-control bg-team-soft flex items-center justify-center shrink-0">
+            <Sparkles size={15} className="text-team" aria-hidden="true" />
+          </span>
+          Catch me up
+        </span>
+      }
+      footer={
+        <Button variant="secondary" onClick={onClose}>
+          Got it
+        </Button>
+      }
     >
-      <div className="bg-card rounded-panel shadow-overlay w-full max-w-lg border border-line max-h-[80vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-control bg-team-soft flex items-center justify-center">
-              <Sparkles size={15} className="text-team" />
-            </div>
-            <h3 className="text-base font-medium text-fg font-display">Catch me up</h3>
+      {isLoading ? (
+        <div className="flex items-center gap-3 text-sm text-fg-muted py-6">
+          <div className="w-4 h-4 border-2 border-line-strong border-t-team rounded-full animate-spin" />
+          Summarizing what you missed…
+        </div>
+      ) : needsApiKey ? (
+        <NoKeyState decisions={decisions} names={names} onNavigate={onClose} />
+      ) : (
+        <>
+          <div className="text-sm text-fg leading-relaxed">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {summary || ""}
+            </ReactMarkdown>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-control hover:bg-hover transition-colors text-fg-muted hover:text-fg"
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="px-6 py-5 overflow-y-auto">
-          {isLoading ? (
-            <div className="flex items-center gap-3 text-sm text-fg-muted py-6">
-              <div className="w-4 h-4 border-2 border-line-strong border-t-team rounded-full animate-spin" />
-              Summarizing what you missed…
-            </div>
-          ) : needsApiKey ? (
-            <NoKeyState decisions={decisions} names={names} onNavigate={onClose} />
-          ) : (
-            <>
-              <div className="text-sm text-fg leading-relaxed">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                  {summary || ""}
-                </ReactMarkdown>
-              </div>
-              {messageCount !== null && messageCount > 0 && (
-                <p className="text-[11px] text-fg-subtle mt-4">
-                  Based on {messageCount} new message{messageCount === 1 ? "" : "s"}.
-                </p>
-              )}
-            </>
+          {messageCount !== null && messageCount > 0 && (
+            <p className="text-[11px] text-fg-subtle mt-4">
+              Based on {messageCount} new message{messageCount === 1 ? "" : "s"}.
+            </p>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-3.5 border-t border-line shrink-0 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium bg-hover text-fg rounded-pill hover:bg-selected transition-colors"
-          >
-            Got it
-          </button>
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </Dialog>
   );
 }
 

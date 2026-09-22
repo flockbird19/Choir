@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, type CSSProperties, type ReactNode } from "re
 import { X } from "lucide-react";
 import { cn } from "./cn";
 import { IconButton } from "./IconButton";
+import { trapTabKey } from "./focusTrap";
 
 /**
  * Opens a native <dialog> as a modal: the browser traps focus, makes the page behind it
@@ -44,7 +45,11 @@ function useModalDialog(open: boolean, onClose: () => void) {
     if (event.target === event.currentTarget) event.currentTarget.close();
   };
 
-  return { ref, onBackdropClick };
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDialogElement>) => {
+    if (ref.current) trapTabKey(ref.current, event);
+  };
+
+  return { ref, onBackdropClick, onKeyDown };
 }
 
 export function Dialog({
@@ -67,7 +72,7 @@ export function Dialog({
   className?: string;
 }) {
   const id = useId();
-  const { ref, onBackdropClick } = useModalDialog(open, onClose);
+  const { ref, onBackdropClick, onKeyDown } = useModalDialog(open, onClose);
 
   return (
     <dialog
@@ -76,6 +81,7 @@ export function Dialog({
       aria-labelledby={`${id}-title`}
       aria-describedby={description ? `${id}-description` : undefined}
       onClick={onBackdropClick}
+      onKeyDown={onKeyDown}
       style={{ "--ds-dialog-width": width } as CSSProperties}
       className="ds-overlay ds-dialog font-body"
     >
@@ -121,7 +127,7 @@ export function Sheet({
   className?: string;
 }) {
   const id = useId();
-  const { ref, onBackdropClick } = useModalDialog(open, onClose);
+  const { ref, onBackdropClick, onKeyDown } = useModalDialog(open, onClose);
 
   return (
     <dialog
@@ -130,6 +136,7 @@ export function Sheet({
       data-side={side}
       aria-labelledby={`${id}-title`}
       onClick={onBackdropClick}
+      onKeyDown={onKeyDown}
       style={{ "--ds-sheet-width": width } as CSSProperties}
       className="ds-overlay ds-sheet font-body"
     >

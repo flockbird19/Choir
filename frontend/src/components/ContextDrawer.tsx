@@ -3,7 +3,7 @@
 import { X, Users, ChevronRight } from "lucide-react";
 import { MessageList } from "./chat/MessageList";
 import { Thread, Message } from "@/types/database";
-import { useDialogA11y } from "@/hooks/useDialogA11y";
+import { Sheet, IconButton } from "@/components/ui";
 import Link from "next/link";
 
 interface ContextDrawerProps {
@@ -25,36 +25,14 @@ export function ContextDrawer({
   memberNames,
   namesLoaded,
 }: ContextDrawerProps) {
-  const dialogRef = useDialogA11y(isOpen, onClose);
-
   return (
-    <>
-      {/* Full-screen backdrop — sits behind drawer, closes on click */}
-      <div
-        onClick={onClose}
-        aria-hidden="true"
-        className={`fixed inset-0 bg-scrim z-30 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
-          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
-      />
-
-      {/* Drawer panel — fixed to viewport right edge, overlays everything */}
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-label="Team Space context drawer"
-        aria-modal="true"
-        aria-hidden={!isOpen}
-        className={`
-          fixed top-0 right-0 h-full w-80 md:w-[360px]
-          bg-card border-l border-line
-          flex flex-col z-40
-          transform transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform
-          ${isOpen ? "translate-x-0 shadow-overlay" : "translate-x-full"}
-        `}
-      >
+    <Sheet open={isOpen} onClose={onClose} side="right" title="Team Space context drawer" hideHeader>
+      {/* Sheet's own children slot is the scroll container; nest our own
+          header/body/footer inside it so the footer stays pinned instead of
+          scrolling away with the message list. */}
+      <div className="flex h-full flex-col">
         {/* Header */}
-        <div className="px-4 py-3.5 border-b border-line flex items-center justify-between bg-sunken sticky top-0 z-10 shrink-0">
+        <div className="px-4 py-3.5 border-b border-line flex items-center justify-between bg-sunken shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-control bg-team-soft flex items-center justify-center shrink-0">
               <Users size={13} className="text-team" />
@@ -76,13 +54,7 @@ export function ContextDrawer({
                 <ChevronRight size={12} />
               </Link>
             )}
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-control hover:bg-hover transition-colors text-fg-muted hover:text-fg"
-              aria-label="Close context drawer"
-            >
-              <X size={16} />
-            </button>
+            <IconButton label="Close context drawer" icon={<X size={16} />} onClick={onClose} />
           </div>
         </div>
 
@@ -103,6 +75,6 @@ export function ContextDrawer({
           </p>
         </div>
       </div>
-    </>
+    </Sheet>
   );
 }

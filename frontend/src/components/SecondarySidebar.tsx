@@ -9,7 +9,7 @@ import { Team, Project, Thread } from "@/types/database";
 import { useState } from "react";
 import { createThread, deleteThread } from "@/app/(main)/thread/[id]/actions";
 import { useToast } from "@/components/Toast";
-import { useDialogA11y } from "@/hooks/useDialogA11y";
+import { Button, Dialog, Input } from "@/components/ui";
 import type { StatusId } from "@/app/(main)/profile/actions";
 import { useTeammateStatuses, STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 
@@ -57,12 +57,6 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
     setConfirmDeleteId(threadId);
     setConfirmDeleteName(threadName);
   };
-
-  const createThreadDialogRef = useDialogA11y(isCreatingThread, () => {
-    setIsCreatingThread(false);
-    setNewThreadName("");
-  });
-  const deleteDialogRef = useDialogA11y(!!confirmDeleteId, () => setConfirmDeleteId(null));
 
   const executeDelete = async () => {
     if (!confirmDeleteId) return;
@@ -199,91 +193,60 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
         </Link>
       </div>
 
-      {isCreatingThread && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim backdrop-blur-sm"
-          onClick={() => { setIsCreatingThread(false); setNewThreadName(""); }}
-        >
-          <div
-            ref={createThreadDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="new-thread-title"
-            onClick={(e) => e.stopPropagation()}
-            className="mx-4 w-full max-w-sm rounded-panel border border-line bg-card p-6 shadow-[var(--ds-shadow-overlay)]"
-          >
-            <h3 id="new-thread-title" className="mb-4 font-display text-[19px] font-medium text-fg">
-              New thread
-            </h3>
-            <form onSubmit={handleCreateThread}>
-              <input
-                id="new-thread-name"
-                type="text"
-                autoFocus
-                value={newThreadName}
-                onChange={(e) => setNewThreadName(e.target.value)}
-                placeholder="e.g. Exploring auth flow…"
-                className="mb-4 w-full rounded-[10px] border border-field-line bg-field px-3 py-2 text-sm text-fg transition-colors focus:outline-none focus:ring-2 focus:ring-team/30"
-                disabled={isSubmitting}
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setIsCreatingThread(false); setNewThreadName(""); }}
-                  className="rounded-[10px] px-4 py-2 text-sm text-fg-muted transition-colors hover:bg-hover hover:text-fg"
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-[10px] bg-fg px-4 py-2 text-sm font-medium text-bg transition-opacity hover:opacity-90 disabled:opacity-50"
-                  disabled={!newThreadName.trim() || isSubmitting}
-                >
-                  {isSubmitting ? "Creating…" : "Create"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <Dialog
+        open={isCreatingThread}
+        onClose={() => { setIsCreatingThread(false); setNewThreadName(""); }}
+        title="New thread"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => { setIsCreatingThread(false); setNewThreadName(""); }}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="new-thread-form"
+              variant="primary"
+              disabled={!newThreadName.trim() || isSubmitting}
+              loading={isSubmitting}
+            >
+              Create
+            </Button>
+          </>
+        }
+      >
+        <form id="new-thread-form" onSubmit={handleCreateThread}>
+          <Input
+            label="Thread name"
+            hideLabel
+            autoFocus
+            value={newThreadName}
+            onChange={(e) => setNewThreadName(e.target.value)}
+            placeholder="e.g. Exploring auth flow…"
+            disabled={isSubmitting}
+          />
+        </form>
+      </Dialog>
 
-      {confirmDeleteId && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim backdrop-blur-sm"
-          onClick={() => setConfirmDeleteId(null)}
-        >
-          <div
-            ref={deleteDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-thread-title"
-            onClick={(e) => e.stopPropagation()}
-            className="mx-4 w-full max-w-sm rounded-panel border border-line bg-card p-6 shadow-[var(--ds-shadow-overlay)]"
-          >
-            <h3 id="delete-thread-title" className="mb-1 font-display text-[19px] font-medium text-fg">
-              Delete thread?
-            </h3>
-            <p className="mb-5 text-sm text-fg-muted">
-              &ldquo;{confirmDeleteName}&rdquo; will be permanently deleted with all its messages.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setConfirmDeleteId(null)}
-                className="rounded-[10px] px-4 py-2 text-sm text-fg-muted transition-colors hover:bg-hover hover:text-fg"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={executeDelete}
-                className="rounded-[10px] bg-danger px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog
+        open={!!confirmDeleteId}
+        onClose={() => setConfirmDeleteId(null)}
+        title="Delete thread?"
+        description={`"${confirmDeleteName}" will be permanently deleted with all its messages.`}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirmDeleteId(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={executeDelete}>
+              Delete
+            </Button>
+          </>
+        }
+      />
     </div>
   );
 }

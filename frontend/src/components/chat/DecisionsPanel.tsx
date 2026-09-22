@@ -2,7 +2,7 @@
 
 import { X, Pin, Eye, MessageSquareLock } from "lucide-react";
 import { Message } from "@/types/database";
-import { useDialogA11y } from "@/hooks/useDialogA11y";
+import { Sheet, IconButton } from "@/components/ui";
 import { whoHasSeen } from "@/hooks/useSeenBy";
 import { useDecisionTrailModels } from "@/hooks/useDecisionTrail";
 import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
@@ -53,40 +53,18 @@ export function DecisionsPanel({
   seenBy = EMPTY_SEEN_BY,
   statuses = EMPTY_STATUSES,
 }: DecisionsPanelProps) {
-  const dialogRef = useDialogA11y(isOpen, onClose);
-
   const personName = (userId: string | null | undefined) =>
     userId === currentUserId ? "You" : memberNames[userId ?? ""] ?? (namesLoaded ? "Former member" : "Teammate");
   const authorName = (msg: Message) => (msg.sender_type === "assistant" ? "Choir AI" : personName(msg.sender_id));
 
   return (
-    <>
-      {/* Full-screen backdrop — sits behind the panel, closes on click */}
-      <div
-        onClick={onClose}
-        aria-hidden="true"
-        className={`fixed inset-0 bg-scrim z-30 backdrop-blur-sm transition-opacity duration-300 ease-in-out ${
-          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
-      />
-
-      {/* Panel — fixed to viewport right edge, overlays everything */}
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-label="Decisions panel"
-        aria-modal="true"
-        aria-hidden={!isOpen}
-        className={`
-          fixed top-0 right-0 h-full w-80 md:w-[360px]
-          bg-card border-l border-line
-          flex flex-col z-40
-          transform transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform
-          ${isOpen ? "translate-x-0 shadow-overlay" : "translate-x-full"}
-        `}
-      >
+    <Sheet open={isOpen} onClose={onClose} side="right" title="Decisions panel" hideHeader>
+      {/* Sheet's own children slot is the scroll container; nest our own
+          header/list/footer inside it so the footer stays pinned instead of
+          scrolling away with the decisions list. */}
+      <div className="flex h-full flex-col">
         {/* Header */}
-        <div className="px-4 py-3.5 border-b border-line flex items-center justify-between bg-sunken sticky top-0 z-10 shrink-0">
+        <div className="px-4 py-3.5 border-b border-line flex items-center justify-between bg-sunken shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-control bg-decision-soft flex items-center justify-center shrink-0">
               <Pin size={13} className="text-decision" />
@@ -98,13 +76,7 @@ export function DecisionsPanel({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-control hover:bg-hover transition-colors text-fg-muted hover:text-fg"
-            aria-label="Close decisions panel"
-          >
-            <X size={16} />
-          </button>
+          <IconButton label="Close decisions panel" icon={<X size={16} />} onClick={onClose} />
         </div>
 
         {/* List */}
@@ -195,6 +167,6 @@ export function DecisionsPanel({
           </p>
         </div>
       </div>
-    </>
+    </Sheet>
   );
 }
