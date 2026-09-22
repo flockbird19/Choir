@@ -80,27 +80,28 @@ export function ProfileClient({ initialName, email, initials, initialStatus }: P
               value={nameInput}
               onChange={e => setNameInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSaveName()}
+              error={nameError ?? undefined}
               autoFocus
+              className="flex-1"
             />
             <IconButton label="Save name" icon={<Check size={15} />} onClick={handleSaveName} disabled={isPending} variant="primary" />
-            <IconButton label="Cancel editing name" icon={<X size={15} />} onClick={() => { setIsEditingName(false); setNameInput(displayName); }} />
+            <IconButton label="Cancel editing name" icon={<X size={15} />} onClick={() => { setIsEditingName(false); setNameInput(displayName); setNameError(null); }} />
           </div>
         ) : (
           <>
             <span className="text-xs font-semibold uppercase tracking-widest text-fg-subtle">Display Name</span>
             <div id="display-name-input" className="flex items-center justify-between px-4 py-3 bg-card border border-line rounded-control group">
               <span className="text-sm text-fg font-medium">{displayName || 'No name set'}</span>
-              <button
+              <IconButton
+                label="Edit display name"
+                icon={<Pencil size={13} />}
+                size="sm"
                 onClick={() => setIsEditingName(true)}
-                aria-label="Edit display name"
-                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 min-w-[24px] min-h-[24px] flex items-center justify-center rounded-control hover:bg-hover"
-              >
-                <Pencil size={13} className="text-fg-muted" />
-              </button>
+                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100"
+              />
             </div>
           </>
         )}
-        {nameError && <p role="alert" className="text-xs text-danger">{nameError}</p>}
       </div>
 
       {/* Email */}
