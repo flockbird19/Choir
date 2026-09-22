@@ -446,6 +446,18 @@ body {
     transform: translateY(8px) scale(0.98);
   }
 
+  /* Command palette: top-aligned like ds-dialog's centering trick, but anchored
+     10vh from the top instead of vertically centered, and wider. */
+  .ds-command-palette {
+    inset: 0;
+    top: 10vh;
+    bottom: auto;
+    margin-inline: auto;
+    margin-block: 0;
+    width: min(100% - 2rem, 48rem);
+    transform: translateY(8px) scale(0.98);
+  }
+
   .ds-sheet {
     position: fixed;
     top: 0;
@@ -464,7 +476,8 @@ body {
     transform: translateY(100%);
   }
   .ds-overlay.ds-dialog[open],
-  .ds-overlay.ds-sheet[open] {
+  .ds-overlay.ds-sheet[open],
+  .ds-overlay.ds-command-palette[open] {
     transform: none;
   }
 }
@@ -473,6 +486,7 @@ body {
   .ds-overlay[open] { opacity: 0; }
   .ds-overlay[open]::backdrop { opacity: 0; }
   .ds-dialog[open] { transform: translateY(8px) scale(0.98); }
+  .ds-command-palette[open] { transform: translateY(8px) scale(0.98); }
   .ds-sheet[data-side="left"][open] { transform: translateX(-100%); }
   .ds-sheet[data-side="right"][open] { transform: translateX(100%); }
   .ds-sheet[data-side="bottom"][open] { transform: translateY(100%); }
