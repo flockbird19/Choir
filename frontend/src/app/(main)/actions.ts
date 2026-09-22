@@ -49,7 +49,10 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
     .ilike("name", `%${query}%`)
     .limit(5);
 
-  const { data: messages } = await supabase
+  // `messages` has two FKs to `threads` (thread_id and K2's source_thread_id), so the
+  // embed needs the thread_id hint — plain `threads!inner(...)` is ambiguous and
+  // PostgREST errors, which this was silently swallowing (error never checked below).
+  const { data: messages, error: messagesError } = await supabase
     .from("messages")
     .select(`
       id,
@@ -58,7 +61,7 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
       sender_type,
       sender_id,
       thread_id,
-      threads!inner (
+      threads!thread_id!inner (
         id,
         name,
         type
@@ -66,6 +69,7 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
     `)
     .ilike("content", `%${query}%`)
     .limit(10);
+  if (messagesError) console.error("globalSearch messages query failed:", messagesError);
 
   const rows = (messages as unknown as (Omit<GlobalSearchMessage, "sender_name"> & { thread_id: string })[] | null) || [];
 
