@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Link as LinkIcon, Check, Ban } from "lucide-react";
+import { Link as LinkIcon, Check, Ban, ChevronDown } from "lucide-react";
 import { generateInviteLink, revokeInviteLink } from "./actions";
 import { Team, TeamInvitation } from "@/types/database";
-import { Button, Dialog } from "@/components/ui";
+import { Button, Dialog, Menu, MenuRadioItem } from "@/components/ui";
 
 export type ActiveInvite = Pick<TeamInvitation, "id" | "team_id" | "token" | "created_at" | "expires_at">;
 
@@ -82,18 +82,26 @@ export function InviteLinks({ teams, invites }: { teams: Team[]; invites: Active
 
       <div className="flex flex-col gap-3">
         {teams.length > 1 && (
-          <select
-            value={selectedTeam}
-            onChange={(e) => setSelectedTeam(e.target.value)}
-            aria-label="Select team to invite to"
-            className="focus-ring-in-container px-3 py-2 text-sm bg-card border border-field-line rounded-control text-fg outline-none focus:border-team focus:ring-2 focus:ring-team/25"
+          <Menu
+            label="Select team to invite to"
+            wrapperClassName="w-full"
+            trigger={(props) => (
+              <button
+                {...props}
+                type="button"
+                className="focus-ring-in-container flex w-full items-center justify-between gap-2 px-3.5 h-11 sm:h-10 text-sm bg-card border border-field-line rounded-control text-fg outline-none focus:border-team focus:ring-2 focus:ring-team/25"
+              >
+                <span className="truncate">{teams.find((t) => t.id === selectedTeam)?.name ?? "Select a team"}</span>
+                <ChevronDown size={16} className="text-fg-muted shrink-0" aria-hidden="true" />
+              </button>
+            )}
           >
             {teams.map((t) => (
-              <option key={t.id} value={t.id}>
+              <MenuRadioItem key={t.id} checked={t.id === selectedTeam} onSelect={() => setSelectedTeam(t.id)}>
                 {t.name}
-              </option>
+              </MenuRadioItem>
             ))}
-          </select>
+          </Menu>
         )}
 
         {error && (

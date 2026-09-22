@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useId, useState } from "react";
-import { Users } from "lucide-react";
+import { Users, ChevronDown } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { PROVIDER_NAMES, providerName } from "@/utils/providers";
 import { getSharedKeysSetup, type LendingProject } from "./sharedKeysActions";
+import { Menu, MenuRadioItem } from "@/components/ui";
 
 type Mode = "fallback" | "pool";
 type Choice = Mode | "off";
@@ -205,27 +206,40 @@ export function SharedKeysPanel({ savedProviders }: { savedProviders: string[] }
         ) : (
           <>
             <div className="flex flex-col gap-1.5">
-              <label htmlFor={selectId} className="text-xs font-medium text-fg-muted">
+              <span id={selectId} className="text-xs font-medium text-fg-muted">
                 Project
-              </label>
-              <select
-                id={selectId}
-                value={projectId}
-                disabled={pending !== null}
-                onChange={(e) => {
-                  if (e.target.value === projectId) return;
-                  setRows(null);
-                  setError(null);
-                  setProjectId(e.target.value);
-                }}
-                className="focus-ring-in-container min-h-11 sm:min-h-10 w-full px-3 text-sm bg-card border border-field-line rounded-control text-fg outline-none focus:border-team focus:ring-2 focus:ring-team/25"
+              </span>
+              <Menu
+                label="Project"
+                wrapperClassName="w-full"
+                trigger={(props) => (
+                  <button
+                    {...props}
+                    type="button"
+                    aria-labelledby={`${selectId} ${props.id}`}
+                    disabled={pending !== null}
+                    className="focus-ring-in-container flex w-full items-center justify-between gap-2 px-3.5 h-11 sm:h-10 text-sm bg-card border border-field-line rounded-control text-fg outline-none focus:border-team focus:ring-2 focus:ring-team/25 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <span className="truncate">{project ? projectLabel(project) : "Select a project"}</span>
+                    <ChevronDown size={16} className="text-fg-muted shrink-0" aria-hidden="true" />
+                  </button>
+                )}
               >
                 {setup.projects.map((p) => (
-                  <option key={p.id} value={p.id}>
+                  <MenuRadioItem
+                    key={p.id}
+                    checked={p.id === projectId}
+                    onSelect={() => {
+                      if (p.id === projectId) return;
+                      setRows(null);
+                      setError(null);
+                      setProjectId(p.id);
+                    }}
+                  >
                     {projectLabel(p)}
-                  </option>
+                  </MenuRadioItem>
                 ))}
-              </select>
+              </Menu>
             </div>
 
             <div className="flex flex-col gap-3">

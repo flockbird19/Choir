@@ -39,19 +39,19 @@ export function DangerZone({ teams, currentUserId }: { teams: Team[], currentUse
         <AlertTriangle size={14} />
         Danger Zone
       </h2>
-      <div className="bg-danger-soft border border-danger-line rounded-card p-5 space-y-4">
+      <div className="bg-card border border-danger-line rounded-card divide-y divide-line">
         {ownedTeams.map(team => (
-          <div key={team.id} className="flex items-center justify-between gap-4">
+          <div key={team.id} className="flex items-center justify-between gap-4 p-5">
             <div>
               <p className="font-semibold text-sm text-fg">{team.name}</p>
               <p className="text-xs text-fg-muted">Permanently delete this workspace and all data.</p>
             </div>
             <Button
-              variant="ghost"
+              variant="secondary"
               onClick={() => setConfirmTeamId(team.id)}
               disabled={isPending}
               leadingIcon={<Trash2 size={16} />}
-              className="text-danger hover:bg-danger-soft hover:text-danger"
+              className="text-danger hover:bg-danger-soft hover:text-danger hover:border-danger-line"
             >
               {isPending && confirmTeamId === team.id ? "Deleting..." : "Delete Workspace"}
             </Button>
