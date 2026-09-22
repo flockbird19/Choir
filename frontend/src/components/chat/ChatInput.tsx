@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Send, Cpu } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { sendMessage } from "@/app/(main)/thread/[id]/actions";
@@ -76,6 +77,7 @@ export function ChatInput({
   const [sendError, setSendError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const router = useRouter();
 
   // Default to first model
   const [selectedModelStr, setSelectedModelStr] = useState<string>(
@@ -255,6 +257,15 @@ export function ChatInput({
     }
 
     setIsSubmitting(false);
+
+    // Keep Next's client router cache from going stale for this route, now that the
+    // message is confirmed saved — fire-and-forget, never blocks the send. Without
+    // this, navigating away and back within the cache window could show a snapshot
+    // from before this message existed (confirmed live: sendMessage deliberately
+    // skips revalidatePath to keep sending itself fast, so nothing else does this).
+    // Safe against ThreadView's own streaming/optimistic state because its
+    // messages-prop sync merges instead of overwriting.
+    router.refresh();
 
     // 2. If @AI was mentioned (or this thread auto-replies), kick off streaming
     if (aiTriggered) {

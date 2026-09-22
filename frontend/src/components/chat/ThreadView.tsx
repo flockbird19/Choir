@@ -92,10 +92,21 @@ export function ThreadView({
   // ── Local Messages State (Optimistic UI) ───────────────────────────────────
   const [localMessages, setLocalMessages] = useState<Message[]>(messages);
 
-  // Sync when navigating between threads
+  // Merge in anything new from a fresh `messages` prop (e.g. Next's client router
+  // cache handing back a stale snapshot when you return to a thread you'd already
+  // visited) — but MERGE, never overwrite. This used to be `setLocalMessages(messages)`,
+  // a hard replace: any server re-fetch that raced a just-completed AI reply (appended
+  // below, in handleStreamEnd) or a realtime insert would silently wipe it back out.
+  // Additive-only is safe for this data model — messages are never edited in place
+  // here, only pinned/unpinned, and that goes through handleRealtimeUpdate separately.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLocalMessages(messages);
+    setLocalMessages((prev) => {
+      const known = new Set(prev.map((m) => m.id));
+      const fresh = messages.filter((m) => !known.has(m.id));
+      if (fresh.length === 0) return prev;
+      return [...prev, ...fresh].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    });
   }, [messages]);
 
   // ── C3 pagination — "load older" by created_at cursor, ahead of the loaded 50 ──
@@ -202,11 +213,18 @@ export function ThreadView({
 
   // When viewing a private thread, also keep the Team Space preview (Context Drawer)
   // live — otherwise it would go stale until the user navigates away and back.
+  // Same merge-not-overwrite fix as localMessages above.
   const [localSharedMessages, setLocalSharedMessages] = useState<Message[]>(sharedMessages || []);
 
   useEffect(() => {
+    const incoming = sharedMessages || [];
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLocalSharedMessages(sharedMessages || []);
+    setLocalSharedMessages((prev) => {
+      const known = new Set(prev.map((m) => m.id));
+      const fresh = incoming.filter((m) => !known.has(m.id));
+      if (fresh.length === 0) return prev;
+      return [...prev, ...fresh].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    });
   }, [sharedMessages]);
 
   const handleSharedRealtimeInsert = useCallback((incoming: Message) => {
@@ -521,8 +539,12 @@ export function ThreadView({
           } as Message,
         ];
       });
+      // Same reasoning as ChatInput's post-send refresh: an aiMessageId here means
+      // the backend already saved this reply, so it's safe (and needed) to let
+      // Next's router cache catch up in the background — fire-and-forget.
+      router.refresh();
     }
-  }, [thread.id]);
+  }, [thread.id, router]);
 
   const missingKeyToastShown = useRef(false);
   const handleStreamError = useCallback((error: string) => {
