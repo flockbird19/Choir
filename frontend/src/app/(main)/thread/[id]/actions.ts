@@ -209,12 +209,21 @@ export async function postToSharedThread(
 
 // ── "Discuss privately" (D2): start a private thread about a Team Space message ──
 
-const FORK_NAME_MAX_CHARS = 40;
+const FORK_NAME_MAX_CHARS = 50;
 
+// A hard character cut sliced mid-word ("...function: p…"), which reads as
+// broken rather than shortened. Back up to the last whole word instead, so a
+// thread title always ends cleanly, at some real cost in exact length control.
 function forkThreadName(content: string): string {
   const text = content.replace(/[*_`#>|~[\]]/g, "").replace(/\s+/g, " ").trim();
   if (!text) return "Private discussion";
-  return text.length > FORK_NAME_MAX_CHARS ? `${text.slice(0, FORK_NAME_MAX_CHARS).trimEnd()}…` : text;
+  if (text.length <= FORK_NAME_MAX_CHARS) return text;
+  const cut = text.slice(0, FORK_NAME_MAX_CHARS);
+  const lastSpace = cut.lastIndexOf(" ");
+  // Keep at least half the budget even if the first "word" is unusually long
+  // (e.g. a URL or code token), rather than truncating to almost nothing.
+  const boundary = lastSpace > FORK_NAME_MAX_CHARS / 2 ? lastSpace : FORK_NAME_MAX_CHARS;
+  return `${cut.slice(0, boundary).trimEnd()}…`;
 }
 
 export async function discussPrivately(
@@ -389,6 +398,59 @@ export async function setThreadAutoReply(
     return { error: "Couldn't save the AI reply setting. Please try again." };
   }
 
+  return { success: true };
+}
+
+const MAX_THREAD_NAME_LENGTH = 80;
+
+// L16: renames a thread the caller can access — their own private thread, or (new,
+// needs schema.sql's "Team members can rename shared threads" re-run) the shared
+// Team Space thread, on behalf of the whole team.
+export async function renameThread(
+  threadId: string,
+  name: string
+): Promise<{ success?: boolean; error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not logged in" };
+
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "Give the thread a name." };
+  if (trimmed.length > MAX_THREAD_NAME_LENGTH) {
+    return { error: `Keep the name under ${MAX_THREAD_NAME_LENGTH} characters.` };
+  }
+
+  const thread = await getAccessibleThread(user.id, threadId);
+  if (!thread) return { error: "Couldn't find that thread." };
+  if (thread.type === "private" && thread.owner_id !== user.id) {
+    return { error: "Only the owner can rename this private thread." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("threads")
+    .update({ name: trimmed })
+    .eq("id", threadId)
+    .select("id, name");
+
+  if (isMissingColumn(error)) {
+    console.error("Error renaming thread (database update pending):", error);
+    return { error: DATABASE_UPDATE_PENDING };
+  }
+  if (error) {
+    console.error("Error renaming thread:", error);
+    return { error: "Couldn't rename the thread. Please try again." };
+  }
+  // Live-tested finding: when the "name" column isn't in the update grant yet
+  // (schema.sql not re-run), PostgREST doesn't error — it just drops the
+  // disallowed field from the SET clause, so this still "succeeds" and returns
+  // the row with its OLD name unchanged. Check the returned value actually
+  // matches what we asked for, not just that a row came back.
+  if (!data || data.length === 0 || data[0].name !== trimmed) {
+    console.error("Rename didn't take effect (likely the update grant on threads.name isn't applied yet):", data);
+    return { error: DATABASE_UPDATE_PENDING };
+  }
+
+  revalidatePath(`/thread/${threadId}`);
   return { success: true };
 }
 

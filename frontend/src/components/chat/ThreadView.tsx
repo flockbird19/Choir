@@ -6,7 +6,8 @@ import { ChatInput } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Bot, BotOff, Megaphone, MessageSquareLock } from "lucide-react";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Bot, BotOff, Megaphone, MessageSquareLock, Pencil, Check, X } from "lucide-react";
+import { IconButton, Input, Menu, MenuItem } from "@/components/ui";
 import { useRouter } from "next/navigation";
 import { DecisionsSinceBanner } from "./DecisionsSinceBanner";
 import { usePublishFindings } from "../PublishFindingsDialog";
@@ -17,6 +18,7 @@ import {
   pinMessage,
   unpinMessage,
   setThreadAutoReply,
+  renameThread,
 } from "../../app/(main)/thread/[id]/actions";
 import { useToast } from "../Toast";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
@@ -51,6 +53,41 @@ export function ThreadView({
   const { error: toastError, success: toastSuccess, warning: toastWarning } = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const isPrivate = thread.type === "private";
+
+  // ── L16: rename this thread (your own private thread, or Team Space as a
+  // teammate) — local state so the header updates instantly, synced whenever
+  // the underlying thread prop changes (e.g. navigating to a different thread). ──
+  const [localName, setLocalName] = useState(thread.name);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLocalName(thread.name);
+  }, [thread.id, thread.name]);
+  const canRename = isPrivate ? thread.owner_id === currentUserId : true;
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
+
+  const startEditingName = () => {
+    setNameInput(localName || (isPrivate ? "" : "Team Space"));
+    setIsEditingName(true);
+  };
+  const cancelEditingName = () => setIsEditingName(false);
+  const saveThreadName = async () => {
+    const next = nameInput.trim();
+    if (!next || next === localName || isRenaming) {
+      setIsEditingName(false);
+      return;
+    }
+    setIsRenaming(true);
+    const res = await renameThread(thread.id, next);
+    setIsRenaming(false);
+    if (res.error) {
+      toastError(res.error);
+      return;
+    }
+    setLocalName(next);
+    setIsEditingName(false);
+  };
 
   // ── Local Messages State (Optimistic UI) ───────────────────────────────────
   const [localMessages, setLocalMessages] = useState<Message[]>(messages);
@@ -124,7 +161,7 @@ export function ThreadView({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${thread.name || "thread"}_export.${format}`;
+      a.download = `${localName || "thread"}_export.${format}`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -523,10 +560,38 @@ export function ThreadView({
               {isPrivate ? <Lock size={16} /> : <Users size={16} />}
             </div>
 
-            <div>
-              <h2 className="font-display font-medium text-[17px] leading-tight text-fg">
-                {thread.name || (isPrivate ? "Private Thread" : "Team Space")}
-              </h2>
+            <div className="min-w-0">
+              {isEditingName ? (
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    label="Thread name"
+                    hideLabel
+                    autoFocus
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void saveThreadName();
+                      if (e.key === "Escape") cancelEditingName();
+                    }}
+                    className="h-8 sm:h-8 text-[15px]"
+                  />
+                  <IconButton label="Save name" icon={<Check size={14} />} size="sm" variant="primary" onClick={() => void saveThreadName()} disabled={isRenaming} />
+                  <IconButton label="Cancel renaming" icon={<X size={14} />} size="sm" onClick={cancelEditingName} disabled={isRenaming} />
+                </div>
+              ) : (
+                <h2 className="group/name flex items-center gap-1.5 font-display font-medium text-[17px] leading-tight text-fg">
+                  <span className="truncate">{localName || (isPrivate ? "Private Thread" : "Team Space")}</span>
+                  {canRename && (
+                    <IconButton
+                      label={isPrivate ? "Rename thread" : "Rename Team Space"}
+                      icon={<Pencil size={12} />}
+                      size="sm"
+                      onClick={startEditingName}
+                      className="opacity-0 group-hover/name:opacity-100 group-focus-within/name:opacity-100 focus:opacity-100"
+                    />
+                  )}
+                </h2>
+              )}
               <p className="text-xs text-fg-subtle leading-tight mt-0.5">
                 {isPrivate
                   ? autoReply
@@ -537,7 +602,7 @@ export function ThreadView({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center flex-wrap justify-end gap-2 gap-y-1.5">
             {/* Presence — avatars of teammates currently viewing this thread */}
             {presentUsers.length > 0 && (
               <div
@@ -570,28 +635,29 @@ export function ThreadView({
               </div>
             )}
 
-            {/* Export buttons */}
-            <div className="flex items-center rounded-pill border border-line-strong bg-card overflow-hidden">
-              <button
-                onClick={() => handleExport("md")}
-                disabled={isExporting !== false}
-                title="Export as Markdown"
-                aria-label="Export thread as Markdown"
-                className="flex items-center gap-1.5 pl-3.5 pr-3 py-1.5 text-sm font-medium transition-all text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-50 border-r border-line"
-              >
-                <Download size={15} />
-                <span className="hidden sm:inline">{isExporting === "md" ? "…" : "MD"}</span>
-              </button>
-              <button
-                onClick={() => handleExport("json")}
-                disabled={isExporting !== false}
-                title="Export as JSON Data"
-                aria-label="Export thread as JSON"
-                className="flex items-center gap-1.5 pl-3 pr-3.5 py-1.5 text-sm font-medium transition-all text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-50"
-              >
-                <span className="hidden sm:inline">{isExporting === "json" ? "…" : "JSON"}</span>
-              </button>
-            </div>
+            {/* Export — one icon button opening a menu, instead of a permanent two-pill
+                group; this was the easiest thing to move out of an overcrowded header
+                since it's the least frequently reached-for action here. */}
+            <Menu
+              label="Export thread"
+              align="end"
+              trigger={(props) => (
+                <IconButton
+                  {...props}
+                  label="Export thread"
+                  icon={<Download size={15} />}
+                  variant="secondary"
+                  disabled={isExporting !== false}
+                />
+              )}
+            >
+              <MenuItem onSelect={() => handleExport("md")}>
+                {isExporting === "md" ? "Exporting…" : "Export as Markdown"}
+              </MenuItem>
+              <MenuItem onSelect={() => handleExport("json")}>
+                {isExporting === "json" ? "Exporting…" : "Export as JSON"}
+              </MenuItem>
+            </Menu>
 
             {/* Catch Me Up — only on the shared thread itself */}
             {!isPrivate && (

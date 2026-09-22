@@ -8,6 +8,9 @@
 -- permission fixes). Applied 2026-09-18 (Batch 2): profiles with status (E4),
 -- thread_reads.last_read_at (E5), messages.source_message_ids (K3).
 -- Pending re-run (Batch 2b): foreign-key indexes, thread_summaries (D3).
+-- Pending re-run (2026-09-22, L16): rename permission on threads.name — a new
+-- "Team members can rename shared threads" policy, and the update grant on
+-- threads now includes name (previously ai_auto_reply only).
 -- ============================================================================
 
 begin;
@@ -386,6 +389,20 @@ create policy "Owners can update own private threads" on public.threads
   for update
   using (type = 'private' and owner_id = auth.uid())
   with check (type = 'private' and owner_id = auth.uid());
+-- L16: renaming Team Space. Any team member, not just the creator — owner_id is
+-- null on shared threads (nobody "owns" Team Space more than anyone else), and
+-- every other shared-thread action (pinning, posting) is already open to the
+-- whole team on equal footing.
+create policy "Team members can rename shared threads" on public.threads
+  for update
+  using (type = 'shared' and exists (
+    select 1 from public.projects p
+    where p.id = threads.project_id and public.is_team_member(p.team_id)
+  ))
+  with check (type = 'shared' and exists (
+    select 1 from public.projects p
+    where p.id = threads.project_id and public.is_team_member(p.team_id)
+  ));
 
 -- Messages: only in threads the user can access; users post as themselves;
 -- pinning (update) only in shared threads. AI replies are saved by the backend.
@@ -503,10 +520,13 @@ grant insert (id, thread_id, sender_type, sender_id, content, shared_by, source_
               source_message_ids)
   on public.messages to authenticated;
 
--- Signed-in users may only change a thread's AI auto-reply setting (mute), never its
--- type, owner, project or name. The rule above limits this to their own private threads.
+-- Signed-in users may change a thread's AI auto-reply setting (mute) or its name,
+-- never its type, owner or project. The two policies above decide who may touch
+-- which rows: auto-reply only ever matters on your own private thread anyway, and
+-- the "Owners can update..." / "Team members can rename..." policies keep name
+-- changes scoped to threads a user actually owns or is a teammate on.
 revoke update on public.threads from anon, authenticated;
-grant update (ai_auto_reply) on public.threads to authenticated;
+grant update (ai_auto_reply, name) on public.threads to authenticated;
 
 -- L5: members may only revoke an invite link, never change its token, team or expiry.
 revoke update on public.team_invitations from anon, authenticated;
