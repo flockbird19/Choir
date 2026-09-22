@@ -24,3 +24,9 @@ wheels/
 
 # Ignore PDFs
 *.pdf
+
+# Research data and standalone HTML mockups, not app code
+*.csv.zip
+/index.html
+/index-clarity.html
+/app-shell-mockup.html
