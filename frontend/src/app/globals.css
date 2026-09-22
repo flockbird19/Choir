@@ -118,11 +118,13 @@
   --spacing-panel: 22rem;
   --container-measure: 46rem;
 
-  /* E2: radius */
+  /* E2: radius (DESIGN.md 5.2) */
+  --radius-pill: 999px;
   --radius-control: 0.625rem;
-  --radius-card: 0.875rem;
-  --radius-bubble: 1.125rem;
-  --radius-sheet: 1.25rem;
+  --radius-bubble: 0.75rem;
+  --radius-card: 1rem;
+  --radius-panel: 1.25rem;
+  --radius-sheet: 1.75rem;
 
   /* E2: motion. Only transform and opacity animate; see the reduced-motion rule. */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -381,11 +383,19 @@ body {
 
 [data-no-transition] { transition: none !important; }
 
-/* ─── Focus Ring ────────────────────────────────── */
+/* ─── Focus Ring (DESIGN.md 11: 2px team, 2px offset) ───────── */
+/* No border-radius override: modern browsers already bend the outline to match
+   whatever shape is focused (a pill stays a pill), which a fixed 4px fought. */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-ring);
   outline-offset: 2px;
-  border-radius: 4px;
+}
+
+/* Elements whose own container already shows a focus state (e.g. the composer's
+   bordered pill on :focus-within) skip the native ring to avoid a second,
+   differently-shaped outline stacked on top of it. */
+.focus-ring-in-container:focus-visible {
+  outline: none;
 }
 
 /* ─── E2: new-design focus ring ─────────────────────────── */

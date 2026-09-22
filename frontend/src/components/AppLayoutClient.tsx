@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 import { PrimarySidebar } from "./PrimarySidebar";
 import { SecondarySidebar } from "./SecondarySidebar";
 import type { SessionUser } from "@/utils/supabase/access";
@@ -16,6 +15,10 @@ interface AppLayoutClientProps {
   children: React.ReactNode;
 }
 
+// DESIGN.md 5.4: fixed 64px rail + 264px channel column, not a resizable split —
+// the channel column can fully collapse instead, so the chat can be the only
+// thing on screen when you want it to be. Collapse state is session-only (not
+// persisted to localStorage) to avoid a hydration mismatch on first paint.
 export function AppLayoutClient({
   user,
   teams,
@@ -30,9 +33,9 @@ export function AppLayoutClient({
 
   let initialTeamId = teams[0]?.id || null;
   if (currentThreadId) {
-    const currentThread = threads.find(t => t.id === currentThreadId);
+    const currentThread = threads.find((t) => t.id === currentThreadId);
     if (currentThread) {
-      const currentProject = projects.find(p => p.id === currentThread.project_id);
+      const currentProject = projects.find((p) => p.id === currentThread.project_id);
       if (currentProject) {
         initialTeamId = currentProject.team_id;
       }
@@ -40,34 +43,36 @@ export function AppLayoutClient({
   }
 
   const [activeTeamId, setActiveTeamId] = useState<string | null>(initialTeamId);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const toggleSidebar = () => setSidebarCollapsed((prev) => !prev);
 
-  const activeTeam = teams.find(t => t.id === activeTeamId) || null;
+  const activeTeam = teams.find((t) => t.id === activeTeamId) || null;
   // A team can have more than one project (the schema supports it even though
   // onboarding only ever creates one) — aggregate threads across all of the
   // active team's projects instead of silently dropping any beyond the first.
-  const teamProjects = projects.filter(p => p.team_id === activeTeamId);
+  const teamProjects = projects.filter((p) => p.team_id === activeTeamId);
   const activeProject = teamProjects[0] || null;
 
-  const teamThreads = threads.filter(t => teamProjects.some(p => p.id === t.project_id));
+  const teamThreads = threads.filter((t) => teamProjects.some((p) => p.id === t.project_id));
 
-  const sharedThread = teamThreads.find(t => t.type === 'shared') || null;
-  const privateThreads = teamThreads.filter(t => t.type === 'private' && t.owner_id === user?.id);
+  const sharedThread = teamThreads.find((t) => t.type === "shared") || null;
+  const privateThreads = teamThreads.filter((t) => t.type === "private" && t.owner_id === user?.id);
 
   return (
-    <div className="flex h-full w-full bg-canvas overflow-hidden">
+    <div className="flex h-full w-full overflow-hidden bg-bg">
       <PrimarySidebar
         teams={teams}
         activeTeamId={activeTeamId}
         onSelectTeam={setActiveTeamId}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={toggleSidebar}
       />
 
-      <PanelGroup orientation="horizontal" className="flex-1">
-        <Panel
-          defaultSize="20"
-          minSize="15"
-          maxSize="35"
-          className="h-full border-r border-border relative z-10"
-        >
+      <div
+        className="h-full shrink-0 overflow-hidden border-r border-line transition-[width] duration-200 ease-out motion-reduce:transition-none"
+        style={{ width: sidebarCollapsed ? 0 : 264 }}
+      >
+        <div className="h-full w-[264px]">
           <SecondarySidebar
             user={user}
             team={activeTeam}
@@ -75,16 +80,10 @@ export function AppLayoutClient({
             sharedThread={sharedThread}
             privateThreads={privateThreads}
           />
-        </Panel>
+        </div>
+      </div>
 
-        <PanelResizeHandle className="w-[1px] bg-border hover:w-1 hover:bg-accent-light transition-all cursor-col-resize active:bg-accent active:w-1 z-20 -ml-[1px]" />
-
-        <Panel defaultSize="80" minSize="40" className="h-full min-w-0">
-          <main className="w-full h-full flex flex-col min-w-0 relative">
-            {children}
-          </main>
-        </Panel>
-      </PanelGroup>
+      <main className="relative flex h-full min-w-0 flex-1 flex-col">{children}</main>
     </div>
   );
 }

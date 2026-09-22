@@ -10,27 +10,35 @@ interface PrimarySidebarProps {
   teams: Team[];
   activeTeamId: string | null;
   onSelectTeam: (teamId: string) => void;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
 }
 
-export function PrimarySidebar({ teams, activeTeamId, onSelectTeam }: PrimarySidebarProps) {
+// DESIGN.md 5.4: the rail is 64px, sunken, one squircle per workspace.
+// 5.2: icons are a 12px radius by default, 10px with a ring when active.
+export function PrimarySidebar({
+  teams,
+  activeTeamId,
+  onSelectTeam,
+  sidebarCollapsed,
+  onToggleSidebar,
+}: PrimarySidebarProps) {
   return (
     <nav
-      aria-label="Teams"
-      className="w-16 h-full flex flex-col items-center py-4 bg-surface-hover/50 border-r border-border shrink-0 z-30"
+      aria-label="Workspaces"
+      className="flex h-full w-16 shrink-0 flex-col items-center gap-3 border-r border-line bg-sunken py-4"
     >
-
-      {/* Home / Logo */}
-      <Link href="/" aria-label="Home" className="group relative flex items-center justify-center w-12 h-12 mb-2">
-        <div className="absolute -left-4 w-2 h-5 bg-ink rounded-r-full opacity-0 group-hover:opacity-100 transition-all duration-300" />
-        <div className="w-12 h-12 rounded-[24px] group-hover:rounded-[16px] bg-canvas flex items-center justify-center shadow-sm transition-all duration-300 group-active:translate-y-[1px]">
-          <Logo className="w-6 h-6 text-ink group-hover:text-accent transition-colors duration-300" />
-        </div>
+      <Link
+        href="/"
+        aria-label="Choir home"
+        className="grid size-10 place-items-center rounded-[14px] text-fg transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-team"
+      >
+        <Logo className="size-6" />
       </Link>
 
-      <div className="w-8 h-[2px] bg-border rounded-full mb-2" />
+      <div className="h-px w-6 bg-line" />
 
-      {/* Teams List */}
-      <div className="flex-1 w-full overflow-y-auto no-scrollbar flex flex-col items-center gap-2">
+      <div className="flex w-full flex-1 flex-col items-center gap-2 overflow-y-auto">
         {teams.map((team) => {
           const isActive = team.id === activeTeamId;
           const initials = team.name.substring(0, 2).toUpperCase();
@@ -39,41 +47,45 @@ export function PrimarySidebar({ teams, activeTeamId, onSelectTeam }: PrimarySid
             <button
               key={team.id}
               onClick={() => onSelectTeam(team.id)}
-              className="group relative flex items-center justify-center w-full h-12"
               title={team.name}
               aria-label={team.name}
               aria-pressed={isActive}
+              className={`grid size-11 shrink-0 place-items-center font-mono text-[13px] font-medium transition-all duration-150 ${
+                isActive
+                  ? "rounded-[10px] bg-team text-white shadow-[0_0_0_2px_var(--color-team-line)]"
+                  : "rounded-[12px] bg-card text-fg-muted hover:text-fg"
+              }`}
             >
-              {/* Active / Hover indicator pill */}
-              <div
-                className={`absolute left-0 w-1 bg-ink rounded-r-full transition-all duration-300 ${
-                  isActive
-                    ? "h-10 opacity-100"
-                    : "h-5 opacity-0 group-hover:opacity-100"
-                }`}
-              />
-
-              {/* Team Icon */}
-              <div
-                className={`w-12 h-12 flex items-center justify-center font-semibold text-sm transition-all duration-300 shadow-sm
-                  ${
-                    isActive
-                      ? "rounded-[16px] bg-accent text-white"
-                      : "rounded-[24px] hover:rounded-[16px] bg-canvas text-graphite hover:bg-accent-light hover:text-white"
-                  }
-                `}
-              >
-                {initials}
-              </div>
+              {initials}
             </button>
           );
         })}
       </div>
 
-      <div className="mt-auto pt-4 flex flex-col gap-3 items-center">
+      <div className="mt-auto flex flex-col items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onToggleSidebar}
+          aria-pressed={sidebarCollapsed}
+          title={sidebarCollapsed ? "Show the channel list" : "Hide the channel list"}
+          aria-label={sidebarCollapsed ? "Show the channel list" : "Hide the channel list"}
+          className="grid size-10 place-items-center rounded-[10px] text-fg-muted transition-colors hover:bg-hover hover:text-fg"
+        >
+          <PanelIcon collapsed={sidebarCollapsed} />
+        </button>
         <NotificationBell look="classic" threadHref={(id) => `/thread/${id}`} />
         <ThemeToggle />
       </div>
     </nav>
+  );
+}
+
+function PanelIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+      <rect x="1.5" y="2.5" width="15" height="13" rx="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M7 2.5V15.5" stroke="currentColor" strokeWidth="1.5" />
+      {!collapsed && <rect x="2.5" y="3.5" width="3.5" height="11" rx="1" fill="currentColor" opacity="0.35" />}
+    </svg>
   );
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Settings, Lock, Plus, Hash, Trash2 } from "lucide-react";
+import { Settings, Lock, Plus, MessagesSquare, Trash2 } from "lucide-react";
 import type { SessionUser } from "@/utils/supabase/access";
 import { getDisplayName, getInitials } from "@/utils/display-name";
 import { Team, Project, Thread } from "@/types/database";
@@ -21,19 +21,19 @@ interface SecondarySidebarProps {
   privateThreads: Thread[];
 }
 
+// DESIGN.md 5.4/7: the channel column is 264px, `bg`, right `line` border. Team Space
+// gets a navy dot, private threads a green dot; the active row is `selected` fill.
 export function SecondarySidebar({ user, team, project, sharedThread, privateThreads }: SecondarySidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { success: toastSuccess, error: toastError } = useToast();
-  // E4: status lives in `profiles` now (real, shared state), not per-browser
-  // localStorage. useTeammateStatuses keeps it live over Realtime, including your
-  // own row, so a change on the Profile page (or another device) shows up here
-  // without a focus event or a full page reload.
   const statuses = useTeammateStatuses();
   const status: StatusId = (user && statuses[user.id]) || "online";
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [newThreadName, setNewThreadName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteName, setConfirmDeleteName] = useState<string>("");
 
   const handleCreateThread = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,16 +51,12 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
     }
   };
 
-  const handleDeleteThread = async (e: React.MouseEvent, threadId: string, threadName: string) => {
+  const handleDeleteThread = (e: React.MouseEvent, threadId: string, threadName: string) => {
     e.preventDefault();
     e.stopPropagation();
-    // Use a client-side confirm via state instead of window.confirm
     setConfirmDeleteId(threadId);
     setConfirmDeleteName(threadName);
   };
-
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [confirmDeleteName, setConfirmDeleteName] = useState<string>("");
 
   const createThreadDialogRef = useDialogA11y(isCreatingThread, () => {
     setIsCreatingThread(false);
@@ -88,151 +84,124 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
 
   const displayName = getDisplayName(user);
   const initials = getInitials(displayName);
-
   const isActive = (id: string) => pathname === `/thread/${id}`;
 
   return (
-    <div className="w-full h-full bg-surface flex flex-col shrink-0">
-
-      {/* ── Server Header ───────────────────────────── */}
-      <div className="px-4 py-4 border-b border-border shadow-sm shadow-black/5 z-10 flex items-center justify-between">
-        <h2 className="font-semibold text-[15px] text-ink truncate">
-          {team?.name || "Select a Team"}
+    <div className="flex h-full w-full shrink-0 flex-col bg-bg">
+      <div className="flex h-14 items-center border-b border-line px-4">
+        <h2 className="truncate font-sans text-[15px] font-semibold text-fg">
+          {team?.name || "Select a team"}
         </h2>
       </div>
 
-      {/* ── Thread List ──────────────────────────── */}
-      <div className="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-4">
-
-        {/* ── Team Space section ── */}
+      <div className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
         {sharedThread && (
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-graphite/50 px-2 mb-1">
-              Team
+          <>
+            <p className="px-2 pb-1 pt-2 font-mono text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
+              Shared
             </p>
             <Link
               href={`/thread/${sharedThread.id}`}
-              className={`flex items-center gap-2.5 px-2 py-2 rounded-lg transition-all group
-                ${isActive(sharedThread.id)
-                  ? "bg-shared/10 text-shared-fg"
-                  : "text-graphite hover:bg-shared/6 hover:text-shared-fg"
-                }`}
+              className={`flex h-10 items-center gap-2.5 rounded-[10px] px-2.5 text-[14px] transition-colors ${
+                isActive(sharedThread.id)
+                  ? "bg-selected font-semibold text-team hover:bg-team-soft"
+                  : "text-fg-muted hover:bg-hover hover:text-fg"
+              }`}
             >
-              <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors
-                ${isActive(sharedThread.id) ? "bg-shared/15 text-shared" : "bg-surface-hover text-graphite group-hover:bg-shared/12 group-hover:text-shared"}`}>
-                <Hash size={14} />
-              </div>
-              <span className="text-[14px] font-medium truncate flex-1">
-                {sharedThread.name || "Team Space"}
-              </span>
+              <MessagesSquare size={15} className="shrink-0 text-team" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate">{sharedThread.name || "Team Space"}</span>
             </Link>
-          </div>
+          </>
         )}
 
-        {/* Divider */}
-        {sharedThread && <div className="h-px bg-border mx-1" />}
+        <div className="mt-3 flex items-center justify-between px-2 pb-1">
+          <p className="font-mono text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
+            Private threads
+          </p>
+          <button
+            onClick={() => setIsCreatingThread(true)}
+            title="New private thread"
+            aria-label="New private thread"
+            className="grid size-6 place-items-center rounded-md text-fg-subtle transition-colors hover:bg-hover hover:text-fg"
+          >
+            <Plus size={13} />
+          </button>
+        </div>
 
-        {/* ── Private threads section ── */}
-        <div className="flex-1">
-          <div className="px-2 mb-1 flex items-center justify-between text-graphite">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-graphite/50">
-              Private
-            </p>
+        {privateThreads.length === 0 ? (
+          <div className="px-2 py-4 text-center">
+            <Lock size={13} className="mx-auto mb-1.5 text-fg-subtle" aria-hidden="true" />
+            <p className="text-xs text-fg-subtle">No threads yet.</p>
             <button
               onClick={() => setIsCreatingThread(true)}
-              title="New private thread"
-              aria-label="New private thread"
-              className="min-w-[24px] min-h-[24px] rounded-md flex items-center justify-center transition-colors hover:bg-border hover:text-ink"
+              className="mt-1.5 text-[12px] font-medium text-team hover:underline"
             >
-              <Plus size={13} />
+              Create one
             </button>
           </div>
-
-          {privateThreads.length === 0 ? (
-            <div className="px-2 py-4 text-center">
-              <Lock size={13} className="text-graphite/30 mx-auto mb-1.5" />
-              <p className="text-xs text-graphite/50">No threads yet.</p>
+        ) : (
+          privateThreads.map((thread) => (
+            <Link
+              key={thread.id}
+              href={`/thread/${thread.id}`}
+              className={`group flex h-10 items-center gap-2.5 rounded-[10px] px-2.5 text-[14px] transition-colors ${
+                isActive(thread.id)
+                  ? "bg-selected font-semibold text-fg hover:bg-hover"
+                  : "text-fg-muted hover:bg-hover hover:text-fg"
+              }`}
+            >
+              <span className="size-1.5 shrink-0 rounded-full bg-private" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate">{thread.name || "Untitled"}</span>
               <button
-                onClick={() => setIsCreatingThread(true)}
-                className="mt-2 text-[11px] text-accent hover:underline"
+                onClick={(e) => handleDeleteThread(e, thread.id, thread.name || "Untitled")}
+                className="grid size-6 shrink-0 place-items-center rounded-md text-fg-subtle opacity-0 transition-all hover:bg-danger-soft hover:text-danger focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                title="Delete thread"
+                aria-label={`Delete thread "${thread.name || "Untitled"}"`}
               >
-                Create one
+                <Trash2 size={12} />
               </button>
-            </div>
-          ) : (
-            <div className="space-y-0.5">
-              {privateThreads.map((thread) => (
-                <Link
-                  key={thread.id}
-                  href={`/thread/${thread.id}`}
-                  className={`flex items-center gap-2.5 px-2 py-2 rounded-lg transition-colors group
-                    ${isActive(thread.id)
-                      ? "bg-surface-hover text-ink"
-                      : "text-graphite hover:bg-surface-hover hover:text-ink"
-                    }`}
-                >
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-colors
-                    ${isActive(thread.id) ? "bg-accent/15 text-accent" : "bg-surface-hover text-graphite/60 group-hover:bg-accent/10 group-hover:text-accent"}`}>
-                    <Lock size={11} />
-                  </div>
-                  <span className="text-[14px] font-medium truncate flex-1">
-                    {thread.name || "Untitled"}
-                  </span>
-                  <button
-                    onClick={(e) => handleDeleteThread(e, thread.id, thread.name || "Untitled")}
-                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 min-w-[24px] min-h-[24px] flex items-center justify-center text-graphite hover:text-red-500 transition-all rounded-md hover:bg-red-500/10 shrink-0"
-                    title="Delete thread"
-                    aria-label={`Delete thread "${thread.name || "Untitled"}"`}
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
+            </Link>
+          ))
+        )}
       </div>
 
-      {/* ── User Profile (bottom) ── */}
-      <div className="p-2 border-t border-border bg-surface flex items-center gap-2 shrink-0">
+      <div className="flex shrink-0 items-center gap-2 border-t border-line p-2">
         <Link
           href="/profile"
-          className={`flex-1 flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-surface-hover transition-colors min-w-0 ${
-            pathname === "/profile" ? "bg-surface-hover" : ""
+          className={`flex min-w-0 flex-1 items-center gap-2 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-hover ${
+            pathname === "/profile" ? "bg-hover" : ""
           }`}
         >
           <div className="relative shrink-0">
-            <div className="w-8 h-8 rounded-full bg-accent text-white flex items-center justify-center text-xs font-bold select-none">
+            <div className="grid size-8 select-none place-items-center rounded-full bg-team text-[12px] font-semibold text-white">
               {initials}
             </div>
             <div
               role="img"
               aria-label={`Status: ${STATUS_LABEL[status]}`}
-              className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-surface rounded-full ${STATUS_DOT_CLASS[status]}`}
+              className={`absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-bg ${STATUS_DOT_CLASS[status]}`}
             />
           </div>
-          <div className="flex-1 min-w-0 flex flex-col justify-center">
-            <p className="text-[13px] font-semibold text-ink leading-tight truncate">{displayName}</p>
-            <p className="text-[11px] text-graphite leading-tight truncate capitalize">
-              {STATUS_LABEL[status]}
-            </p>
+          <div className="flex min-w-0 flex-1 flex-col justify-center">
+            <p className="truncate text-[13px] font-semibold leading-tight text-fg">{displayName}</p>
+            <p className="truncate text-[11px] capitalize leading-tight text-fg-subtle">{STATUS_LABEL[status]}</p>
           </div>
         </Link>
         <Link
           href="/settings"
           title="Settings"
           aria-label="Settings"
-          className={`w-8 h-8 flex items-center justify-center rounded-md hover:bg-surface-hover transition-colors shrink-0
-            ${pathname === "/settings" ? "text-ink bg-surface-hover" : "text-graphite hover:text-ink"}`}
+          className={`grid size-8 shrink-0 place-items-center rounded-[10px] transition-colors hover:bg-hover ${
+            pathname === "/settings" ? "bg-hover text-fg" : "text-fg-muted hover:text-fg"
+          }`}
         >
-          <Settings size={18} />
+          <Settings size={17} />
         </Link>
       </div>
 
-      {/* ── Create Thread Modal ── */}
       {isCreatingThread && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim backdrop-blur-sm"
           onClick={() => { setIsCreatingThread(false); setNewThreadName(""); }}
         >
           <div
@@ -241,31 +210,34 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
             aria-modal="true"
             aria-labelledby="new-thread-title"
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface p-6 rounded-2xl shadow-xl w-full max-w-sm border border-border mx-4"
+            className="mx-4 w-full max-w-sm rounded-panel border border-line bg-card p-6 shadow-[var(--ds-shadow-overlay)]"
           >
-            <h3 id="new-thread-title" className="text-base font-semibold text-ink mb-4">New Thread</h3>
+            <h3 id="new-thread-title" className="mb-4 font-display text-[19px] font-medium text-fg">
+              New thread
+            </h3>
             <form onSubmit={handleCreateThread}>
               <input
+                id="new-thread-name"
                 type="text"
                 autoFocus
                 value={newThreadName}
                 onChange={(e) => setNewThreadName(e.target.value)}
                 placeholder="e.g. Exploring auth flow…"
-                className="w-full px-3 py-2 bg-canvas border border-border rounded-xl text-ink mb-4 focus:outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/10 transition-colors text-sm"
+                className="mb-4 w-full rounded-[10px] border border-field-line bg-field px-3 py-2 text-sm text-fg transition-colors focus:outline-none focus:ring-2 focus:ring-team/30"
                 disabled={isSubmitting}
               />
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => { setIsCreatingThread(false); setNewThreadName(""); }}
-                  className="px-4 py-2 rounded-xl text-sm text-graphite hover:text-ink hover:bg-surface-hover transition-colors"
+                  className="rounded-[10px] px-4 py-2 text-sm text-fg-muted transition-colors hover:bg-hover hover:text-fg"
                   disabled={isSubmitting}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl text-sm bg-accent text-white hover:bg-accent/90 transition-all hover:scale-[0.98] active:scale-95 disabled:opacity-50"
+                  className="rounded-[10px] bg-fg px-4 py-2 text-sm font-medium text-bg transition-opacity hover:opacity-90 disabled:opacity-50"
                   disabled={!newThreadName.trim() || isSubmitting}
                 >
                   {isSubmitting ? "Creating…" : "Create"}
@@ -276,10 +248,9 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
         </div>
       )}
 
-      {/* ── Delete Confirmation Modal ── */}
       {confirmDeleteId && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-scrim backdrop-blur-sm"
           onClick={() => setConfirmDeleteId(null)}
         >
           <div
@@ -288,22 +259,24 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
             aria-modal="true"
             aria-labelledby="delete-thread-title"
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface p-6 rounded-2xl shadow-xl w-full max-w-sm border border-border mx-4"
+            className="mx-4 w-full max-w-sm rounded-panel border border-line bg-card p-6 shadow-[var(--ds-shadow-overlay)]"
           >
-            <h3 id="delete-thread-title" className="text-base font-semibold text-ink mb-1">Delete Thread?</h3>
-            <p className="text-sm text-graphite mb-5">
+            <h3 id="delete-thread-title" className="mb-1 font-display text-[19px] font-medium text-fg">
+              Delete thread?
+            </h3>
+            <p className="mb-5 text-sm text-fg-muted">
               &ldquo;{confirmDeleteName}&rdquo; will be permanently deleted with all its messages.
             </p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmDeleteId(null)}
-                className="px-4 py-2 rounded-xl text-sm text-graphite hover:text-ink hover:bg-surface-hover transition-colors"
+                className="rounded-[10px] px-4 py-2 text-sm text-fg-muted transition-colors hover:bg-hover hover:text-fg"
               >
                 Cancel
               </button>
               <button
                 onClick={executeDelete}
-                className="px-4 py-2 rounded-xl text-sm bg-red-500 text-white hover:bg-red-600 transition-all hover:scale-[0.98] active:scale-95"
+                className="rounded-[10px] bg-danger px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
               >
                 Delete
               </button>
