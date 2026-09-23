@@ -230,9 +230,12 @@ function WorkspaceReady({ workspace }: { workspace: ReadyWorkspace }) {
         </li>
       </ul>
 
-      <Link href={`/thread/${workspace.sharedThreadId}`} className={`${primaryButtonClass} mt-6`}>
+      <Link href={`/thread/${workspace.sharedThreadId}?tour=1`} className={`${primaryButtonClass} mt-6`}>
         Open Team Space <ArrowRight size={17} aria-hidden="true" />
       </Link>
+      <p className="mt-2 text-center text-[13px] text-fg-subtle">
+        We&rsquo;ll point out the basics the first time you land there.
+      </p>
     </div>
   );
 }
