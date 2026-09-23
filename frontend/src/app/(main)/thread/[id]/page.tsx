@@ -27,9 +27,9 @@ export default async function ThreadPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ catchup?: string | string[] }>;
+  searchParams: Promise<{ catchup?: string | string[]; tour?: string | string[] }>;
 }) {
-  const [{ id }, { catchup }] = await Promise.all([params, searchParams]);
+  const [{ id }, { catchup, tour }] = await Promise.all([params, searchParams]);
 
   const user = await getCurrentUser();
   if (!user) redirect("/login");
@@ -73,6 +73,8 @@ export default async function ThreadPage({
       currentUserName={getDisplayName(user)}
       // Set by the invite flow (?catchup=1) so newcomers get a digest of what they missed.
       autoCatchUp={thread.type === "shared" && catchup === "1"}
+      // Set by onboarding's Ready screen (?tour=1) to play the coach-mark tour.
+      startTour={thread.type === "shared" && tour === "1"}
     />
   );
 }

@@ -28,10 +28,36 @@ import { useSeenBy } from "@/hooks/useSeenBy";
 import { usePagedMessages } from "@/hooks/usePagedMessages";
 import { useThreadDecisions } from "@/hooks/useThreadDecisions";
 import { useTeammateStatuses, STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
+import { CoachMarks, type CoachStep } from "../onboarding/CoachMarks";
 
 import { Thread, Message } from "@/types/database";
 import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE } from "@/utils/ai-errors";
 
+// Phase 3 of the onboarding rebuild: real targets in the actual Team Space UI,
+// proving the CoachMarks engine against the live screen rather than a mock.
+// Phase 4 still needs to persist "seen it" server-side (profiles column) so
+// this stops firing after the first visit — right now it only runs once per
+// page load because ?tour=1 is stripped from the URL below.
+const TEAM_SPACE_TOUR_STEPS: CoachStep[] = [
+  {
+    target: '[data-coach-mark="thread-title"]',
+    title: "This is Team Space",
+    body: "Everyone on the team sees this thread, including replies from @AI.",
+    placement: "bottom",
+  },
+  {
+    target: '[aria-label="Message"]',
+    title: "Say something, or ask @AI",
+    body: "Type normally, or start with @AI to bring the assistant in. Everyone here sees the reply.",
+    placement: "top",
+  },
+  {
+    target: '[aria-label^="View pinned decisions"]',
+    title: "Pin what matters",
+    body: "Pin a message to mark it as a team Decision — it shows up in one list so nothing important gets lost.",
+    placement: "bottom",
+  },
+];
 
 export function ThreadView({
   thread,
@@ -41,6 +67,7 @@ export function ThreadView({
   currentUserId,
   currentUserName,
   autoCatchUp = false,
+  startTour = false,
 }: {
   thread: Thread;
   messages: Message[];
@@ -49,6 +76,7 @@ export function ThreadView({
   currentUserId: string;
   currentUserName: string;
   autoCatchUp?: boolean;
+  startTour?: boolean;
 }) {
   const { error: toastError, success: toastSuccess, warning: toastWarning } = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -409,6 +437,19 @@ export function ThreadView({
     void handleCatchMeUp();
   }, [autoCatchUp, isPrivate, handleCatchMeUp]);
 
+  // Onboarding hand-off: play the coach-mark tour once on arrival, then drop
+  // ?tour=1 the same way ?catchup=1 is dropped above.
+  const [tourActive, setTourActive] = useState(false);
+  const tourStartDone = useRef(false);
+  useEffect(() => {
+    if (!startTour || isPrivate || tourStartDone.current) return;
+    tourStartDone.current = true;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("tour");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    setTourActive(true);
+  }, [startTour, isPrivate]);
+
   // ── AI auto-replies (private threads) ──────────────────────────────────────
   // A missing column (schema.sql not re-run yet) reads as undefined, so replies stay on.
   const [autoReply, setAutoReply] = useState(thread.ai_auto_reply !== false);
@@ -601,7 +642,10 @@ export function ThreadView({
                   <IconButton label="Cancel renaming" icon={<X size={14} />} size="sm" onClick={cancelEditingName} disabled={isRenaming} />
                 </div>
               ) : (
-                <h2 className="group/name flex items-center gap-1.5 font-display font-medium text-[17px] leading-tight text-fg">
+                <h2
+                  data-coach-mark="thread-title"
+                  className="group/name flex items-center gap-1.5 font-display font-medium text-[17px] leading-tight text-fg"
+                >
                   <span className="truncate">{localName || (isPrivate ? "Private Thread" : "Team Space")}</span>
                   {canRename && (
                     <IconButton
@@ -935,6 +979,11 @@ export function ThreadView({
           decisions={decisions}
           names={threadNames.names}
         />
+      )}
+
+      {/* ── Onboarding coach-mark tour ──────────────────────────────── */}
+      {!isPrivate && tourActive && (
+        <CoachMarks steps={TEAM_SPACE_TOUR_STEPS} onDone={() => setTourActive(false)} />
       )}
     </div>
   );
