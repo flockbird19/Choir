@@ -20,6 +20,7 @@ import {
   setThreadAutoReply,
   renameThread,
 } from "../../app/(main)/thread/[id]/actions";
+import { markOnboardingTourSeen } from "../../app/(main)/profile/actions";
 import { useToast } from "../Toast";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useThreadPresence } from "@/hooks/useThreadPresence";
@@ -33,11 +34,10 @@ import { CoachMarks, type CoachStep } from "../onboarding/CoachMarks";
 import { Thread, Message } from "@/types/database";
 import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE } from "@/utils/ai-errors";
 
-// Phase 3 of the onboarding rebuild: real targets in the actual Team Space UI,
-// proving the CoachMarks engine against the live screen rather than a mock.
-// Phase 4 still needs to persist "seen it" server-side (profiles column) so
-// this stops firing after the first visit — right now it only runs once per
-// page load because ?tour=1 is stripped from the URL below.
+// Onboarding rebuild: real targets in the actual Team Space UI. Whether the
+// tour plays at all is decided server-side in thread/[id]/page.tsx (?tour=1
+// plus profiles.seen_onboarding_tour); markOnboardingTourSeen() below records
+// it once the tour is dismissed so it doesn't replay on a future visit.
 const TEAM_SPACE_TOUR_STEPS: CoachStep[] = [
   {
     target: '[data-coach-mark="thread-title"]',
@@ -983,7 +983,13 @@ export function ThreadView({
 
       {/* ── Onboarding coach-mark tour ──────────────────────────────── */}
       {!isPrivate && tourActive && (
-        <CoachMarks steps={TEAM_SPACE_TOUR_STEPS} onDone={() => setTourActive(false)} />
+        <CoachMarks
+          steps={TEAM_SPACE_TOUR_STEPS}
+          onDone={() => {
+            setTourActive(false);
+            void markOnboardingTourSeen();
+          }}
+        />
       )}
     </div>
   );

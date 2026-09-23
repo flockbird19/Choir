@@ -8,9 +8,10 @@
 -- permission fixes). Applied 2026-09-18 (Batch 2): profiles with status (E4),
 -- thread_reads.last_read_at (E5), messages.source_message_ids (K3).
 -- Pending re-run (Batch 2b): foreign-key indexes, thread_summaries (D3).
--- Pending re-run (2026-09-22, L16): rename permission on threads.name — a new
--- "Team members can rename shared threads" policy, and the update grant on
--- threads now includes name (previously ai_auto_reply only).
+-- Applied 2026-09-23: L16 rename permission on threads.name (the "Team members
+-- can rename shared threads" policy, and threads' update grant including name).
+-- Pending re-run (2026-09-23, E2 phase 4): profiles.seen_onboarding_tour, so the
+-- Team Space coach-mark tour persists "seen it" per account instead of per page load.
 -- ============================================================================
 
 begin;
@@ -125,6 +126,10 @@ create table if not exists public.profiles (
   status text,
   updated_at timestamptz not null default now()
 );
+
+-- E2 onboarding rebuild: has this account clicked through the Team Space coach-mark
+-- tour? Server-side so it follows the account across devices, not per-browser.
+alter table public.profiles add column if not exists seen_onboarding_tour boolean not null default false;
 
 -- Fill it for everyone who already has an account, and keep it filled for new sign-ups.
 insert into public.profiles (id, display_name)
@@ -545,7 +550,7 @@ grant update (mode) on public.shared_keys to authenticated;
 
 -- E4: people may only change their own display name and status, never anyone's id.
 revoke update on public.profiles from anon, authenticated;
-grant update (display_name, status, updated_at) on public.profiles to authenticated;
+grant update (display_name, status, updated_at, seen_onboarding_tour) on public.profiles to authenticated;
 -- A self-created profile row sets only these columns; the rule above pins id to yourself.
 revoke insert on public.profiles from anon, authenticated;
 grant insert (id, display_name, status) on public.profiles to authenticated;

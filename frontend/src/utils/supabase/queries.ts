@@ -101,3 +101,21 @@ export async function getDecisions(threadId: string): Promise<Message[]> {
   }
   return data as Message[];
 }
+
+// E2 onboarding rebuild: has this account already clicked through the Team
+// Space coach-mark tour? Only queried when ?tour=1 is present (see thread
+// page), so a normal thread visit doesn't pay for this round trip.
+export async function getSeenOnboardingTour(userId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("seen_onboarding_tour")
+    .eq("id", userId)
+    .single();
+
+  if (error) {
+    console.error("Error fetching seen_onboarding_tour:", error);
+    return false;
+  }
+  return data?.seen_onboarding_tour ?? false;
+}

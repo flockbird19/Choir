@@ -66,6 +66,22 @@ export async function getMyStatus(): Promise<StatusId> {
   return status && STATUS_IDS.includes(status) ? status : 'online'
 }
 
+// E2 onboarding rebuild: called once the Team Space coach-mark tour is
+// finished or skipped, so it doesn't replay on a future visit or device.
+export async function markOnboardingTourSeen() {
+  const user = await getCurrentUser()
+  if (!user) return { error: 'Not signed in.' }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('profiles')
+    .update({ seen_onboarding_tour: true, updated_at: new Date().toISOString() })
+    .eq('id', user.id)
+  if (error) return { error: error.message }
+
+  return { success: true }
+}
+
 export async function signOut() {
   const supabase = await createClient()
   await supabase.auth.signOut()

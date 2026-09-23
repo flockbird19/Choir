@@ -1,4 +1,4 @@
-import { getMessages, getWorkspace } from "@/utils/supabase/queries";
+import { getMessages, getWorkspace, getSeenOnboardingTour } from "@/utils/supabase/queries";
 import { getAccessibleThread, getCurrentUser } from "@/utils/supabase/access";
 import { getDisplayName } from "@/utils/display-name";
 import { ThreadView } from "@/components/chat/ThreadView";
@@ -61,6 +61,10 @@ export default async function ThreadPage({
 
   const sharedMessages: Message[] = sharedThread ? await getMessages(sharedThread.id) : [];
 
+  // Only pay for this round trip when the tour was actually requested.
+  const wantsTour = thread.type === "shared" && tour === "1";
+  const alreadySeenTour = wantsTour ? await getSeenOnboardingTour(user.id) : true;
+
   return (
     <ThreadView
       // A fresh view per thread, so per-thread state (mute, banners, drafts) never leaks across.
@@ -73,8 +77,9 @@ export default async function ThreadPage({
       currentUserName={getDisplayName(user)}
       // Set by the invite flow (?catchup=1) so newcomers get a digest of what they missed.
       autoCatchUp={thread.type === "shared" && catchup === "1"}
-      // Set by onboarding's Ready screen (?tour=1) to play the coach-mark tour.
-      startTour={thread.type === "shared" && tour === "1"}
+      // Set by onboarding's Ready screen (?tour=1), unless this account has
+      // already clicked through the coach-mark tour before.
+      startTour={wantsTour && !alreadySeenTour}
     />
   );
 }
