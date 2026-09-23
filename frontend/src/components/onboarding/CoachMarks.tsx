@@ -1,18 +1,29 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { ArrowLeft, ArrowRight, X } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
 import { trapTabKey } from "@/components/ui/focusTrap";
+
+export type CoachAccent = "team" | "primary" | "decision";
 
 export interface CoachStep {
   /** CSS selector for the element to highlight. */
   target: string;
   title: string;
   body: string;
+  icon: ReactNode;
+  /** Matches the icon chip to the same semantic colour the target already uses elsewhere. */
+  accent?: CoachAccent;
   placement?: "top" | "bottom" | "left" | "right";
 }
+
+const ACCENT_CLASS: Record<CoachAccent, string> = {
+  team: "bg-team-soft text-team",
+  primary: "bg-primary-soft text-primary",
+  decision: "bg-decision-soft text-decision",
+};
 
 interface CoachMarksProps {
   steps: CoachStep[];
@@ -129,11 +140,14 @@ export function CoachMarks({ steps, onDone }: CoachMarksProps) {
     height: rect.height + SPOTLIGHT_PADDING * 2,
   };
 
+  const isLastStep = stepIndex === steps.length - 1;
+  const accentClass = ACCENT_CLASS[step.accent ?? "primary"];
+
   return (
     <div className="fixed inset-0 z-[900]" onKeyDown={handleKeyDown}>
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute rounded-[14px] shadow-[0_0_0_9999px_rgba(15,23,42,0.72)] ring-2 ring-primary transition-[top,left,width,height] duration-300 motion-reduce:transition-none dark:shadow-[0_0_0_9999px_rgba(0,0,0,0.78)]"
+        className="pointer-events-none absolute animate-pop rounded-[14px] shadow-[0_0_0_9999px_rgba(15,23,42,0.72)] ring-2 ring-primary transition-[top,left,width,height] duration-300 motion-reduce:transition-none dark:shadow-[0_0_0_9999px_rgba(0,0,0,0.78)]"
         style={spotlightStyle}
       />
 
@@ -143,13 +157,18 @@ export function CoachMarks({ steps, onDone }: CoachMarksProps) {
         aria-labelledby="coach-mark-title"
         aria-describedby="coach-mark-body"
         tabIndex={-1}
-        className="absolute w-[300px] max-w-[calc(100vw-1.75rem)] rounded-card border border-line bg-card p-4 shadow-overlay outline-none"
+        className="absolute w-[300px] max-w-[calc(100vw-1.75rem)] animate-pop rounded-card border border-line bg-card p-4 shadow-overlay outline-none"
         style={placementStyle(rect, step.placement ?? "bottom")}
       >
-        <div className="flex items-start justify-between gap-2">
-          <p id="coach-mark-title" className="font-display text-[15px] font-semibold leading-snug text-fg">
-            {step.title}
-          </p>
+        <div className="flex items-start justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <span className={`flex size-8 shrink-0 items-center justify-center rounded-control ${accentClass}`} aria-hidden="true">
+              {step.icon}
+            </span>
+            <p id="coach-mark-title" className="font-display text-[15px] font-semibold leading-snug text-fg">
+              {step.title}
+            </p>
+          </div>
           <IconButton
             label="Skip tour"
             icon={<X size={14} aria-hidden="true" />}
@@ -159,22 +178,35 @@ export function CoachMarks({ steps, onDone }: CoachMarksProps) {
             className="-mr-1.5 -mt-1.5 shrink-0"
           />
         </div>
-        <p id="coach-mark-body" className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">
+        <p id="coach-mark-body" className="mt-2.5 text-[13px] leading-relaxed text-fg-muted">
           {step.body}
         </p>
 
         <div className="mt-4 flex items-center justify-between gap-2">
-          <span className="text-[12px] text-fg-subtle">
-            {stepIndex + 1} of {steps.length}
-          </span>
+          <div className="flex items-center gap-1.5" role="img" aria-label={`Step ${stepIndex + 1} of ${steps.length}`}>
+            {steps.map((s, i) => (
+              <span
+                key={s.target}
+                aria-hidden="true"
+                className={`h-1.5 rounded-pill transition-all duration-200 ${
+                  i === stepIndex ? "w-5 bg-primary" : "w-1.5 bg-line-strong"
+                }`}
+              />
+            ))}
+          </div>
           <div className="flex gap-2">
             {stepIndex > 0 && (
               <Button variant="secondary" size="sm" onClick={goBack} leadingIcon={<ArrowLeft size={13} aria-hidden="true" />}>
                 Back
               </Button>
             )}
-            <Button variant="primary" size="sm" onClick={goNext} trailingIcon={<ArrowRight size={13} aria-hidden="true" />}>
-              {stepIndex === steps.length - 1 ? "Done" : "Next"}
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={goNext}
+              trailingIcon={isLastStep ? <Check size={13} aria-hidden="true" /> : <ArrowRight size={13} aria-hidden="true" />}
+            >
+              {isLastStep ? "Done" : "Next"}
             </Button>
           </div>
         </div>
@@ -187,7 +219,13 @@ function placementStyle(rect: DOMRect, placement: "top" | "bottom" | "left" | "r
   const clampedLeft = clamp(rect.left, CARD_MARGIN, window.innerWidth - CARD_WIDTH - CARD_MARGIN);
   switch (placement) {
     case "top":
-      return { left: clampedLeft, top: rect.top - CARD_MARGIN, transform: "translateY(-100%)" };
+      // Anchored from the viewport's bottom edge instead of `top` + `transform:
+      // translateY(-100%)`: the entrance animation (animate-pop) also animates
+      // `transform`, and a CSS animation's transform replaces an inline one
+      // entirely rather than composing with it — that silently cancelled the
+      // translateY and let the card render below the fold. bottom needs no
+      // transform, and the parent is `fixed inset-0` so it's viewport-relative.
+      return { left: clampedLeft, bottom: window.innerHeight - (rect.top - CARD_MARGIN) };
     case "left":
       return { top: rect.top, left: Math.max(CARD_MARGIN, rect.left - CARD_WIDTH - CARD_MARGIN) };
     case "right":
