@@ -35,6 +35,13 @@ def parse_allowed_origins(value: str | None) -> list[str]:
     return [origin.strip().rstrip("/") for origin in (value or DEFAULT_ALLOWED_ORIGINS).split(",") if origin.strip()]
 
 
+# M1 spike: the MCP server a connected coding agent talks to directly, with its own
+# hashed-token auth (see agent_mcp.py) instead of this app's normal JWT auth. Built
+# once here (not inside app.mount) because its lifespan has to be driven manually
+# below -- see the comment in lifespan().
+mcp_app = mcp_server.streamable_http_app(streamable_http_path="/")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # Refuse to start against a database that is missing tables, instead of
@@ -46,7 +53,13 @@ async def lifespan(_app: FastAPI):
             + ", ".join(missing)
             + ". Run schema.sql in the Supabase SQL Editor before starting the backend."
         )
-    yield
+    # app.mount() does not cascade ASGI lifespan startup/shutdown to a mounted
+    # sub-app -- confirmed directly, not assumed. Without this, the MCP session
+    # manager's task group never starts and every request 500s with "Task group
+    # is not initialized". Running its lifespan_context here is what actually
+    # starts it.
+    async with mcp_app.router.lifespan_context(mcp_app):
+        yield
 
 
 app = FastAPI(title="Choir AI Backend", lifespan=lifespan)
@@ -62,9 +75,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# M1 spike: the MCP server a connected coding agent talks to directly, with its own
-# hashed-token auth (see agent_mcp.py) instead of this app's normal JWT auth.
-app.mount("/mcp", mcp_server.streamable_http_app(streamable_http_path="/"))
+app.mount("/mcp", mcp_app)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
