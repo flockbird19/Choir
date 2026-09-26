@@ -37,6 +37,7 @@ REQUIRED_TABLES = [
     "shared_keys",
     "profiles",
     "thread_summaries",
+    "agent_connections",
 ]
 
 # PostgREST: table not in schema cache / Postgres: undefined table.

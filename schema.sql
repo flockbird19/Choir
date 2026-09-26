@@ -12,6 +12,10 @@
 -- can rename shared threads" policy, and threads' update grant including name).
 -- Pending re-run (2026-09-23, E2 phase 4): profiles.seen_onboarding_tour, so the
 -- Team Space coach-mark tour persists "seen it" per account instead of per page load.
+-- Pending re-run (2026-09-26, M1/M2 spike, on branch spike-agents): profiles.kind/
+-- owner_id and the new agent_connections table, for connecting a coding agent to a
+-- project via MCP. Additive only (new columns with a default, new table) — safe to
+-- run against live even though the spike itself is unproven; nothing existing changes.
 -- ============================================================================
 
 begin;
@@ -27,7 +31,7 @@ declare
 begin
   foreach t in array array['messages', 'threads', 'projects', 'team_members', 'teams',
                            'team_invitations', 'user_api_keys', 'thread_reads', 'ai_request_log',
-                           'notifications', 'shared_keys', 'profiles', 'thread_summaries']
+                           'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections']
   loop
     if to_regclass('public.' || t) is not null then
       execute format('lock table public.%I in access exclusive mode', t);
@@ -136,6 +140,26 @@ insert into public.profiles (id, display_name)
 select u.id, coalesce(nullif(u.raw_user_meta_data->>'full_name', ''), nullif(u.raw_user_meta_data->>'name', ''), split_part(u.email, '@', 1))
 from auth.users u
 on conflict (id) do nothing;
+
+-- M2 spike: an "agent" is a real (synthetic, non-login) auth.users account owned by
+-- the person who connected it, so it's already a normal team_members/messages.sender_id
+-- everywhere else — no RLS or FK changes needed for it to post or be seen.
+alter table public.profiles add column if not exists kind text not null default 'human' check (kind in ('human', 'agent'));
+alter table public.profiles add column if not exists owner_id uuid references auth.users(id);
+
+-- M1 spike: one row per connected coding tool. The token is hashed (never stored raw) —
+-- the backend hashes an incoming token and looks it up, it never needs to recover it.
+create table if not exists public.agent_connections (
+  id uuid primary key default gen_random_uuid(),
+  agent_user_id uuid references auth.users(id) on delete cascade,
+  owner_id uuid references auth.users(id) on delete cascade,
+  project_id uuid references public.projects(id) on delete cascade,
+  name text not null,
+  kind text,
+  token_hash text not null unique,
+  created_at timestamptz default now(),
+  last_seen_at timestamptz
+);
 
 create or replace function public.create_profile_for_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -288,6 +312,7 @@ alter table public.notifications    enable row level security;
 alter table public.shared_keys      enable row level security;
 alter table public.profiles         enable row level security;
 alter table public.thread_summaries enable row level security;
+alter table public.agent_connections enable row level security;
 
 -- ── 4. Access helpers (same rules as the app and backend access checks) ──────
 
@@ -345,7 +370,7 @@ begin
     where schemaname = 'public'
       and tablename in ('teams', 'team_members', 'projects', 'threads', 'messages',
                         'user_api_keys', 'team_invitations', 'thread_reads', 'ai_request_log',
-                        'notifications', 'shared_keys', 'profiles', 'thread_summaries')
+                        'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections')
   loop
     execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
   end loop;
@@ -449,6 +474,12 @@ create policy "Pin messages in accessible shared threads" on public.messages
 -- API keys: only your own (the backend reads them with the service key)
 create policy "Manage own API keys" on public.user_api_keys
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Agent connections: only the person who connected an agent can see or revoke it.
+-- Never touched by the agent's own requests — those go through the backend's
+-- service-role client after it verifies the token itself.
+create policy "Manage own agent connections" on public.agent_connections
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
 -- Invitations: team members only — no public reading of tokens.
 -- Accepting an invite uses the server's admin client, so it still works.

@@ -5,6 +5,7 @@ import { DangerZone } from "./DangerZone";
 import { KeyRound } from "lucide-react";
 import { getWorkspace } from "@/utils/supabase/queries";
 import { getCurrentUser } from "@/utils/supabase/access";
+import { ConnectAgentPanel } from "./ConnectAgentPanel";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -45,6 +46,11 @@ export default async function SettingsPage() {
             API Keys
           </h2>
           <SettingsClient initialSavedProviders={savedProviders} />
+        </div>
+
+        {/* Section: Connect your AI (M1/M2 spike) */}
+        <div className="mt-10">
+          <ConnectAgentPanel />
         </div>
 
         {/* Section: Invite Members */}

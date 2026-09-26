@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from backend.agent_mcp import mcp_server
+from backend.agents import AgentError, create_agent_connection
 from backend.auth import get_current_user
 from backend.db import find_missing_tables, get_accessible_thread, get_db, verify_thread_access
 from backend.errors import ErrorMiddleware, safe_sse_stream
@@ -59,6 +61,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# M1 spike: the MCP server a connected coding agent talks to directly, with its own
+# hashed-token auth (see agent_mcp.py) instead of this app's normal JWT auth.
+app.mount("/mcp", mcp_server.streamable_http_app(streamable_http_path="/"))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -113,6 +119,28 @@ def remove_key(provider: str, user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail=f"Invalid provider '{provider}'.")
     delete_api_key(user_id, provider)
     return {"message": f"API key for '{provider}' removed."}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# M1/M2 spike — connecting a coding agent to a project
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class ConnectAgentRequest(BaseModel):
+    project_id: str
+    kind: str = "Agent"  # a free-text label, e.g. "Claude Code" -- not enforced
+
+
+@app.post("/api/agents/connect", status_code=201)
+def connect_agent(body: ConnectAgentRequest, user_id: str = Depends(get_current_user)):
+    """
+    Create (or reuse) this person's agent account and mint a new MCP token for a
+    project. The raw token is returned once -- only its hash is ever stored.
+    """
+    try:
+        return create_agent_connection(user_id, body.project_id, body.kind)
+    except AgentError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
