@@ -31,3 +31,9 @@ wheels/
 /index.html
 /index-clarity.html
 /app-shell-mockup.html
+
+# Pitch-video outro (Manim source + renders), local-only
+/ChoirOutro.mp4
+/ChoirOutroLight.mp4
+/choir_outro.py
+/choir_outro_light.py
