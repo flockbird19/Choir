@@ -73,7 +73,7 @@ export function PrimarySidebar({
         >
           <PanelIcon collapsed={sidebarCollapsed} />
         </button>
-        <NotificationBell look="classic" threadHref={(id) => `/thread/${id}`} />
+        <NotificationBell />
         <ThemeToggle />
       </div>
     </nav>

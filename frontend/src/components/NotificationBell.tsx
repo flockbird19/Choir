@@ -5,35 +5,19 @@ import { useRouter } from "next/navigation";
 import { Bell, CheckCheck, KeyRound } from "lucide-react";
 import { useNotifications, type AppNotification } from "@/hooks/useNotifications";
 import { providerName } from "@/utils/providers";
-import { formatDayLabel, formatTime } from "@/components/thread-v2/format";
+import { formatDayLabel, formatTime } from "@/utils/format";
 import { cn } from "@/components/ui/cn";
 
-type Look = "classic" | "v2";
-
-// Classes per view, so the bell matches the sidebar it sits in.
-const STYLES: Record<Look, Record<"button" | "count" | "panel" | "heading" | "muted" | "item" | "unread" | "action", string>> = {
-  classic: {
-    button:
-      "w-11 h-11 rounded-full text-graphite hover:bg-surface-hover hover:text-ink aria-expanded:bg-surface-hover aria-expanded:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-    count: "bg-accent text-accent-fg ring-2 ring-canvas",
-    panel: "left-full bottom-0 ml-2 w-80 rounded-2xl border border-border bg-surface text-ink shadow-lg shadow-ink/10",
-    heading: "font-semibold text-sm text-ink",
-    muted: "text-graphite",
-    item: "hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent",
-    unread: "bg-accent",
-    action: "text-graphite hover:text-ink hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent",
-  },
-  v2: {
-    button:
-      "size-11 sm:size-9 rounded-control text-fg-muted hover:bg-hover hover:text-fg aria-expanded:bg-selected aria-expanded:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-    count: "bg-primary text-on-primary ring-2 ring-sunken",
-    panel: "inset-x-2 bottom-full mb-2 rounded-card border border-line bg-card text-fg shadow-overlay animate-pop motion-reduce:animate-none",
-    heading: "text-body-sm font-semibold text-fg",
-    muted: "text-fg-subtle",
-    item: "hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
-    unread: "bg-team",
-    action: "text-fg-muted hover:text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-ring",
-  },
+const STYLES = {
+  button:
+    "w-11 h-11 rounded-full text-graphite hover:bg-surface-hover hover:text-ink aria-expanded:bg-surface-hover aria-expanded:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+  count: "bg-accent text-accent-fg ring-2 ring-canvas",
+  panel: "left-full bottom-0 ml-2 w-80 rounded-2xl border border-border bg-surface text-ink shadow-lg shadow-ink/10",
+  heading: "font-semibold text-sm text-ink",
+  muted: "text-graphite",
+  item: "hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent",
+  unread: "bg-accent",
+  action: "text-graphite hover:text-ink hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent",
 };
 
 function describe(n: AppNotification): { title: string; hint: string } {
@@ -53,13 +37,9 @@ function when(iso: string) {
   return day === "Today" ? formatTime(iso) : `${day}, ${formatTime(iso)}`;
 }
 
-/**
- * Bell with an unread count and a list of the latest notifications. `look` matches the
- * sidebar it sits in. The classic panel opens to the right of the rail; the v2 panel
- * opens above, across the nearest positioned ancestor (the sidebar footer).
- */
-export function NotificationBell({ look, threadHref }: { look: Look; threadHref: (threadId: string) => string }) {
-  const s = STYLES[look];
+/** Bell with an unread count and a list of the latest notifications, opening to the right of the rail. */
+export function NotificationBell() {
+  const s = STYLES;
   const router = useRouter();
   const { items, loaded, unreadCount, unreadIds, markRead } = useNotifications();
   const [open, setOpen] = useState(false);
@@ -87,13 +67,13 @@ export function NotificationBell({ look, threadHref }: { look: Look; threadHref:
     if (!n.read_at) void markRead([n.id]);
     const threadId = typeof n.payload.thread_id === "string" ? n.payload.thread_id : null;
     setOpen(false);
-    if (threadId) router.push(threadHref(threadId));
+    if (threadId) router.push(`/thread/${threadId}`);
   };
 
   const label = unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications";
 
   return (
-    <div className={look === "classic" ? "relative" : "contents"}>
+    <div className="relative">
       <button
         ref={buttonRef}
         type="button"

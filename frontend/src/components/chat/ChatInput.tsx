@@ -30,8 +30,6 @@ interface ChatInputProps {
   aiMode?: "mention" | "auto" | "muted";
 }
 
-// Same list as components/thread-v2/models.ts — kept in sync until the classic view
-// is removed, since both share the "choir_selected_model" localStorage key.
 const AVAILABLE_MODELS = [
   { provider: "anthropic", id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
   { provider: "anthropic", id: "claude-sonnet-5", name: "Sonnet 5" },
