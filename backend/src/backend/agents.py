@@ -78,13 +78,18 @@ def _ensure_agent_account(owner_id: str, team_id: str) -> str:
         )
         agent_user_id = created.user.id
 
-        db.table("profiles").insert(
+        # schema.sql's create_profile_on_signup trigger already inserted a bare
+        # profiles row for this new auth.users account (on conflict do nothing,
+        # display_name from the synthetic email) -- upsert to fill in the real
+        # name, kind and owner instead of colliding with it.
+        db.table("profiles").upsert(
             {
                 "id": agent_user_id,
                 "display_name": f"{owner_name}'s Agent",
                 "kind": "agent",
                 "owner_id": owner_id,
-            }
+            },
+            on_conflict="id",
         ).execute()
 
     # Idempotent — fine to call even if it's already a member of this team.
