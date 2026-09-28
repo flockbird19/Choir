@@ -37,3 +37,6 @@ wheels/
 /ChoirOutroLight.mp4
 /choir_outro.py
 /choir_outro_light.py
+
+# /brag launch-video output (plan, composition, rendered mp4), local-only
+/brag-output/
