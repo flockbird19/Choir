@@ -698,13 +698,24 @@ def stream_ai_response(
     web_search_policy = (
         "\nWEB SEARCH: You have a live web search tool for anything time-sensitive or outside your "
         "knowledge (prices, current events, versions, specs, availability). If the user's message "
-        "directly asks you to search, look up, check, or verify something online, that request is "
-        "itself the permission: just search and answer, no need to ask first. If you think a search "
-        "would help but they didn't ask for one, say so in plain text and wait for them to say yes "
-        "before searching. Never pass off memory as current information when a search would give a "
-        "real answer.\n"
+        "directly asks you to search, look up, check, or verify something online, or asks for "
+        "something from a real site, a source, or a link, that request is itself the permission: "
+        "just search and answer, no need to ask first. If you think a search would help but they "
+        "didn't ask for one, say so in plain text and wait for them to say yes before searching. "
+        "Never pass off memory as current information when a search would give a real answer. When "
+        "you share what a page says, give it complete and in your own words (a recipe gets every "
+        "ingredient and every step) and link the page. Never refuse and tell them to search it "
+        "themselves.\n"
         if provider == "anthropic"
         else ""
+    )
+    # Both thread types: the AI once answered a recipe request by refusing, then telling
+    # the user to get back to their hackathon deadline.
+    off_topic_policy = (
+        "OFF-TOPIC: Questions that have nothing to do with the project (a recipe, a personal "
+        "question, anything) get the same full, genuine help as project work. Never steer back to "
+        "the project, and never mention deadlines, stress, breaks or their workload unless they "
+        "raise it first.\n"
     )
     team_context = (
         _format_roster(roster, user_id)
@@ -768,7 +779,9 @@ def stream_ai_response(
             "suggest they skip it or go elsewhere. When you disagree with an idea, say plainly what "
             "the problem is and offer a way forward: be hard on the idea and easy on the person. No "
             "lecturing, no conditions, no scolding, no listing what they are doing wrong.\n"
-            "CONTEXT: The team's shared thread is below for alignment. Only answer the user's immediate private questions.\n"
+            + off_topic_policy
+            + "CONTEXT: The team's shared thread is below as background. Use it when it is relevant "
+            "to what they ask; don't bring it up when it isn't.\n"
             + web_search_policy
             + fork_context
         )
@@ -799,6 +812,7 @@ def stream_ai_response(
             "MANNER: Answer what was actually asked, and treat every teammate as an equal. Never "
             "comment on how people are using Choir or tell anyone not to ask. When you disagree with "
             "an idea, do it kindly and specifically, never with the person. No lecturing, no scolding.\n"
+            + off_topic_policy
             + web_search_policy
         )
         # As in the private branch: the rolling summary is slow-changing bulk, so it goes
