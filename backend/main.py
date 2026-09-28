@@ -18,6 +18,7 @@ from backend.auth import get_current_user
 from backend.db import find_missing_tables, get_accessible_thread, get_db, verify_thread_access
 from backend.errors import ErrorMiddleware, safe_sse_stream
 from backend.findings import draft_findings
+from backend.handoff import draft_handoff_prompt
 from backend.keys import (
     delete_api_key,
     list_saved_providers,
@@ -288,6 +289,27 @@ def get_findings_draft(thread_id: str, user_id: str = Depends(get_current_user))
 
     try:
         return draft_findings(thread_id, user_id)
+    except NoApiKeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@app.post("/api/export-prompt/{thread_id}")
+def get_export_prompt(thread_id: str, user_id: str = Depends(get_current_user)):
+    """AI-written prompt for carrying the thread into another AI chat. Nothing is saved."""
+    _check_and_record_rate_limit(user_id)
+
+    if not verify_thread_access(user_id, thread_id):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this thread.",
+        )
+
+    try:
+        return draft_handoff_prompt(thread_id, user_id)
     except NoApiKeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except ValueError as exc:

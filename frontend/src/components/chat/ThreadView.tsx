@@ -6,6 +6,7 @@ import { ChatInput, type ReplyTarget } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
+import { ExportPromptDialog } from "./ExportPromptDialog";
 import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X } from "lucide-react";
 import { IconButton, Input, Menu, MenuItem } from "@/components/ui";
 import { useRouter } from "next/navigation";
@@ -226,6 +227,30 @@ export function ThreadView({
       toastError(err instanceof Error ? err.message : "Failed to export thread.");
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  // ── Export as prompt — previewed in a dialog, then copied ───────────────────
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [promptText, setPromptText] = useState<string | null>(null);
+
+  const handleExportPrompt = async () => {
+    setPromptText(null);
+    setPromptOpen(true);
+    try {
+      const token = await getSessionToken();
+      if (!token) throw new Error("No session token");
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+      const res = await fetch(`${BACKEND_URL}/api/export-prompt/${thread.id}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || "Couldn't write the prompt.");
+      setPromptText(body.prompt);
+    } catch (err: unknown) {
+      setPromptOpen(false);
+      toastError(err instanceof Error ? err.message : "Failed to export thread.");
     }
   };
 
@@ -789,6 +814,7 @@ export function ThreadView({
               <MenuItem onSelect={() => handleExport("json")}>
                 {isExporting === "json" ? "Exporting…" : "Export as JSON"}
               </MenuItem>
+              <MenuItem onSelect={handleExportPrompt}>Export as prompt</MenuItem>
             </Menu>
 
             {/* Catch Me Up — only on the shared thread itself */}
@@ -1041,6 +1067,8 @@ export function ThreadView({
           names={threadNames.names}
         />
       )}
+
+      <ExportPromptDialog isOpen={promptOpen} onClose={() => setPromptOpen(false)} prompt={promptText} />
 
       {/* ── Onboarding coach-mark tour ──────────────────────────────── */}
       {!isPrivate && tourActive && (
