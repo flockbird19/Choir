@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Send, Cpu, Reply, X } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { sendMessage } from "@/app/(main)/thread/[id]/actions";
+import { previewLine } from "@/utils/markdown-preview";
 import { Menu, MenuLabel, MenuRadioItem } from "@/components/ui/Menu";
 
 export interface ReplyTarget {
@@ -394,7 +395,7 @@ export function ChatInput({
               <p className={`text-[11px] font-semibold ${replyingTo.isAI ? "text-team" : "text-fg-muted"}`}>
                 Replying to {replyingTo.senderName}
               </p>
-              <p className="text-xs text-fg-subtle truncate">{replyingTo.content}</p>
+              <p className="text-xs text-fg-subtle truncate">{previewLine(replyingTo.content)}</p>
             </div>
             <button
               type="button"

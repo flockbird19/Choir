@@ -11,3 +11,9 @@ export function stripMarkdownSyntax(content: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
+
+// One line of plain text for tight spots (reply quotes, "Replying to…"), so a table or
+// heading never shows up as raw pipes and asterisks.
+export function previewLine(content: string): string {
+  return stripMarkdownSyntax(content).replace(/\s+/g, " ").trim();
+}

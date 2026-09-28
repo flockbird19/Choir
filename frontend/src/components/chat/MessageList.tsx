@@ -6,6 +6,7 @@ import { ArrowDown, Bot, ArrowUpRight, Copy, Check, Loader2, Pin, PinOff, Messag
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getInitials, publishedLabel } from "@/utils/display-name";
+import { previewLine } from "@/utils/markdown-preview";
 import { whoHasSeen } from "@/hooks/useSeenBy";
 import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 import type { StatusId } from "@/app/(main)/profile/actions";
@@ -141,12 +142,15 @@ const CodeBlock: Components["pre"] = ({ children, ...props }) => {
 
 export const markdownComponents: Components = {
   p: ({ node: _node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
-  ul: ({ node: _node, ...props }) => <ul className="list-disc ml-4 mb-2" {...props} />,
-  ol: ({ node: _node, ...props }) => <ol className="list-decimal ml-4 mb-2" {...props} />,
-  li: ({ node: _node, ...props }) => <li className="mb-1" {...props} />,
-  h1: ({ node: _node, ...props }) => <h1 className="text-xl font-bold mb-2 mt-4" {...props} />,
-  h2: ({ node: _node, ...props }) => <h2 className="text-lg font-bold mb-2 mt-3" {...props} />,
-  h3: ({ node: _node, ...props }) => <h3 className="text-base font-bold mb-2 mt-3" {...props} />,
+  ul: ({ node: _node, ...props }) => <ul className="list-disc pl-5 mb-2 last:mb-0 space-y-1 marker:text-fg-subtle" {...props} />,
+  ol: ({ node: _node, ...props }) => <ol className="list-decimal pl-5 mb-2 last:mb-0 space-y-1 marker:text-fg-subtle" {...props} />,
+  li: ({ node: _node, ...props }) => <li className="pl-0.5 [&>ul]:mt-1 [&>ol]:mt-1 [&>p]:mb-1" {...props} />,
+  // DESIGN.md §7: headings in the text font, weight 600, sized for a chat bubble.
+  h1: ({ node: _node, ...props }) => <h1 className="text-lg font-semibold mt-4 mb-2 first:mt-0" {...props} />,
+  h2: ({ node: _node, ...props }) => <h2 className="text-base font-semibold mt-3 mb-1.5 first:mt-0" {...props} />,
+  h3: ({ node: _node, ...props }) => <h3 className="text-sm font-semibold mt-3 mb-1 first:mt-0" {...props} />,
+  strong: ({ node: _node, ...props }) => <strong className="font-semibold text-fg" {...props} />,
+  hr: ({ node: _node, ...props }) => <hr className="my-3 border-line" {...props} />,
   pre: CodeBlock,
   // react-markdown v9+ dropped the old `inline` prop entirely (there's no longer
   // a signal for it in the API), which meant this previously always rendered the
@@ -158,12 +162,12 @@ export const markdownComponents: Components = {
     /language-(\w+)/.test(className || "")
       ? <code className="font-mono text-xs" {...props} />
       : <code className="bg-sunken border border-line px-1.5 py-0.5 rounded text-xs font-mono text-team" {...props} />,
-  a: ({ node: _node, ...props }) => <a className="text-team hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
+  a: ({ node: _node, ...props }) => <a className="text-team underline underline-offset-2 decoration-team/40 hover:decoration-team break-words" target="_blank" rel="noopener noreferrer" {...props} />,
   blockquote: ({ node: _node, ...props }) => <blockquote className="border-l-2 border-line pl-3 italic text-fg-muted my-2" {...props} />,
   // Wide tables scroll sideways inside the bubble instead of stretching it.
   table: ({ node: _node, ...props }) => (
     <div className="my-2 overflow-x-auto rounded-control border border-line bg-card">
-      <table className="w-full border-collapse text-xs tabular-nums" {...props} />
+      <table className="w-full border-collapse text-label tabular-nums" {...props} />
     </div>
   ),
   thead: ({ node: _node, ...props }) => <thead className="bg-sunken" {...props} />,
@@ -528,7 +532,7 @@ export function MessageList({
     for (const msg of messages) {
       map.set(msg.id, {
         senderName: resolveSenderName(msg),
-        content: msg.withdrawn_at ? "Withdrawn post" : msg.content,
+        content: msg.withdrawn_at ? "Withdrawn post" : previewLine(msg.content),
         isAI: msg.sender_type === "assistant",
       });
     }

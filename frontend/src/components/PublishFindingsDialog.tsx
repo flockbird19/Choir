@@ -11,6 +11,10 @@ import { Button, buttonClasses } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Textarea } from "@/components/ui/Input";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { TabPanel, Tabs } from "@/components/ui/Tabs";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { markdownComponents } from "@/components/chat/MessageList";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -50,6 +54,8 @@ export function usePublishFindings({
   const toast = useToast();
   const [state, setState] = useState<State>(CLOSED);
   const [posting, setPosting] = useState(false);
+  // Opens on Preview so tables and lists read as they will in Team Space; Write edits the Markdown.
+  const [view, setView] = useState<"preview" | "write">("preview");
   const postingRef = useRef(false);
   // Ignore a draft that arrives after the dialog was closed or reopened.
   const request = useRef(0);
@@ -61,6 +67,7 @@ export function usePublishFindings({
 
   const start = useCallback(async () => {
     const id = ++request.current;
+    setView("preview");
     setState({ ...CLOSED, open: true, loading: true });
     try {
       const token = await getSessionToken();
@@ -74,6 +81,7 @@ export function usePublishFindings({
       if (!res.ok) {
         if (res.status === 400 && isMissingKeyError(body.detail)) {
           setState({ ...CLOSED, open: true, needsKey: true });
+          setView("write");
           return;
         }
         throw new Error(body.detail || "Couldn't draft your findings.");
@@ -91,6 +99,7 @@ export function usePublishFindings({
 
   const startWithSelection = useCallback((text: string, sourceIds: string[]) => {
     request.current += 1;
+    setView("preview");
     setState({ ...CLOSED, open: true, mode: "selection", draft: text, original: text, sourceIds });
   }, []);
 
@@ -188,16 +197,46 @@ export function usePublishFindings({
               </div>
             </div>
           )}
-          <Textarea
-            label="Your post"
-            hint="Edit anything before posting. Markdown works."
-            value={state.draft}
-            onChange={(event) => {
-              const draft = event.target.value;
-              setState((s) => ({ ...s, draft }));
-            }}
-            rows={8}
-          />
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-body-sm font-semibold text-fg">Your post</p>
+              <Tabs
+                idBase="publish-post"
+                label="Show your post as"
+                value={view}
+                onValueChange={setView}
+                items={[
+                  { id: "preview", label: "Preview" },
+                  { id: "write", label: "Write" },
+                ]}
+              />
+            </div>
+            <TabPanel idBase="publish-post" id="preview" selected={view === "preview"}>
+              <div className="max-h-56 min-h-40 overflow-y-auto rounded-control border border-line bg-card px-4 py-3 text-sm leading-relaxed text-fg break-words">
+                {state.draft.trim() ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                    {state.draft}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-fg-subtle">Nothing to preview yet. Switch to Write to add your post.</p>
+                )}
+              </div>
+              <p className="mt-1.5 text-caption text-fg-subtle">This is how it will look in {sharedName}. Switch to Write to edit.</p>
+            </TabPanel>
+            <TabPanel idBase="publish-post" id="write" selected={view === "write"}>
+              <Textarea
+                label="Your post"
+                hideLabel
+                hint="Edit anything before posting. Markdown works."
+                value={state.draft}
+                onChange={(event) => {
+                  const draft = event.target.value;
+                  setState((s) => ({ ...s, draft }));
+                }}
+                rows={8}
+              />
+            </TabPanel>
+          </div>
           <div aria-live="polite" className="flex flex-col gap-3 empty:hidden">
             {credentials.length > 0 && (
               <SecretNotice

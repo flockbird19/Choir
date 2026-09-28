@@ -430,8 +430,10 @@ export function ThreadView({
     // allMessages (older pages + this visit's live messages), not the page-load
     // `messages`, since either can be selected.
     const selectedMsgs = allMessages.filter((m) => selectedMessageIds.has(m.id));
+    // The name on its own line, so a message that opens with a table, heading or list
+    // still renders as one.
     const compiled = selectedMsgs
-      .map((msg) => `**${msg.sender_type === "user" ? currentUserName : "Choir AI"}:** ${msg.content}`)
+      .map((msg) => `**${msg.sender_type === "user" ? currentUserName : "Choir AI"}:**\n\n${msg.content}`)
       .join("\n\n");
     findings.startWithSelection(compiled, selectedMsgs.map((m) => m.id));
   };
