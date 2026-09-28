@@ -25,7 +25,7 @@ export interface Thread {
   model_provider?: string;
   model_name?: string;
   created_at: string;
-  // Private threads: the AI answers every message unless muted. Missing until the
+  // Private threads: "AI replies" (true) or "AI waits" (false, AI answers only when asked). Missing until the
   // schema.sql re-run adds the column, so treat undefined as true.
   ai_auto_reply?: boolean;
   // D2: set when the thread was started with "Discuss privately" on a Team Space message.
@@ -49,6 +49,8 @@ export interface Message {
   source_thread_id?: string | null;
   // K3: the private messages a published post came from (the decision trail).
   source_message_ids?: string[] | null;
+  // WhatsApp-style reply: the specific earlier message (same thread) this replies to.
+  reply_to_message_id?: string | null;
 }
 
 export interface TeamInvitation {

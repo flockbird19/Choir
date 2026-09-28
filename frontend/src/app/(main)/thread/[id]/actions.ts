@@ -37,7 +37,12 @@ export async function getThreadMemberNames(threadId: string): Promise<Record<str
   return { ...(await getTeamMemberNames(project.team_id)), ...self };
 }
 
-export async function sendMessage(threadId: string, content: string, messageId?: string) {
+export async function sendMessage(
+  threadId: string,
+  content: string,
+  messageId?: string,
+  replyToMessageId?: string
+) {
   const supabase = await createClient();
   const user = await getCurrentUser();
 
@@ -55,6 +60,7 @@ export async function sendMessage(threadId: string, content: string, messageId?:
     sender_type: "user";
     sender_id: string;
     content: string;
+    reply_to_message_id?: string;
   } = {
     thread_id: threadId,
     sender_type: "user",
@@ -65,9 +71,23 @@ export async function sendMessage(threadId: string, content: string, messageId?:
   if (messageId) {
     insertData.id = messageId;
   }
+  if (replyToMessageId) {
+    insertData.reply_to_message_id = replyToMessageId;
+  }
 
   const { data, error } = await supabase.from("messages").insert(insertData).select().single();
 
+  if (isMissingColumn(error) && replyToMessageId) {
+    // The reply column isn't there yet (schema.sql not re-run) — send the message
+    // without it rather than blocking the send entirely.
+    delete insertData.reply_to_message_id;
+    const retry = await supabase.from("messages").insert(insertData).select().single();
+    if (retry.error) {
+      console.error("Error sending message:", retry.error);
+      return { error: retry.error.message };
+    }
+    return { success: true, messageId: retry.data.id };
+  }
   if (error) {
     console.error("Error sending message:", error);
     return { error: error.message };
@@ -391,7 +411,7 @@ export async function unpinMessage(
   return { success: true };
 }
 
-// ── AI auto-replies — mute/unmute in a private thread ─────────────────────────
+// ── "AI replies" / "AI waits" in a private thread ─────────────────────────────
 
 export async function setThreadAutoReply(
   threadId: string,
@@ -402,7 +422,7 @@ export async function setThreadAutoReply(
 
   const thread = await getAccessibleThread(user.id, threadId);
   if (!thread || thread.type !== "private" || thread.owner_id !== user.id) {
-    return { error: "AI replies can only be muted in your own private threads." };
+    return { error: "You can only change AI replies in your own private threads." };
   }
 
   const supabase = await createClient();

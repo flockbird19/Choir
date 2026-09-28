@@ -2,10 +2,17 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Send, Cpu } from "lucide-react";
+import { Send, Cpu, Reply, X } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { sendMessage } from "@/app/(main)/thread/[id]/actions";
 import { Menu, MenuLabel, MenuRadioItem } from "@/components/ui/Menu";
+
+export interface ReplyTarget {
+  id: string;
+  senderName: string;
+  content: string;
+  isAI: boolean;
+}
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -20,14 +27,22 @@ interface ChatInputProps {
   onStreamError?: (error: string) => void;
   /** e.g. "Using Ravi's key" when the reply switched to a lent key. */
   onStreamNotice?: (notice: string) => void;
-  onMessageSent?: (id: string, content: string) => void;
+  onMessageSent?: (id: string, content: string, replyToId?: string) => void;
   onMessageFailed?: (id: string) => void;
   disabled?: boolean;
   /**
-   * How messages reach the AI: "mention" (shared threads) only on @AI; "auto" (private
-   * threads) on every message; "muted" (private, AI replies muted) only on @AI.
+   * How messages reach the AI: "mention" (Team Space) only on @AI; "auto" (private,
+   * "AI replies") on every message; "waits" (private, "AI waits") only on @AI or Ask AI.
    */
-  aiMode?: "mention" | "auto" | "muted";
+  aiMode?: "mention" | "auto" | "waits";
+  /** Private threads: switch between "AI replies" and "AI waits". Omit to hide the control. */
+  onAIModeChange?: (mode: "auto" | "waits") => void;
+  savingAIMode?: boolean;
+  /** "AI waits": whether Ask AI can run with an empty composer (the latest message is yours). */
+  canAskAboutThread?: boolean;
+  /** WhatsApp-style "replying to" — set via the Reply icon on a message. */
+  replyingTo?: ReplyTarget | null;
+  onCancelReply?: () => void;
 }
 
 const AVAILABLE_MODELS = [
@@ -53,9 +68,14 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 const PLACEHOLDERS: Record<NonNullable<ChatInputProps["aiMode"]>, string> = {
   mention: "Message… type @AI to call the assistant",
-  auto: "Message the AI… it replies to every message here",
-  muted: "Message… AI replies are muted · type @AI to ask anyway",
+  auto: "Ask, or think out loud…",
+  waits: "Write privately…",
 };
+
+const AI_MODES = [
+  { mode: "auto", label: "AI replies", hint: "AI replies to each message you send" },
+  { mode: "waits", label: "AI waits", hint: "Messages are saved quietly until you ask AI" },
+] as const;
 
 export function ChatInput({
   threadId,
@@ -69,6 +89,11 @@ export function ChatInput({
   onMessageFailed,
   disabled,
   aiMode = "mention",
+  onAIModeChange,
+  savingAIMode = false,
+  canAskAboutThread = false,
+  replyingTo = null,
+  onCancelReply,
 }: ChatInputProps) {
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -104,6 +129,8 @@ export function ChatInput({
 
   // Detect @AI trigger — word boundary match
   const hasAITrigger = /\B@AI\b/i.test(content);
+  // Replying to the AI is itself the ask — no need to also type @AI.
+  const aiIndicated = hasAITrigger || replyingTo?.isAI === true;
 
   // Auto-resize textarea up to 200px
   useEffect(() => {
@@ -227,22 +254,24 @@ export function ChatInput({
     onStreamEnd?.(undefined);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (askAI = false) => {
     if (!content.trim() || isSubmitting || disabled) return;
     setSendError(null);
     setIsSubmitting(true);
 
     const textToSend = content;
-    const aiTriggered = aiMode === "auto" || hasAITrigger;
+    const replyToId = replyingTo?.id;
+    const aiTriggered = askAI || aiMode === "auto" || aiIndicated;
     setContent("");
+    onCancelReply?.();
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
     // TRUE OPTIMISTIC UI: Generate ID and display immediately
     const optimisticId = crypto.randomUUID();
-    onMessageSent?.(optimisticId, textToSend);
+    onMessageSent?.(optimisticId, textToSend, replyToId);
 
     // 1. Save the user message to DB in the background
-    const result = await sendMessage(threadId, textToSend, optimisticId);
+    const result = await sendMessage(threadId, textToSend, optimisticId, replyToId);
     if (result.error) {
       // Remove the optimistic bubble from the UI
       if (onMessageFailed) {
@@ -271,10 +300,30 @@ export function ChatInput({
     }
   };
 
+  // "AI waits": with text, send it and ask; with an empty composer, ask the AI to respond
+  // to the thread as it stands (the backend reads the whole thread either way). The empty
+  // case needs the latest message to be yours, or the model would be continuing its own turn.
+  const canAskEmpty = !content.trim() && canAskAboutThread;
+  const askDisabled = isSubmitting || !!disabled || (!content.trim() && !canAskAboutThread);
+  const handleAskAI = async () => {
+    if (askDisabled) return;
+    if (content.trim()) {
+      await handleSubmit(true);
+      return;
+    }
+    setSendError(null);
+    setIsSubmitting(true);
+    await triggerAIStream(threadId);
+    setIsSubmitting(false);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
+    }
+    if (e.key === "Escape" && replyingTo) {
+      onCancelReply?.();
     }
   };
 
@@ -292,12 +341,78 @@ export function ChatInput({
       )}
 
       <div className="max-w-3xl mx-auto">
+        {/* Private threads: whether sending asks the AI, chosen where you send, not in the
+            header. A real radiogroup (DESIGN.md §6 segmented control): arrow keys move. */}
+        {onAIModeChange && aiMode !== "mention" && (
+          <div className="mb-1.5 flex items-center gap-2.5">
+            <div
+              role="radiogroup"
+              aria-label="AI in this thread"
+              aria-busy={savingAIMode}
+              className="inline-flex rounded-pill border border-line-strong bg-card p-0.5"
+            >
+              {AI_MODES.map(({ mode, label }, i) => {
+                const selected = aiMode === mode;
+                // Not `disabled` while saving: that would drop keyboard focus mid-arrow-key.
+                const choose = (next: "auto" | "waits") => {
+                  if (!savingAIMode && next !== aiMode) onAIModeChange(next);
+                };
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    tabIndex={selected ? 0 : -1}
+                    onClick={() => choose(mode)}
+                    onKeyDown={(e) => {
+                      if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+                      e.preventDefault();
+                      const nextIndex = (i + 1) % AI_MODES.length;
+                      choose(AI_MODES[nextIndex].mode);
+                      (e.currentTarget.parentElement?.children[nextIndex] as HTMLElement | undefined)?.focus();
+                    }}
+                    className={`h-7 rounded-pill px-3 text-label font-medium transition-colors pointer-coarse:h-11
+                      ${selected ? "bg-fg text-bg" : "text-fg-muted hover:text-fg"}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="hidden text-caption text-fg-subtle sm:inline">
+              {AI_MODES.find((m) => m.mode === aiMode)?.hint}
+            </span>
+          </div>
+        )}
+
+        {/* Replying-to strip — WhatsApp-style, cancel with the X or Escape */}
+        {replyingTo && (
+          <div className="flex items-center gap-2 mb-1.5 px-3.5 py-2 bg-card border border-line rounded-card shadow-soft">
+            <Reply size={13} className="shrink-0 text-fg-subtle" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className={`text-[11px] font-semibold ${replyingTo.isAI ? "text-team" : "text-fg-muted"}`}>
+                Replying to {replyingTo.senderName}
+              </p>
+              <p className="text-xs text-fg-subtle truncate">{replyingTo.content}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onCancelReply}
+              aria-label="Cancel reply"
+              className="shrink-0 grid size-6 place-items-center rounded-full text-fg-subtle hover:bg-hover hover:text-fg transition-colors"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
         {/* Input container — the pill is the only "object" here; no outer panel around it */}
         <div
           className={`relative flex items-center gap-2 bg-card border rounded-pill pl-4 pr-1.5 min-h-11
             transition-all shadow-raised
             ${
-              hasAITrigger
+              aiIndicated
                 ? "border-team/50 ring-2 ring-team/15"
                 : "border-line-strong focus-within:border-team/60 focus-within:ring-2 focus-within:ring-team/15"
             }`}
@@ -315,8 +430,9 @@ export function ChatInput({
           />
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {/* @AI indicator */}
-            {hasAITrigger && (
+            {/* @AI indicator — also lights up when replying to an AI message, with no
+                literal @AI text needed */}
+            {aiIndicated && (
               <span className="text-[11px] font-semibold text-team bg-team-soft px-2 py-0.5 rounded-pill whitespace-nowrap">
                 @AI
               </span>
@@ -357,9 +473,28 @@ export function ChatInput({
               ))}
             </Menu>
 
+            {/* Ask AI — "AI waits" only. Team/AI colour, secondary to Send. */}
+            {aiMode === "waits" && (
+              <button
+                type="button"
+                onClick={() => void handleAskAI()}
+                disabled={askDisabled}
+                title={
+                  content.trim()
+                    ? "Send and ask AI"
+                    : canAskEmpty
+                      ? "Ask AI to respond to your messages above"
+                      : "Write something first, then ask AI"
+                }
+                className="h-8 shrink-0 rounded-pill border border-team-line bg-team-soft px-3 text-xs font-semibold text-team transition-colors hover:border-team/50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45 disabled:active:scale-100"
+              >
+                Ask AI
+              </button>
+            )}
+
             {/* Send button — private colour: it's your message, regardless of thread */}
             <button
-              onClick={handleSubmit}
+              onClick={() => void handleSubmit()}
               disabled={!content.trim() || isSubmitting || disabled}
               aria-label="Send message"
               className={`size-11 rounded-full flex items-center justify-center transition-all shrink-0

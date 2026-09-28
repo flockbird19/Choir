@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, memo, useState, isValidElement, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo, useState, isValidElement, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, Bot, ArrowUpRight, Copy, Check, Loader2, Pin, PinOff, MessageSquareLock } from "lucide-react";
+import { ArrowDown, Bot, ArrowUpRight, Copy, Check, Loader2, Pin, PinOff, MessageSquareLock, Reply } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getInitials, publishedLabel } from "@/utils/display-name";
@@ -22,6 +22,13 @@ interface Message {
   is_decision?: boolean;
   source_thread_id?: string | null;
   source_message_ids?: string[] | null;
+  reply_to_message_id?: string | null;
+}
+
+interface ReplyPreview {
+  senderName: string;
+  content: string;
+  isAI: boolean;
 }
 
 const NEAR_BOTTOM_PX = 120;
@@ -68,6 +75,8 @@ interface MessageListProps {
   highlightedMessageId?: string | null;
   /** Private thread with AI auto-replies on (changes the empty-state hint). */
   aiAutoReply?: boolean;
+  /** Private thread in "AI waits" mode (changes the empty-state hint). */
+  privateWaits?: boolean;
   /** E5: { userId: last_read_at }, shared threads only. */
   seenBy?: Record<string, string>;
   /** E4 follow-up: { userId: status }, so seen-by avatars can show it. */
@@ -78,6 +87,10 @@ interface MessageListProps {
   onLoadOlder?: () => void;
   hasMoreOlder?: boolean;
   loadingOlder?: boolean;
+  /** WhatsApp-style reply: set as the composer's reply target. */
+  onReply?: (msg: Message) => void;
+  /** Jump to (and highlight) a message this one replies to; pages back to load it if needed. */
+  onJumpToMessage?: (id: string) => void;
 }
 
 const EMPTY_NAMES: Record<string, string> = {};
@@ -158,6 +171,9 @@ const MessageItem = memo(function MessageItem({
   onDiscussPrivately,
   isHighlighted,
   seenBy,
+  replyPreview,
+  onReply,
+  onJumpToMessage,
 }: {
   msg: Message;
   isOwn: boolean;
@@ -171,6 +187,9 @@ const MessageItem = memo(function MessageItem({
   onDiscussPrivately?: (id: string) => void;
   isHighlighted?: boolean;
   seenBy?: { id: string; name: string; status: StatusId }[];
+  replyPreview?: ReplyPreview;
+  onReply?: (msg: Message) => void;
+  onJumpToMessage?: (id: string) => void;
 }) {
   const isAI = msg.sender_type === "assistant";
   const isSharedFrom = !!msg.shared_by;
@@ -206,7 +225,7 @@ const MessageItem = memo(function MessageItem({
       )}
 
       <div
-        className={`flex gap-3 group ${isOwn ? "flex-row-reverse max-w-[85%] ml-auto" : "max-w-[85%] mr-auto"} ${
+        className={`flex gap-3 group min-w-0 ${isOwn ? "flex-row-reverse max-w-[85%] ml-auto" : "max-w-[85%] mr-auto"} ${
           selectMode ? "cursor-pointer" : ""
         }`}
         onClick={() => {
@@ -241,9 +260,9 @@ const MessageItem = memo(function MessageItem({
           {isAI ? <Bot size={13} /> : getInitials(senderName)}
         </div>
 
-        <div className={`flex flex-col ${isOwn ? "items-end" : "items-start"}`}>
+        <div className={`flex flex-col min-w-0 ${isOwn ? "items-end" : "items-start"}`}>
           <div
-            className={`px-4 py-2.5 rounded-bubble text-sm leading-relaxed
+            className={`px-4 py-2.5 rounded-bubble text-sm leading-relaxed min-w-0 max-w-full break-words
               ${
                 isOwn
                   ? "bg-private-soft border border-private-line text-fg rounded-br-[4px]"
@@ -257,6 +276,21 @@ const MessageItem = memo(function MessageItem({
               ${isPinned ? "border-l-2 border-l-decision" : ""}
             `}
           >
+            {msg.reply_to_message_id && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onJumpToMessage?.(msg.reply_to_message_id!);
+                }}
+                className="block w-full text-left mb-1.5 pl-2 border-l-2 border-line-strong hover:border-team transition-colors"
+              >
+                <p className={`text-[11px] font-semibold truncate ${replyPreview?.isAI ? "text-team" : "text-fg-muted"}`}>
+                  {replyPreview?.senderName ?? "Original message"}
+                </p>
+                <p className="text-xs text-fg-subtle truncate">{replyPreview?.content || "Tap to view"}</p>
+              </button>
+            )}
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {msg.content}
             </ReactMarkdown>
@@ -279,6 +313,19 @@ const MessageItem = memo(function MessageItem({
               })}
             </span>
             {seenBy && seenBy.length > 0 && <SeenByRow seenBy={seenBy} isOwn={isOwn} />}
+            {onReply && !selectMode && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onReply(msg);
+                }}
+                title="Reply"
+                aria-label="Reply"
+                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 min-w-[24px] min-h-[24px] pointer-coarse:min-w-11 pointer-coarse:min-h-11 flex items-center justify-center rounded-md text-fg-subtle hover:text-fg hover:bg-hover transition-all"
+              >
+                <Reply size={11} aria-hidden="true" />
+              </button>
+            )}
             {isSharedThread && onTogglePin && !selectMode && (
               <button
                 onClick={(e) => {
@@ -331,12 +378,15 @@ export function MessageList({
   onDiscussPrivately,
   highlightedMessageId,
   aiAutoReply = false,
+  privateWaits = false,
   seenBy = EMPTY_SEEN_BY,
   statuses = EMPTY_STATUSES,
   onNearBottomChange,
   onLoadOlder,
   hasMoreOlder = false,
   loadingOlder = false,
+  onReply,
+  onJumpToMessage,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasNearBottom = useRef(true);
@@ -354,8 +404,25 @@ export function MessageList({
     onNearBottomChange?.(true);
   }, [onNearBottomChange]);
 
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 96,
+    overscan: 8,
+    getItemKey: (index) => messages[index]?.id ?? index,
+  });
+
   // C4: follow new content only when the reader is already at the bottom (a streamed
   // token no longer yanks the view back down); otherwise count it toward the pill.
+  //
+  // totalSize is in the deps deliberately: on first mount every row is only
+  // estimateSize (96px) tall until react-virtual measures its real height via
+  // ResizeObserver, which fires *after* this effect's first run. That measurement
+  // grows the scrollable content below the point we just pinned scrollTop to, and
+  // the browser doesn't auto-follow — so without re-running this on every totalSize
+  // change, a thread whose real message heights differ much from the 96px estimate
+  // settles somewhere above the true bottom (looks like it "loaded into the middle").
+  const totalSize = virtualizer.getTotalSize();
   useEffect(() => {
     const added = messages.length - lastMessageCount.current;
     lastMessageCount.current = messages.length;
@@ -366,7 +433,7 @@ export function MessageList({
     } else if (added > 0) {
       setUnseen((count) => count + added);
     }
-  }, [messages.length, streamingContent]);
+  }, [messages.length, streamingContent, totalSize]);
 
   useLayoutEffect(() => {
     if (pendingScrollAdjust.current === null) return;
@@ -391,14 +458,6 @@ export function MessageList({
     }
   };
 
-  const virtualizer = useVirtualizer({
-    count: messages.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 96,
-    overscan: 8,
-    getItemKey: (index) => messages[index]?.id ?? index,
-  });
-
   // "Jump to decision": scroll a specific row into view even when it's not currently
   // rendered (virtualization only mounts what's visible, so a DOM id lookup won't work).
   useEffect(() => {
@@ -407,6 +466,32 @@ export function MessageList({
     if (index >= 0) virtualizer.scrollToIndex(index, { align: "center", behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightedMessageId]);
+
+  const resolveSenderName = useCallback(
+    (msg: Message) => {
+      if (msg.sender_type === "assistant") return "Choir AI";
+      const isOwn = !msg.sender_id || msg.sender_id === currentUserId;
+      return isOwn
+        ? (currentUserId && memberNames[currentUserId]) || "You"
+        : memberNames[msg.sender_id ?? ""] ?? (namesLoaded ? "Former member" : "Teammate");
+    },
+    [currentUserId, memberNames, namesLoaded]
+  );
+
+  // Quoted-reply previews, keyed by the replied-to message's id. Only covers what's
+  // currently loaded (paginated history further back shows a generic fallback until
+  // onJumpToMessage pages it in).
+  const replyPreviews = useMemo(() => {
+    const map = new Map<string, ReplyPreview>();
+    for (const msg of messages) {
+      map.set(msg.id, {
+        senderName: resolveSenderName(msg),
+        content: msg.content,
+        isAI: msg.sender_type === "assistant",
+      });
+    }
+    return map;
+  }, [messages, resolveSenderName]);
 
   const showTypingBubble = isStreaming && !streamingContent;
   const showStreamingBubble = !!streamingContent;
@@ -420,7 +505,11 @@ export function MessageList({
         <p className="text-base font-medium text-fg mb-1 font-display">Start the conversation</p>
         {aiAutoReply ? (
           <p className="text-sm text-fg-muted max-w-xs leading-relaxed">
-            Send a message below. The AI replies to every message in this private thread.
+            Ask a question or think out loud. The AI replies to each message here, and only you can see it.
+          </p>
+        ) : privateWaits ? (
+          <p className="text-sm text-fg-muted max-w-xs leading-relaxed">
+            Write down whatever you&rsquo;re thinking. The AI waits until you ask, and only you can see this.
           </p>
         ) : (
           <p className="text-sm text-fg-muted max-w-xs leading-relaxed">
@@ -454,11 +543,7 @@ export function MessageList({
             const isAI = msg.sender_type === "assistant";
             // Optimistic messages have no sender_id yet; only the current user creates those.
             const isOwn = !isAI && (!msg.sender_id || msg.sender_id === currentUserId);
-            const senderName = isAI
-              ? "Choir AI"
-              : isOwn
-                ? (currentUserId && memberNames[currentUserId]) || "You"
-                : memberNames[msg.sender_id ?? ""] ?? (namesLoaded ? "Former member" : "Teammate");
+            const senderName = resolveSenderName(msg);
             const previous = messages[virtualRow.index - 1];
             const showSender = !previous || senderKey(previous) !== senderKey(msg) || !!msg.shared_by;
             const messageSeenBy = isSharedThread && currentUserId
@@ -489,6 +574,9 @@ export function MessageList({
                   onDiscussPrivately={onDiscussPrivately}
                   isHighlighted={highlightedMessageId === msg.id}
                   seenBy={messageSeenBy}
+                  replyPreview={msg.reply_to_message_id ? replyPreviews.get(msg.reply_to_message_id) : undefined}
+                  onReply={onReply}
+                  onJumpToMessage={onJumpToMessage}
                 />
               </div>
             );

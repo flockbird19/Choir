@@ -11,6 +11,9 @@ import type { Message } from "@/types/database";
  */
 export function useThreadDecisions(threadId: string | null | undefined) {
   const [decisions, setDecisions] = useState<Message[]>([]);
+  // Which thread's fetch has finished, so callers can wait for the real list instead of
+  // rendering from the empty initial one and then changing on screen.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
   useEffect(() => {
     if (!threadId) {
@@ -19,9 +22,16 @@ export function useThreadDecisions(threadId: string | null | undefined) {
       return;
     }
     let cancelled = false;
-    getThreadDecisions(threadId).then((data) => {
-      if (!cancelled) setDecisions(data);
-    });
+    getThreadDecisions(threadId).then(
+      (data) => {
+        if (cancelled) return;
+        setDecisions(data);
+        setLoadedFor(threadId);
+      },
+      () => {
+        if (!cancelled) setLoadedFor(threadId);
+      }
+    );
     return () => {
       cancelled = true;
     };
@@ -36,5 +46,5 @@ export function useThreadDecisions(threadId: string | null | undefined) {
     });
   }, []);
 
-  return { decisions, applyUpdate };
+  return { decisions, applyUpdate, loaded: !!threadId && loadedFor === threadId };
 }

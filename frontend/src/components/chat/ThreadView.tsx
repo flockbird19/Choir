@@ -2,11 +2,11 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { MessageList } from "./MessageList";
-import { ChatInput } from "./ChatInput";
+import { ChatInput, type ReplyTarget } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Bot, BotOff, Megaphone, MessageSquareLock, Pencil, Check, X } from "lucide-react";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X } from "lucide-react";
 import { IconButton, Input, Menu, MenuItem } from "@/components/ui";
 import { useRouter } from "next/navigation";
 import { DecisionsSinceBanner } from "./DecisionsSinceBanner";
@@ -26,13 +26,13 @@ import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useThreadPresence } from "@/hooks/useThreadPresence";
 import { useMemberNames } from "@/hooks/useMemberNames";
 import { useSeenBy } from "@/hooks/useSeenBy";
-import { usePagedMessages } from "@/hooks/usePagedMessages";
+import { usePagedMessages, MESSAGE_PAGE_SIZE } from "@/hooks/usePagedMessages";
 import { useThreadDecisions } from "@/hooks/useThreadDecisions";
 import { useTeammateStatuses, STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 import { CoachMarks, type CoachStep } from "../onboarding/CoachMarks";
 
 import { Thread, Message } from "@/types/database";
-import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE } from "@/utils/ai-errors";
+import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE, MISSING_KEY_ASK_MESSAGE } from "@/utils/ai-errors";
 
 // Onboarding rebuild: real targets in the actual Team Space UI. Whether the
 // tour plays at all is decided server-side in thread/[id]/page.tsx (?tour=1
@@ -88,6 +88,15 @@ export function ThreadView({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const isPrivate = thread.type === "private";
 
+  // ── Reply (WhatsApp-style) — declared early so the rename effect below can
+  // clear it when switching threads. Only the fields MessageList's row shape
+  // guarantees (it keeps its own local Message type, narrower than the shared
+  // one — no thread_id, for instance). ──
+  type ReplySourceMessage = { id: string; sender_type: string; sender_id?: string | null; content: string };
+  const [replyingTo, setReplyingTo] = useState<ReplySourceMessage | null>(null);
+  const handleReply = useCallback((msg: ReplySourceMessage) => setReplyingTo(msg), []);
+  const handleCancelReply = useCallback(() => setReplyingTo(null), []);
+
   // ── L16: rename this thread (your own private thread, or Team Space as a
   // teammate) — local state so the header updates instantly, synced whenever
   // the underlying thread prop changes (e.g. navigating to a different thread). ──
@@ -95,6 +104,7 @@ export function ThreadView({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalName(thread.name);
+    setReplyingTo(null);
   }, [thread.id, thread.name]);
   const canRename = isPrivate ? thread.owner_id === currentUserId : true;
   const [isEditingName, setIsEditingName] = useState(false);
@@ -308,7 +318,10 @@ export function ThreadView({
   );
 
   // ── Presence — who else currently has this thread open ─────────────────────
-  const presentUsers = useThreadPresence(thread.id, currentUserName);
+  // Private threads emit no thread-level presence at all. The presence channel is a public
+  // Realtime channel (not RLS-protected), so joining one for a private thread would rely on
+  // the thread id staying secret: obscurity, not a boundary.
+  const presentUsers = useThreadPresence(isPrivate ? null : thread.id, currentUserName);
 
   // ── E4 follow-up: teammates' status (online/away/dnd/offline), live ────────
   const statuses = useTeammateStatuses();
@@ -373,18 +386,40 @@ export function ThreadView({
     onPublished: () => setDrawerOpen(true),
   });
 
-  // The message list is virtualized (C3), so a decision older than what's loaded may
-  // not exist in `allMessages` yet — page back until it does before highlighting it;
-  // MessageList itself scrolls to it once it's in the array.
-  const handleJumpToDecision = useCallback(
+  // The message list is virtualized (C3), so a target message older than what's loaded
+  // may not exist in `allMessages` yet — page back until it does before highlighting it;
+  // MessageList itself scrolls to it once it's in the array. Shared by "jump to decision"
+  // and clicking a reply's quoted preview.
+  const handleJumpToMessage = useCallback(
     async (id: string) => {
-      setDecisionsOpen(false);
       if (!allMessages.some((m) => m.id === id)) await paged.loadUntil(id);
       setHighlightedMessageId(id);
       setTimeout(() => setHighlightedMessageId(null), 2000);
     },
     [allMessages, paged]
   );
+
+  const handleJumpToDecision = useCallback(
+    async (id: string) => {
+      setDecisionsOpen(false);
+      await handleJumpToMessage(id);
+    },
+    [handleJumpToMessage]
+  );
+
+  const replyTarget: ReplyTarget | null = replyingTo
+    ? {
+        id: replyingTo.id,
+        senderName:
+          replyingTo.sender_type === "assistant"
+            ? "Choir AI"
+            : (!replyingTo.sender_id || replyingTo.sender_id === currentUserId
+                ? currentUserName
+                : threadNames.names[replyingTo.sender_id ?? ""] ?? "Teammate"),
+        content: replyingTo.content,
+        isAI: replyingTo.sender_type === "assistant",
+      }
+    : null;
 
   // ── Catch Me Up — one-shot AI digest of new shared-thread messages ─────────
   const [catchUpOpen, setCatchUpOpen] = useState(false);
@@ -456,13 +491,14 @@ export function ThreadView({
     setTourActive(true);
   }, [startTour, isPrivate]);
 
-  // ── AI auto-replies (private threads) ──────────────────────────────────────
+  // ── "AI replies" / "AI waits" (private threads), chosen at the composer ────
   // A missing column (schema.sql not re-run yet) reads as undefined, so replies stay on.
   const [autoReply, setAutoReply] = useState(thread.ai_auto_reply !== false);
   const [savingAutoReply, setSavingAutoReply] = useState(false);
 
-  const handleToggleAutoReply = useCallback(async () => {
-    const next = !autoReply;
+  const handleAIModeChange = useCallback(async (mode: "auto" | "waits") => {
+    const next = mode === "auto";
+    if (next === autoReply) return;
     setAutoReply(next);
     setSavingAutoReply(true);
     try {
@@ -508,17 +544,37 @@ export function ThreadView({
       .sort((a, b) => Date.parse(b.pinned_at!) - Date.parse(a.pinned_at!));
   }, [isPrivate, sharedDecisions.decisions, lastActivityAt, dismissedAt]);
 
+  // Teammates' new Team Space messages over the same window — the private thread's
+  // reasoning environment changing while you're heads-down. Your own posts aren't news.
+  const newSharedMessages = useMemo(() => {
+    if (!isPrivate || dismissedAt === null) return [];
+    const since = Math.max(lastActivityAt, dismissedAt);
+    return localSharedMessages
+      .filter((m) => !(m.sender_type === "user" && m.sender_id === currentUserId))
+      .filter((m) => Date.parse(m.created_at) > since)
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  }, [isPrivate, localSharedMessages, lastActivityAt, dismissedAt, currentUserId]);
+  // Only the newest page of Team Space is loaded. If even its oldest message is new, the
+  // real count may be higher — show it as a lower bound rather than a wrong exact number.
+  const newSharedIsLowerBound =
+    (sharedMessages?.length ?? 0) >= MESSAGE_PAGE_SIZE &&
+    newSharedMessages.length > 0 &&
+    localSharedMessages.every((m) => Date.parse(m.created_at) > Math.max(lastActivityAt, dismissedAt ?? 0));
+
   const handleDismissDecisions = useCallback(() => {
-    const latest = Math.max(...newDecisions.map((m) => Date.parse(m.pinned_at!)));
+    const latest = Math.max(
+      ...newDecisions.map((m) => Date.parse(m.pinned_at!)),
+      ...newSharedMessages.map((m) => Date.parse(m.created_at))
+    );
     setDismissedAt(latest);
     try {
       window.localStorage.setItem(dismissKey, String(latest));
     } catch {
       // Ignore — the dismissal still applies for this visit.
     }
-  }, [newDecisions, dismissKey]);
+  }, [newDecisions, newSharedMessages, dismissKey]);
 
-  const handleMessageSent = useCallback((id: string, content: string) => {
+  const handleMessageSent = useCallback((id: string, content: string, replyToId?: string) => {
     setLocalMessages((prev) => {
       if (prev.some(m => m.id === id)) return prev; // Prevent React Strict Mode duplicates
       return [
@@ -530,6 +586,7 @@ export function ThreadView({
           sender_id: currentUserId,
           content,
           created_at: new Date().toISOString(),
+          reply_to_message_id: replyToId ?? null,
         } as Message,
       ];
     });
@@ -600,14 +657,19 @@ export function ThreadView({
     setIsStreaming(false);
     setStreamingContent(null);
     if (isPrivate && isMissingKeyError(error)) {
-      // Every private message calls the AI, so say this once per visit, not on every send.
+      // "AI waits": the person explicitly asked, so say it every time, with advice that fits.
+      if (!autoReply) {
+        toastError(MISSING_KEY_ASK_MESSAGE);
+        return;
+      }
+      // "AI replies": every message calls the AI, so say this once per visit, not on every send.
       if (missingKeyToastShown.current) return;
       missingKeyToastShown.current = true;
       toastError(MISSING_KEY_AUTO_REPLY_MESSAGE);
       return;
     }
     toastError(error);
-  }, [isPrivate, toastError]);
+  }, [isPrivate, autoReply, toastError]);
 
   return (
     <div className="flex-1 flex w-full h-full relative overflow-hidden">
@@ -666,9 +728,7 @@ export function ThreadView({
               )}
               <p className="text-xs text-fg-subtle leading-tight mt-0.5">
                 {isPrivate
-                  ? autoReply
-                    ? "Only visible to you · AI replies to every message"
-                    : "Only visible to you · AI replies muted, use @AI"
+                  ? "Only you can see this · Nothing reaches Team Space until you publish it"
                   : "Visible to the entire team · use @AI to collaborate"}
               </p>
             </div>
@@ -763,24 +823,6 @@ export function ThreadView({
               </button>
             )}
 
-            {/* AI auto-reply toggle — only for private threads */}
-            {isPrivate && (
-              <button
-                onClick={handleToggleAutoReply}
-                disabled={savingAutoReply}
-                title={autoReply ? "Mute AI replies in this thread" : "Turn AI replies back on"}
-                aria-label="AI replies"
-                aria-pressed={autoReply}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border disabled:opacity-60
-                  ${autoReply
-                    ? "bg-team-soft text-team border-team-line"
-                    : "bg-card text-fg-muted border-line-strong hover:border-line-strong hover:text-fg"
-                  }`}
-              >
-                {autoReply ? <Bot size={15} /> : <BotOff size={15} />}
-                <span className="hidden sm:inline">{autoReply ? "AI replies on" : "AI replies muted"}</span>
-              </button>
-            )}
 
             {/* Select mode toggle — only for private threads */}
             {isPrivate && sharedThread && (
@@ -847,10 +889,15 @@ export function ThreadView({
           </div>
         )}
 
-        {/* Decisions pinned in the Team Space since this thread was last active */}
-        {isPrivate && sharedThread && newDecisions.length > 0 && (
+        {/* What changed in Team Space since this thread was last active */}
+        {/* Waits for Decisions and names so it appears once, fully formed, rather than
+            showing "new messages" in navy and then flipping to an amber Decision. */}
+        {isPrivate && sharedThread && sharedDecisions.loaded && sharedNames.loaded &&
+          (newDecisions.length > 0 || newSharedMessages.length > 0) && (
           <DecisionsSinceBanner
             decisions={newDecisions}
+            newMessages={newSharedMessages}
+            newMessagesIsLowerBound={newSharedIsLowerBound}
             onView={() => setDrawerOpen(true)}
             onDismiss={handleDismissDecisions}
             names={sharedNames.names}
@@ -873,12 +920,15 @@ export function ThreadView({
           onDiscussPrivately={isPrivate ? undefined : handleDiscussPrivately}
           highlightedMessageId={highlightedMessageId}
           aiAutoReply={isPrivate && autoReply}
+          privateWaits={isPrivate && !autoReply}
           seenBy={seenBy}
           statuses={statuses}
           onNearBottomChange={setAtBottom}
           onLoadOlder={paged.loadOlder}
           hasMoreOlder={paged.hasMore}
           loadingOlder={paged.loading}
+          onReply={handleReply}
+          onJumpToMessage={handleJumpToMessage}
         />
 
         {/* Chat Input or Selection Action Bar */}
@@ -936,7 +986,12 @@ export function ThreadView({
             onStreamEnd={handleStreamEnd}
             onStreamError={handleStreamError}
             onStreamNotice={toastWarning}
-            aiMode={isPrivate ? (autoReply ? "auto" : "muted") : "mention"}
+            aiMode={isPrivate ? (autoReply ? "auto" : "waits") : "mention"}
+            onAIModeChange={isPrivate ? handleAIModeChange : undefined}
+            savingAIMode={savingAutoReply}
+            canAskAboutThread={allMessages.length > 0 && allMessages[allMessages.length - 1].sender_type === "user"}
+            replyingTo={replyTarget}
+            onCancelReply={handleCancelReply}
           />
         )}
       </div>

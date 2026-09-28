@@ -6,7 +6,7 @@ import type { Message } from "@/types/database";
 
 // Mirrors utils/supabase/queries.ts's MESSAGE_PAGE_SIZE — kept separate because that
 // module pulls in next/headers (server-only) and this hook runs in the browser.
-const MESSAGE_PAGE_SIZE = 50;
+export const MESSAGE_PAGE_SIZE = 50;
 // Bounds how far back "jump to an older decision" will page before giving up —
 // matches the 1,000-message scale C3 is required to handle smoothly.
 const JUMP_MAX_PAGES = 20;

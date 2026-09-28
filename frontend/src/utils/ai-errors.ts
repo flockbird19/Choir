@@ -4,4 +4,7 @@ export function isMissingKeyError(message: unknown): boolean {
 }
 
 export const MISSING_KEY_AUTO_REPLY_MESSAGE =
-  "AI replies need your own API key. Add one in Settings, or mute AI replies for this thread.";
+  "AI replies need your own API key. Add one in Settings, or switch this thread to AI waits.";
+
+// When you explicitly asked (AI waits + Ask AI or @AI), "switch to AI waits" makes no sense.
+export const MISSING_KEY_ASK_MESSAGE = "Asking AI needs your own API key. Add one in Settings → API keys.";
