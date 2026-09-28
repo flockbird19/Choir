@@ -39,7 +39,9 @@ export function useRealtimeMessages(
     let cancelled = false;
     let hasSubscribed = false;
 
-    // After a dropped connection, pick up anything sent while we were away.
+    // After a dropped connection, pick up anything sent or changed while we were away. Each row
+    // goes through both callbacks: insert adds new ones, update refreshes ones we already have
+    // (a pin, or a withdrawal whose text must not stay on screen).
     const catchUp = async () => {
       const { data } = await supabase
         .from("messages")
@@ -48,7 +50,10 @@ export function useRealtimeMessages(
         .order("created_at", { ascending: false })
         .limit(50);
       if (cancelled || !data) return;
-      for (const message of [...data].reverse()) onInsertRef.current(message as Message);
+      for (const message of [...data].reverse()) {
+        onInsertRef.current(message as Message);
+        onUpdateRef.current(message as Message);
+      }
     };
 
     (async () => {

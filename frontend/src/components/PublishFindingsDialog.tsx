@@ -108,6 +108,9 @@ export function usePublishFindings({
     if (!sharedThreadId || !content || postingRef.current) return;
     postingRef.current = true;
     setPosting(true);
+    // If the dialog is closed or reopened on another draft while this posts, the result
+    // must not close or clear that newer draft (same guard as the findings request).
+    const id = request.current;
     try {
       const res = await postToSharedThread(
         sharedThreadId,
@@ -117,15 +120,21 @@ export function usePublishFindings({
         // An AI draft is the writer's own post anyway; only changed quotes are marked.
         state.mode === "selection" && content !== state.original.trim(),
       );
+      const current = id === request.current;
       if (res.error) {
         toast.error(res.error);
         return;
       }
-      close();
       toast.success(`Posted to ${sharedName}`);
+      if (!current) return;
+      close();
       onPublished?.();
     } catch {
-      toast.error(`Couldn't post to ${sharedName}. Your post is still here, so try again.`);
+      toast.error(
+        id === request.current
+          ? `Couldn't post to ${sharedName}. Your post is still here, so try again.`
+          : `Couldn't post to ${sharedName}. Please try again.`
+      );
     } finally {
       postingRef.current = false;
       setPosting(false);

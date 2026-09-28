@@ -364,8 +364,15 @@ export function ThreadView({
     const original = withdrawTarget && allMessages.find((m) => m.id === withdrawTarget.id);
     if (!original || withdrawing) return;
     setWithdrawing(true);
-    const res = await withdrawPublication(original.id);
-    setWithdrawing(false);
+    let res: Awaited<ReturnType<typeof withdrawPublication>>;
+    try {
+      res = await withdrawPublication(original.id);
+    } catch {
+      toastError("Couldn't reach Choir to withdraw the post. Check your connection and try again.");
+      return;
+    } finally {
+      setWithdrawing(false);
+    }
     if (res.error) {
       toastError(res.error);
       return;

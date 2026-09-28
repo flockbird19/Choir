@@ -10,7 +10,7 @@ Handles:
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Generator, cast
 
 from backend import shared_keys
@@ -397,6 +397,8 @@ def _refresh_summary_if_needed(
     context_block = _format_shared_as_system_context(new_older, names)
     prior = f"PREVIOUS SUMMARY:\n{existing['summary']}\n\n" if existing else ""
     user_prompt = f"{prior}NEW OLDER MESSAGES TO FOLD IN:\n{context_block}"
+    # A 60s margin covers clock skew between this server and Postgres' now().
+    started = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
 
     try:
         summary_text = complete_once(
@@ -418,6 +420,16 @@ def _refresh_summary_if_needed(
         },
         on_conflict="thread_id",
     ).execute()
+
+    # A post withdrawn while this summary was being written may be in it. withdraw_publication()
+    # sets withdrawn_at and deletes the summary in one transaction, so checking after our write
+    # closes the race: either it deleted after us, or we see its withdrawn_at here and delete.
+    withdrawn_since = (
+        db.table("messages").select("id").eq("thread_id", thread_id).gte("withdrawn_at", started).limit(1).execute()
+    )
+    if withdrawn_since.data:
+        db.table("thread_summaries").delete().eq("thread_id", thread_id).execute()
+        return ""
     return summary_text
 
 

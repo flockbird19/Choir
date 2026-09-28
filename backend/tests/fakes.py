@@ -64,6 +64,10 @@ class FakeQuery:
         self._limit = count
         return self
 
+    def delete(self) -> "FakeQuery":
+        self._delete = True
+        return self
+
     def single(self) -> "FakeQuery":
         self._single = True
         return self
@@ -103,6 +107,9 @@ class FakeQuery:
             self._table.append(dict(self._upsert))
             return FakeResult([dict(self._upsert)])
         rows = [row for row in self._data if self._matches(row)]
+        if getattr(self, "_delete", False):
+            self._table[:] = [row for row in self._table if row not in rows]
+            return FakeResult(rows)
         if self._limit is not None:
             rows = rows[: self._limit]
         if self._update is not None:

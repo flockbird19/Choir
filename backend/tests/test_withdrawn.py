@@ -3,6 +3,7 @@ A withdrawn publication (withdraw_publication() in schema.sql) never reaches an 
 prompt, Catch me up or an export. No real model or database is used.
 """
 
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -46,3 +47,31 @@ def test_markdown_export_shows_a_withdrawn_placeholder():
     assert "Kept" in text
     assert "_Withdrew a post._" in text
     assert "Published from" not in text
+
+
+def test_a_summary_written_while_a_post_is_withdrawn_is_not_kept():
+    # Codex review P1: withdraw_publication() deletes the stored summary, but a summary that was
+    # already being generated would be written back afterwards, withdrawn text included.
+    msgs = [
+        {"id": f"m{i}", "thread_id": "t", "sender_type": "user", "sender_id": "u", "content": f"msg {i}", "created_at": f"2026-09-29T00:00:{i:02d}Z"}
+        for i in range(25)
+    ]
+    db = FakeClient(messages=msgs, thread_summaries=[])
+
+    def withdraw_mid_generation(*_args, **_kwargs):
+        msgs[3].update(content="", withdrawn_at=datetime.now(timezone.utc).isoformat())
+        return "summary mentioning msg 3"
+
+    with patch.object(llm, "get_db", return_value=db), patch.object(llm, "complete_once", side_effect=withdraw_mid_generation):
+        result = llm._refresh_summary_if_needed("t", msgs, {}, "anthropic", "m", "k")
+
+    assert result == ""
+    assert db.table("thread_summaries").select("*").execute().data == []
+
+
+def test_a_summary_with_no_withdrawal_is_kept():
+    msgs = [{"id": "m1", "thread_id": "t", "sender_type": "user", "sender_id": "u", "content": "hi", "created_at": "2026-09-29T00:00:00Z"}]
+    db = FakeClient(messages=msgs, thread_summaries=[])
+    with patch.object(llm, "get_db", return_value=db), patch.object(llm, "complete_once", return_value="kept"):
+        assert llm._refresh_summary_if_needed("t", msgs, {}, "anthropic", "m", "k") == "kept"
+    assert len(db.table("thread_summaries").select("*").execute().data) == 1
