@@ -192,6 +192,12 @@ def _save(project_id: str, row: dict[str, Any] | None, ai_notes: list[dict[str, 
     db = llm.get_db()
     for _ in range(2):
         current = get(project_id)
+        # A slower update over older messages must not overwrite a newer one's notes or move
+        # coverage backwards (codex review): keep what's there and drop this result.
+        stored = (current or {}).get("covers_through")
+        if stored and (not covers or covers < stored):
+            logger.info("Dropped a stale project memory update for %s", project_id)
+            return current
         people = [i for i in (current or {}).get("items") or [] if i.get("by") != "ai"]
         items = people + ai_notes[: max(MAX_ITEMS - len(people), 0)]
         values = {
@@ -220,12 +226,29 @@ def _save(project_id: str, row: dict[str, Any] | None, ai_notes: list[dict[str, 
 def refresh_in_background(
     project_id: str, provider: str, model: str, api_key: str, names: dict[str, str], tz: timezone
 ) -> None:
-    """After an AI reply: update memory if enough has happened, without holding up the reply."""
+    """
+    After an AI reply: update memory if enough has happened, without holding up the reply.
+    One update per project at a time in this process; a reply finishing meanwhile skips it
+    (the next reply picks up whatever it would have read).
+    """
+    with _running_lock:
+        if project_id in _running:
+            return
+        _running.add(project_id)
 
     def run() -> None:
         try:
             refresh(project_id, provider, model, api_key, names, tz)
         except Exception:
             logger.exception("Background project memory update failed for %s", project_id)
+        finally:
+            with _running_lock:
+                _running.discard(project_id)
 
     threading.Thread(target=run, daemon=True).start()
+
+
+# ponytail: per-process only; with several backend workers, the stale check in _save is
+# what keeps a slower update from winning.
+_running: set[str] = set()
+_running_lock = threading.Lock()

@@ -35,10 +35,6 @@ HANDOFF_SYSTEM_PROMPT = (
     "emojis: output only the prompt. Keep it under 450 words unless code needs more room."
 )
 
-# What the prompt reads of the thread (its compact summary plus the latest messages).
-TRANSCRIPT_CHARS = 24_000
-
-
 def _transcript(messages: list[dict[str, Any]], names: dict[str, str], user_id: str) -> str:
     lines = []
     for msg in messages:
@@ -60,8 +56,7 @@ def draft_handoff_prompt(thread_id: str, user_id: str) -> dict[str, str]:
     if not thread:
         raise ValueError("Thread not found.")
 
-    view = llm.thread_view(thread_id, None, TRANSCRIPT_CHARS)
-    if not view["messages"]:
+    if not llm._latest_message(thread_id):
         raise ValueError("This thread has no messages to turn into a prompt yet.")
 
     resolved = _resolve_provider_and_model(thread, user_id)
@@ -73,6 +68,10 @@ def draft_handoff_prompt(thread_id: str, user_id: str) -> dict[str, str]:
 
     names = team_names_for_thread(thread)
     tz = llm.user_tz(None)
+    # Same budget as the AI chat; compact first rather than silently leave earlier messages out.
+    view = llm.compact_until_it_fits(
+        thread_id, None, llm.context_chars(provider) * 3 // 4, provider, model, api_key, names, tz
+    )
     kind = "my private thread" if thread.get("type") == "private" else "our team's shared thread (Team Space)"
     parts = [f'This is "{thread.get("name") or "Untitled"}", {kind} in Choir, a team chat with an AI assistant ("Choir AI").']
     for block in (

@@ -381,10 +381,16 @@ def _fetch_page(
 
 
 def _latest_checkpoint(thread_id: str, until: str | None = None) -> dict[str, Any] | None:
+    """
+    The live checkpoint that reaches furthest, counting only what it *covers*: one written
+    while answering a question (after it, by the clock) still counts for that question if
+    everything it summarises came before it (codex review: the card made to answer a
+    question used to be ignored by that very answer).
+    """
     query = get_db().table("messages").select("*").eq("thread_id", thread_id).eq("kind", "checkpoint")
     if until:
-        query = query.lte("created_at", until)
-    rows = cast(list[dict[str, Any]], query.order("created_at", desc=True).limit(10).execute().data)
+        query = query.lte("covers_through", until)
+    rows = cast(list[dict[str, Any]], query.order("covers_through", desc=True).limit(10).execute().data)
     return next((m for m in rows if not m.get("withdrawn_at")), None)
 
 

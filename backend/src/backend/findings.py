@@ -27,10 +27,6 @@ FINDINGS_SYSTEM_PROMPT = (
     "Keep it under 220 words."
 )
 
-# What the draft reads of the private thread (its compact summary plus the latest messages).
-TRANSCRIPT_CHARS = 24_000
-
-
 def draft_findings(thread_id: str, user_id: str) -> dict[str, Any]:
     """
     Returns {"draft": markdown, "source_message_ids": [...]}: the ids are exactly the messages
@@ -42,9 +38,7 @@ def draft_findings(thread_id: str, user_id: str) -> dict[str, Any]:
     if not thread or thread.get("type") != "private":
         raise ValueError("Findings can only be published from a private thread.")
 
-    view = llm.thread_view(thread_id, None, TRANSCRIPT_CHARS)
-    messages = view["messages"]
-    if not messages:
+    if not llm._latest_message(thread_id):
         raise ValueError("This thread has no messages to publish yet.")
 
     resolved = _resolve_provider_and_model(thread, user_id)
@@ -56,6 +50,12 @@ def draft_findings(thread_id: str, user_id: str) -> dict[str, Any]:
 
     names = llm.team_names_for_thread(thread)
     tz = llm.user_tz(None)
+    # Read the thread the way the AI chat does, with its budget, and compact first rather than
+    # silently leave earlier messages out (codex review).
+    view = llm.compact_until_it_fits(
+        thread_id, None, llm.context_chars(provider) * 3 // 4, provider, model, api_key, names, tz
+    )
+    messages = view["messages"]
     parts = [
         memory.render(thread["project_id"], 4_000),
         llm.decisions_block(llm._team_decisions(thread["project_id"]), names, tz, 4_000),

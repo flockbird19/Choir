@@ -26,7 +26,8 @@ from tests.fakes import FakeClient
 
 
 def at(i: int) -> str:
-    return f"2026-09-29T{i // 3600:02d}:{i // 60 % 60:02d}:{i % 60:02d}+00:00"
+    # In the past, like real data: a checkpoint written "now" is newer than every message.
+    return f"2026-01-05T{i // 3600:02d}:{i // 60 % 60:02d}:{i % 60:02d}+00:00"
 
 
 def msg(i: int, thread: str = "t", sender: str | None = "u-a", text: str | None = None, **extra) -> dict:
@@ -232,8 +233,32 @@ def test_long_thread_is_compacted_before_answering_and_says_so(captured):
     ):
         frames = list(llm.stream_ai_response("t", "u-a", message_id="m89"))
     assert '"status": "compacting"' in frames[0]
-    assert "EARLIER IN TEAM SPACE" in _system(captured)
     assert any(m.get("kind") == "checkpoint" for m in db._tables["messages"])
+    # Codex review: the card written for this answer must reach this answer, even though it
+    # was created after the question. The earliest message has to be in the prompt somewhere.
+    system = _system(captured)
+    assert "EARLIER IN TEAM SPACE" in system and "message 0," in system
+
+
+def test_findings_and_export_compact_instead_of_dropping_early_messages():
+    # Codex review: both used to read only the latest ~24k characters and say nothing.
+    from backend import findings, handoff
+
+    messages = [msg(0, thread="priv", text="message 0 REQUIREMENT: runs on batteries")] + [
+        msg(i, thread="priv", text=f"message {i} " + "r" * 1500) for i in range(1, 90)
+    ]
+    for module, call in ((findings, findings.draft_findings), (handoff, handoff.draft_handoff_prompt)):
+        db = world(list(messages))
+        seen: list[str] = []
+        with (
+            patch.object(llm, "get_db", return_value=db),
+            patch.object(llm, "get_api_key", return_value="sk"),
+            patch.object(llm, "complete_once", side_effect=lambda p, m, k, system, prompt, max_tokens: fake_fold(system, prompt)),
+            patch.object(module, "complete_once", side_effect=lambda p, m, k, system, prompt, max_tokens: seen.append(prompt) or "ok"),
+        ):
+            call("priv", "u-a")
+        assert "message 0" in seen[0], module.__name__
+        assert any(m.get("kind") == "checkpoint" for m in db._tables["messages"])
 
 
 def test_private_thread_reads_project_memory_but_team_space_only_read_only(captured):

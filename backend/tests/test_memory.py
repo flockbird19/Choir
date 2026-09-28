@@ -18,7 +18,7 @@ from tests.fakes import FakeClient
 
 
 def at(i: int) -> str:
-    return f"2026-09-29T00:{i // 60:02d}:{i % 60:02d}+00:00"
+    return f"2026-01-05T00:{i // 60:02d}:{i % 60:02d}+00:00"
 
 
 def team_space(n: int, start: int = 0) -> list[dict]:
@@ -114,6 +114,25 @@ def test_notes_citing_a_post_withdrawn_during_the_update_are_dropped():
 
     row = run(db, withdraw_mid_update)
     assert [n["text"] for n in row["items"]] == ["A plant monitor"]
+
+
+def test_a_slower_older_update_never_overwrites_a_newer_one():
+    # Codex review: overlapping updates let the older one restore stale notes and move
+    # coverage backwards.
+    db = world(team_space(10))
+
+    def newer_update_lands_first(*_args, **_kwargs):
+        db._tables["project_memory"].append({
+            "project_id": "p", "version": 5, "covers_through": at(50),
+            "items": [{"id": "new", "section": "facts", "text": "Budget is 45 dollars", "sources": ["m9"], "by": "ai"}],
+        })
+        return json.dumps([{"id": "old", "section": "facts", "text": "Budget is 40 dollars", "sources": ["m1"]}])
+
+    row = run(db, newer_update_lands_first)
+    stored = db._tables["project_memory"][0]
+    assert stored["covers_through"] == at(50) and stored["version"] == 5
+    assert [n["text"] for n in stored["items"]] == ["Budget is 45 dollars"]
+    assert row == stored
 
 
 def test_a_garbled_reply_keeps_the_old_memory():

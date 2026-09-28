@@ -99,10 +99,10 @@ def test_happy_path_drafts_three_sections_from_the_private_thread(client):
 def test_source_ids_are_only_the_messages_that_fit_the_budget():
     big = "x" * 15_000
     msgs = [{"id": f"m{i}", "sender_type": "user", "content": big} for i in range(3)]
-    kept, dropped = llm._fit(msgs, findings.TRANSCRIPT_CHARS)
+    kept, dropped = llm._fit(msgs, 24_000)
     assert [m["id"] for m in kept] == ["m2"] and [m["id"] for m in dropped] == ["m0", "m1"]
     # A single oversized latest message is still used, cut to fit.
-    kept, _ = llm._fit([{"id": "only", "sender_type": "user", "content": "y" * 50_000}], findings.TRANSCRIPT_CHARS)
+    kept, _ = llm._fit([{"id": "only", "sender_type": "user", "content": "y" * 50_000}], 24_000)
     assert [m["id"] for m in kept] == ["only"] and len(kept[0]["content"]) < 25_000
 
 
