@@ -16,6 +16,7 @@
 -- owner_id and the new agent_connections table, for connecting a coding agent to a
 -- project via MCP. Additive only (new columns with a default, new table) — safe to
 -- run against live even though the spike itself is unproven; nothing existing changes.
+-- Pending re-run (2026-09-28, L23): trigger blocking ai_auto_reply changes on Team Space.
 -- ============================================================================
 
 begin;
@@ -467,6 +468,20 @@ create policy "Team members can rename shared threads" on public.threads
     select 1 from public.projects p
     where p.id = threads.project_id and public.is_team_member(p.team_id)
   ));
+-- L23: RLS can't scope a policy to one column, so the rename policy above would also
+-- let any member flip ai_auto_reply on Team Space. Mute is private-thread only.
+create or replace function public.block_shared_auto_reply_change()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.type = 'shared' and new.ai_auto_reply is distinct from old.ai_auto_reply then
+    raise exception 'AI replies can only be changed on private threads' using errcode = '42501';
+  end if;
+  return new;
+end $$;
+drop trigger if exists block_shared_auto_reply_change on public.threads;
+create trigger block_shared_auto_reply_change
+  before update on public.threads
+  for each row execute function public.block_shared_auto_reply_change();
 
 -- Messages: only in threads the user can access; users post as themselves;
 -- pinning (update) only in shared threads. AI replies are saved by the backend.

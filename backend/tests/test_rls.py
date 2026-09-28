@@ -389,6 +389,9 @@ def test_mute_only_works_on_your_own_private_thread(world):
     assert_blocked(a.update("threads", {"ai_auto_reply": False}, id=eq(world.s1)))
     assert admin_row(world, "threads", world.pa)["ai_auto_reply"] is True
     assert admin_row(world, "threads", world.s1)["ai_auto_reply"] is True
+    # Control (L23): blocking mute on Team Space doesn't block renaming it.
+    assert len(ok(b.update("threads", {"name": "Renamed"}, id=eq(world.s1)))) == 1
+    ok(b.update("threads", {"name": "Team Space"}, id=eq(world.s1)))
     # Only the mute column can change, even on your own thread.
     assert_denied(a.update("threads", {"type": "shared"}, id=eq(world.pa)))
     assert_denied(a.update("threads", {"project_id": world.p2}, id=eq(world.pa)))
