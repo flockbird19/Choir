@@ -6,7 +6,7 @@ import { siteOrigin } from "@/utils/site-origin";
 
 export type WorkspaceSetupResult =
   | { error: string }
-  | { teamName: string; inviteLink: string; sharedThreadId: string };
+  | { teamId: string; teamName: string; inviteLink: string; sharedThreadId: string };
 
 const MAX_TEAM_NAME_LENGTH = 80;
 
@@ -78,6 +78,7 @@ export async function createWorkspace(formData: FormData): Promise<WorkspaceSetu
   if (inviteResult.error || !inviteResult.data) return fail("invite link", inviteResult.error);
 
   return {
+    teamId: team.id,
     teamName,
     inviteLink: `${await siteOrigin()}/invite/${inviteResult.data.token}`,
     sharedThreadId: sharedResult.data.id,

@@ -1,10 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { Plus } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { Logo } from "./Logo";
 import { NotificationBell } from "./NotificationBell";
 import { Team } from "@/types/database";
+import { createWorkspace } from "@/app/onboarding/actions";
+import { useToast } from "./Toast";
+import { Button, Dialog, Input } from "@/components/ui";
 
 interface PrimarySidebarProps {
   teams: Team[];
@@ -23,6 +29,31 @@ export function PrimarySidebar({
   sidebarCollapsed,
   onToggleSidebar,
 }: PrimarySidebarProps) {
+  const router = useRouter();
+  const { error: toastError } = useToast();
+  const [isCreatingTeam, setIsCreatingTeam] = useState(false);
+  const [newTeamName, setNewTeamName] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleCreateTeam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTeamName.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+    const formData = new FormData();
+    formData.set("teamName", newTeamName.trim());
+    const result = await createWorkspace(formData);
+    setIsSubmitting(false);
+    if ("error" in result) {
+      toastError(result.error);
+      return;
+    }
+    setIsCreatingTeam(false);
+    setNewTeamName("");
+    onSelectTeam(result.teamId);
+    router.push(`/thread/${result.sharedThreadId}`);
+    router.refresh();
+  };
+
   return (
     <nav
       aria-label="Workspaces"
@@ -60,6 +91,16 @@ export function PrimarySidebar({
             </button>
           );
         })}
+
+        <button
+          type="button"
+          onClick={() => setIsCreatingTeam(true)}
+          title="New team"
+          aria-label="New team"
+          className="grid size-11 shrink-0 place-items-center rounded-[12px] text-fg-subtle transition-colors hover:bg-card hover:text-fg"
+        >
+          <Plus size={18} />
+        </button>
       </div>
 
       <div className="mt-auto flex flex-col items-center gap-1.5">
@@ -76,6 +117,44 @@ export function PrimarySidebar({
         <NotificationBell />
         <ThemeToggle />
       </div>
+
+      <Dialog
+        open={isCreatingTeam}
+        onClose={() => { setIsCreatingTeam(false); setNewTeamName(""); }}
+        title="New team"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => { setIsCreatingTeam(false); setNewTeamName(""); }}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="new-team-form"
+              variant="primary"
+              disabled={!newTeamName.trim() || isSubmitting}
+              loading={isSubmitting}
+            >
+              Create
+            </Button>
+          </>
+        }
+      >
+        <form id="new-team-form" onSubmit={handleCreateTeam}>
+          <Input
+            label="Team name"
+            hideLabel
+            autoFocus
+            value={newTeamName}
+            onChange={(e) => setNewTeamName(e.target.value)}
+            placeholder="e.g. Product team…"
+            disabled={isSubmitting}
+          />
+        </form>
+      </Dialog>
     </nav>
   );
 }

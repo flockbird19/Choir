@@ -4,6 +4,46 @@ import { createClient } from "@/utils/supabase/server";
 import { getCurrentUser } from "@/utils/supabase/access";
 import { getTeamMemberNames } from "@/utils/supabase/member-names";
 import { getDisplayName } from "@/utils/display-name";
+import { revalidatePath } from "next/cache";
+
+const MAX_TEAM_NAME_LENGTH = 80;
+const DATABASE_UPDATE_PENDING = "This needs a database update that hasn't been applied yet. Please try again later.";
+
+// Any team member can rename it (schema.sql: "Team members can rename their teams").
+// PostgREST silently drops a disallowed column from an update instead of erroring,
+// so a rename that didn't actually take effect looks like success unless checked.
+export async function renameTeam(teamId: string, name: string): Promise<{ success?: boolean; error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not logged in" };
+
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "Give the team a name." };
+  if (trimmed.length > MAX_TEAM_NAME_LENGTH) {
+    return { error: `Keep the name under ${MAX_TEAM_NAME_LENGTH} characters.` };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("teams").update({ name: trimmed }).eq("id", teamId).select("id, name");
+
+  if (error?.code === "42703" || error?.code === "PGRST204") {
+    console.error("Error renaming team (database update pending):", error);
+    return { error: DATABASE_UPDATE_PENDING };
+  }
+  if (error) {
+    console.error("Error renaming team:", error);
+    return { error: "Couldn't rename the team. Please try again." };
+  }
+  if (!data || data.length === 0 || data[0].name !== trimmed) {
+    console.error("Rename didn't take effect (likely teams.name's update grant/RLS policy isn't applied yet):", data);
+    return { error: DATABASE_UPDATE_PENDING };
+  }
+
+  // Same pattern as updateDisplayName (profile/actions.ts): the root layout reads
+  // team names once per request, so a rename needs the layout's data explicitly
+  // revalidated — the client's router.refresh() alone wasn't reflecting it.
+  revalidatePath("/", "layout");
+  return { success: true };
+}
 
 export interface GlobalSearchThread {
   id: string;
