@@ -13,5 +13,5 @@ export { Spinner } from "./Spinner";
 export { Tabs, TabPanel, type TabItem } from "./Tabs";
 export { ThemeSwitch } from "./ThemeSwitch";
 export { Toggle } from "./Toggle";
-export { Tooltip } from "./Tooltip";
+export { TooltipLayer } from "./TooltipLayer";
 export { useMediaQuery } from "./useMediaQuery";

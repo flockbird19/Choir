@@ -5,7 +5,7 @@ import { PrimarySidebar } from "./PrimarySidebar";
 import { SecondarySidebar } from "./SecondarySidebar";
 import type { SessionUser } from "@/utils/supabase/access";
 import { Team, Project, Thread } from "@/types/database";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 interface AppLayoutClientProps {
   user: SessionUser | null;
@@ -43,6 +43,15 @@ export function AppLayoutClient({
   }
 
   const [activeTeamId, setActiveTeamId] = useState<string | null>(initialTeamId);
+  const router = useRouter();
+  // Picking a team in the rail opens its Team Space straight away, instead of only
+  // swapping the channel list while another team's thread stays on screen.
+  const selectTeam = (teamId: string) => {
+    setActiveTeamId(teamId);
+    const projectIds = new Set(projects.filter((p) => p.team_id === teamId).map((p) => p.id));
+    const teamSpace = threads.find((t) => t.type === "shared" && projectIds.has(t.project_id));
+    if (teamSpace && teamSpace.id !== currentThreadId) router.push(`/thread/${teamSpace.id}`);
+  };
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const toggleSidebar = () => setSidebarCollapsed((prev) => !prev);
 
@@ -63,7 +72,7 @@ export function AppLayoutClient({
       <PrimarySidebar
         teams={teams}
         activeTeamId={activeTeamId}
-        onSelectTeam={setActiveTeamId}
+        onSelectTeam={selectTeam}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={toggleSidebar}
       />

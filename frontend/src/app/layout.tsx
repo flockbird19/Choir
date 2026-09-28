@@ -4,6 +4,7 @@ import { ThemeProvider } from "../components/ThemeProvider";
 import { ToastProvider } from "../components/Toast";
 import { CookieBanner } from "../components/CookieBanner";
 import { CommandPalette } from "../components/CommandPalette";
+import { TooltipLayer } from "../components/ui/TooltipLayer";
 import "./globals.css";
 
 // DESIGN.md 4.1: only three families load app-wide. Newsreader for headings
@@ -54,6 +55,7 @@ export default function RootLayout({
             {children}
             <CommandPalette />
             <CookieBanner />
+            <TooltipLayer />
           </ToastProvider>
         </ThemeProvider>
       </body>

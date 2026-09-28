@@ -401,6 +401,7 @@ export function ChatInput({
               type="button"
               onClick={onCancelReply}
               aria-label="Cancel reply"
+              data-tooltip="Cancel reply"
               className="shrink-0 grid size-6 place-items-center rounded-full text-fg-subtle hover:bg-hover hover:text-fg transition-colors"
             >
               <X size={13} />
@@ -450,7 +451,7 @@ export function ChatInput({
                 <button
                   {...props}
                   type="button"
-                  title={`AI model: ${selectedModel.name}`}
+                  data-tooltip={`AI model: ${selectedModel.name}`}
                   aria-label={`AI model: ${selectedModel.name}`}
                   className="grid size-8 shrink-0 place-items-center rounded-full text-fg-subtle transition-colors hover:bg-hover hover:text-fg-muted"
                 >
@@ -480,7 +481,7 @@ export function ChatInput({
                 type="button"
                 onClick={() => void handleAskAI()}
                 disabled={askDisabled}
-                title={
+                data-tooltip={
                   content.trim()
                     ? "Send and ask AI"
                     : canAskEmpty
@@ -498,6 +499,8 @@ export function ChatInput({
               onClick={() => void handleSubmit()}
               disabled={!content.trim() || isSubmitting || disabled}
               aria-label="Send message"
+              data-tooltip="Send"
+              data-tooltip-shortcut="Enter"
               className={`size-11 rounded-full flex items-center justify-center transition-all shrink-0
                 ${
                   content.trim() && !isSubmitting && !disabled

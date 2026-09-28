@@ -62,6 +62,8 @@ export function PrimarySidebar({
       <Link
         href="/"
         aria-label="Choir home"
+        data-tooltip="Home"
+        data-tooltip-side="right"
         className="grid size-10 place-items-center rounded-[14px] text-fg transition-colors hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-team"
       >
         <Logo className="size-6" />
@@ -78,7 +80,8 @@ export function PrimarySidebar({
             <button
               key={team.id}
               onClick={() => onSelectTeam(team.id)}
-              title={team.name}
+              data-tooltip={team.name}
+              data-tooltip-side="right"
               aria-label={team.name}
               aria-pressed={isActive}
               className={`grid size-11 shrink-0 place-items-center font-mono text-[13px] font-medium transition-all duration-150 ${
@@ -95,7 +98,8 @@ export function PrimarySidebar({
         <button
           type="button"
           onClick={() => setIsCreatingTeam(true)}
-          title="New team"
+          data-tooltip="New team"
+          data-tooltip-side="right"
           aria-label="New team"
           className="grid size-11 shrink-0 place-items-center rounded-[12px] text-fg-subtle transition-colors hover:bg-card hover:text-fg"
         >
@@ -108,7 +112,8 @@ export function PrimarySidebar({
           type="button"
           onClick={onToggleSidebar}
           aria-pressed={sidebarCollapsed}
-          title={sidebarCollapsed ? "Show the channel list" : "Hide the channel list"}
+          data-tooltip-side="right"
+          data-tooltip={sidebarCollapsed ? "Show the channel list" : "Hide the channel list"}
           aria-label={sidebarCollapsed ? "Show the channel list" : "Hide the channel list"}
           className="grid size-10 place-items-center rounded-[10px] text-fg-muted transition-colors hover:bg-hover hover:text-fg"
         >

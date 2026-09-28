@@ -45,7 +45,7 @@ function SeenByRow({ seenBy, isOwn }: { seenBy: { id: string; name: string; stat
   return (
     <span
       className={`flex items-center -space-x-1 ${isOwn ? "order-first" : ""}`}
-      title={`Seen by ${summary}`}
+      data-tooltip={`Seen by ${summary}`}
     >
       {shown.map((p) => (
         <span key={p.id} aria-hidden="true" className="relative inline-flex">
@@ -129,7 +129,8 @@ const CodeBlock: Components["pre"] = ({ children, ...props }) => {
       <button
         onClick={handleCopy}
         className="absolute top-2 right-2 p-1.5 rounded-md bg-hover border border-line text-fg-subtle opacity-0 group-hover:opacity-100 hover:text-fg transition-all z-10"
-        title="Copy to clipboard"
+        data-tooltip={copied ? "Copied" : "Copy code"}
+        aria-label={copied ? "Copied" : "Copy code"}
       >
         {copied ? <Check size={14} className="text-private" /> : <Copy size={14} />}
       </button>
@@ -284,7 +285,7 @@ const MessageItem = memo(function MessageItem({
 
         <div
           aria-hidden="true"
-          title={senderName}
+          data-tooltip={senderName}
           className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-[10px] font-bold select-none
             ${isOwn ? "bg-private-soft text-private" : isAI ? "bg-team-soft text-team" : "bg-selected text-fg-muted"}
             ${showSender || isOwn ? "" : "invisible"}`}
@@ -351,7 +352,7 @@ const MessageItem = memo(function MessageItem({
                   e.stopPropagation();
                   onReply(msg);
                 }}
-                title="Reply"
+                data-tooltip="Reply"
                 aria-label="Reply"
                 className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 min-w-[24px] min-h-[24px] pointer-coarse:min-w-11 pointer-coarse:min-h-11 flex items-center justify-center rounded-md text-fg-subtle hover:text-fg hover:bg-hover transition-all"
               >
@@ -364,7 +365,7 @@ const MessageItem = memo(function MessageItem({
                   e.stopPropagation();
                   onTogglePin(msg.id, isPinned);
                 }}
-                title={isPinned ? "Unpin decision" : "Pin as decision"}
+                data-tooltip={isPinned ? "Unpin decision" : "Pin as decision"}
                 aria-label={isPinned ? "Unpin decision" : "Pin as decision"}
                 className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 min-w-[24px] min-h-[24px] flex items-center justify-center rounded-md text-fg-subtle hover:text-decision hover:bg-decision-soft transition-all"
               >
@@ -377,7 +378,7 @@ const MessageItem = memo(function MessageItem({
                   e.stopPropagation();
                   onDiscussPrivately(msg.id);
                 }}
-                title="Discuss privately"
+                data-tooltip="Discuss privately"
                 aria-label="Discuss privately"
                 className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 min-w-[24px] min-h-[24px] pointer-coarse:min-w-11 pointer-coarse:min-h-11 flex items-center justify-center rounded-md text-fg-subtle hover:text-team hover:bg-team-soft focus-visible:outline-2 focus-visible:outline-team transition-all"
               >
@@ -390,7 +391,7 @@ const MessageItem = memo(function MessageItem({
                   e.stopPropagation();
                   onWithdraw(msg);
                 }}
-                title="Withdraw post"
+                data-tooltip="Withdraw post"
                 aria-label="Withdraw post"
                 className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 min-w-[24px] min-h-[24px] pointer-coarse:min-w-11 pointer-coarse:min-h-11 flex items-center justify-center rounded-md text-fg-subtle hover:text-danger hover:bg-danger-soft transition-all"
               >

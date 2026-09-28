@@ -84,6 +84,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         onClick={handleDismiss}
         className="shrink-0 p-0.5 rounded-lg text-graphite/50 hover:text-graphite transition-colors"
         aria-label="Dismiss"
+        data-tooltip="Dismiss"
       >
         <X size={13} />
       </button>

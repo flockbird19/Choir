@@ -179,7 +179,7 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
           </p>
           <button
             onClick={() => setIsCreatingThread(true)}
-            title="New private thread"
+            data-tooltip="New private thread"
             aria-label="New private thread"
             className="grid size-6 place-items-center rounded-md text-fg-subtle transition-colors hover:bg-hover hover:text-fg"
           >
@@ -214,7 +214,7 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
               <button
                 onClick={(e) => handleDeleteThread(e, thread.id, thread.name || "Untitled")}
                 className="grid size-6 shrink-0 place-items-center rounded-md text-fg-subtle opacity-0 transition-all hover:bg-danger-soft hover:text-danger focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-                title="Delete thread"
+                data-tooltip="Delete thread"
                 aria-label={`Delete thread "${thread.name || "Untitled"}"`}
               >
                 <Trash2 size={12} />
@@ -248,7 +248,7 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
         </Link>
         <Link
           href="/settings"
-          title="Settings"
+          data-tooltip="Settings"
           aria-label="Settings"
           className={`grid size-8 shrink-0 place-items-center rounded-[10px] transition-colors hover:bg-hover ${
             pathname === "/settings" ? "bg-hover text-fg" : "text-fg-muted hover:text-fg"

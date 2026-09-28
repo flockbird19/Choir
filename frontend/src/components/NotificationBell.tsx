@@ -78,7 +78,8 @@ export function NotificationBell() {
         ref={buttonRef}
         type="button"
         aria-label={label}
-        title="Notifications"
+        data-tooltip="Notifications"
+        data-tooltip-side="right"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((value) => !value)}

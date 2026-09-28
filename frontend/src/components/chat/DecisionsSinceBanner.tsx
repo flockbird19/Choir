@@ -69,7 +69,7 @@ export function DecisionsSinceBanner({
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-fg">{title}</p>
-        <p className="mt-0.5 truncate text-sm text-fg-muted" title={detail}>
+        <p className="mt-0.5 truncate text-sm text-fg-muted" data-tooltip={detail}>
           {detail}
           {byline && <span className="text-fg-subtle"> · {byline}</span>}
         </p>
@@ -84,7 +84,7 @@ export function DecisionsSinceBanner({
         <button
           onClick={onDismiss}
           aria-label="Dismiss Team Space updates"
-          title="Dismiss"
+          data-tooltip="Dismiss"
           className={`flex h-7 w-7 items-center justify-center rounded-control text-fg-muted transition-colors hover:text-fg ${tone.close}`}
         >
           <X size={14} aria-hidden="true" />

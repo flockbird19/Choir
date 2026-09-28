@@ -1,6 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
 import { cn, focusRing } from "./cn";
-import { Tooltip } from "./Tooltip";
 
 const SIZES = {
   // Visual size on desktop; on phones every button is at least 44px so it is easy to tap.
@@ -38,10 +37,13 @@ export function IconButton({
   type = "button",
   ...props
 }: IconButtonProps) {
-  const button = (
+  return (
     <button
       type={type}
       aria-label={label}
+      data-tooltip={tooltip ? label : undefined}
+      data-tooltip-side={tooltip ? tooltipSide : undefined}
+      data-tooltip-shortcut={tooltip ? shortcut : undefined}
       className={cn(
         "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-control",
         "transition-[background-color,border-color,color,opacity,transform] duration-150 active:scale-95",
@@ -58,12 +60,5 @@ export function IconButton({
         {icon}
       </span>
     </button>
-  );
-
-  if (!tooltip) return button;
-  return (
-    <Tooltip content={label} side={tooltipSide} shortcut={shortcut} describe={false}>
-      {button}
-    </Tooltip>
   );
 }

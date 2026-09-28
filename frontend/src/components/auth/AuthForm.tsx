@@ -439,7 +439,7 @@ function SignedInCard({ email, next }: { email: string; next: string }) {
         </span>
         <div className="min-w-0">
           <p className="text-[13px] text-fg-subtle">Signed in as</p>
-          <p className="truncate text-[15px] font-medium text-fg" title={email}>
+          <p className="truncate text-[15px] font-medium text-fg" data-tooltip={email}>
             {email}
           </p>
         </div>

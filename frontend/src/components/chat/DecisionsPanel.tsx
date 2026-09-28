@@ -99,7 +99,7 @@ export function DecisionsPanel({
                       <span
                         role="img"
                         aria-label={`${authorName(msg)} — ${STATUS_LABEL[statuses[msg.sender_id] ?? "online"]}`}
-                        title={STATUS_LABEL[statuses[msg.sender_id] ?? "online"]}
+                        data-tooltip={STATUS_LABEL[statuses[msg.sender_id] ?? "online"]}
                         className={`inline-block w-1.5 h-1.5 rounded-full ml-1.5 align-middle ${STATUS_DOT_CLASS[statuses[msg.sender_id] ?? "online"]}`}
                       />
                     )}
@@ -130,10 +130,11 @@ export function DecisionsPanel({
                         return (
                           <span
                             className="flex items-center gap-0.5"
-                            title={`Seen by ${seen.map((p) => p.name).join(", ")}`}
+                            data-tooltip={`Seen by ${seen.map((p) => p.name).join(", ")}`}
                           >
                             <Eye size={10} aria-hidden="true" />
                             {seen.length}
+                            <span className="sr-only"> seen by {seen.map((p) => p.name).join(", ")}</span>
                           </span>
                         );
                       })()}

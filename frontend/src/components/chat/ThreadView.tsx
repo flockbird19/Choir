@@ -798,7 +798,7 @@ export function ThreadView({
             {presentUsers.length > 0 && (
               <div
                 className="flex items-center -space-x-2 mr-1"
-                title={presentUsers
+                data-tooltip={presentUsers
                   .map((u) => `${u.name} (${STATUS_LABEL[statuses[u.id] ?? "online"]})`)
                   .join(", ")}
               >
@@ -855,7 +855,7 @@ export function ThreadView({
             {!isPrivate && (
               <button
                 onClick={handleCatchMeUp}
-                title="Catch me up on what you missed"
+                data-tooltip="Catch me up on what you missed"
                 aria-label="Catch me up on what you missed"
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all text-on-primary"
                 style={{ backgroundImage: "linear-gradient(180deg, var(--ds-primary-from, var(--color-primary)), var(--ds-primary-to, var(--color-primary)))" }}
@@ -869,7 +869,7 @@ export function ThreadView({
             {!isPrivate && (
               <button
                 onClick={() => setDecisionsOpen(!decisionsOpen)}
-                title="View pinned decisions"
+                data-tooltip="View pinned decisions"
                 aria-label={`View pinned decisions${decisions.length > 0 ? ` (${decisions.length})` : ""}`}
                 aria-pressed={decisionsOpen}
                 className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border
@@ -908,7 +908,7 @@ export function ThreadView({
             {isPrivate && sharedThread && (
               <button
                 onClick={() => void findings.start()}
-                title="Publish findings to Team Space"
+                data-tooltip="Publish findings to Team Space"
                 aria-label="Publish findings"
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border bg-card text-fg-muted border-line-strong hover:border-team-line hover:text-team"
               >
@@ -921,7 +921,7 @@ export function ThreadView({
             {isPrivate && sharedThread && (
               <button
                 onClick={() => setDrawerOpen(!drawerOpen)}
-                title="Peek at Team Space"
+                data-tooltip="Peek at Team Space"
                 aria-label="Peek at Team Space"
                 aria-pressed={drawerOpen}
                 className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border

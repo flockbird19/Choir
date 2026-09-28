@@ -48,7 +48,7 @@ export function ContextDrawer({
                 href={`/thread/${sharedThread.id}`}
                 onClick={onClose}
                 className="flex items-center gap-1 px-2 py-1 rounded-control text-[11px] font-medium text-fg-muted hover:text-team hover:bg-team-soft transition-colors"
-                title="Open Team Space"
+                data-tooltip="Open Team Space"
               >
                 Open
                 <ChevronRight size={12} />

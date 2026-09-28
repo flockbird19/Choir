@@ -52,7 +52,7 @@ export function Avatar({ name, colorKey, kind = "person", size = "sm", status, d
       role={decorative ? undefined : "img"}
       aria-label={decorative ? undefined : label}
       aria-hidden={decorative || undefined}
-      title={decorative ? undefined : label}
+      data-tooltip={decorative ? undefined : label}
       className={cn(
         "relative inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold",
         SIZES[size],
@@ -66,7 +66,7 @@ export function Avatar({ name, colorKey, kind = "person", size = "sm", status, d
       {status && kind !== "ai" && (
         <span
           aria-hidden="true"
-          title={label}
+          data-tooltip={label}
           className={cn("absolute -bottom-px -right-px size-2.5 rounded-full ring-2 ring-bg", STATUS_DOT_CLASS[status])}
         />
       )}
@@ -91,7 +91,7 @@ export function AvatarStack({
   const shown = people.slice(0, max);
   const extra = people.length - shown.length;
   return (
-    <span role="img" aria-label={label} title={people.map((p) => p.name).join(", ")} className="flex items-center -space-x-1.5">
+    <span role="img" aria-label={label} data-tooltip={people.map((p) => p.name).join(", ")} className="flex items-center -space-x-1.5">
       {shown.map((person) => (
         <Avatar key={person.id} name={person.name} colorKey={person.id} size={size} status={person.status} className="ring-2 ring-bg" />
       ))}
