@@ -28,6 +28,8 @@ interface ChatInputProps {
   onStreamError?: (error: string) => void;
   /** e.g. "Using Ravi's key" when the reply switched to a lent key. */
   onStreamNotice?: (notice: string) => void;
+  /** Component #4: the backend is compacting older messages before it answers. */
+  onStreamStatus?: (status: "compacting") => void;
   onMessageSent?: (id: string, content: string, replyToId?: string) => void;
   onMessageFailed?: (id: string) => void;
   disabled?: boolean;
@@ -86,6 +88,7 @@ export function ChatInput({
   onStreamEnd,
   onStreamError,
   onStreamNotice,
+  onStreamStatus,
   onMessageSent,
   onMessageFailed,
   disabled,
@@ -149,7 +152,9 @@ export function ChatInput({
     };
   }, []);
 
-  const triggerAIStream = async (threadId: string) => {
+  // `messageId`: the message that asks (component #4), so the answer is built from the
+  // thread as it stood then. Omitted for "Ask AI" on an empty composer (the latest message).
+  const triggerAIStream = async (threadId: string, messageId?: string) => {
     // Get the current session token from the browser Supabase client
     const supabase = createClient();
     const {
@@ -177,7 +182,9 @@ export function ChatInput({
           thread_id: threadId,
           model_provider: provider,
           model_name: model,
-          user_name: userName
+          user_name: userName,
+          message_id: messageId,
+          tz_offset: new Date().getTimezoneOffset(),
         }),
       });
     } catch {
@@ -231,6 +238,9 @@ export function ChatInput({
           if (event.notice) {
             // The backend switched to a teammate's lent key after a rate limit.
             onStreamNotice?.(String(event.notice));
+          }
+          if (event.status === "compacting") {
+            onStreamStatus?.("compacting");
           }
           if (event.text) {
             onStreamChunk?.(event.text as string);
@@ -297,7 +307,7 @@ export function ChatInput({
 
     // 2. If @AI was mentioned (or this thread auto-replies), kick off streaming
     if (aiTriggered) {
-      await triggerAIStream(threadId);
+      await triggerAIStream(threadId, optimisticId);
     }
   };
 

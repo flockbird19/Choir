@@ -108,6 +108,8 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
       )
     `)
     .ilike("content", `%${query}%`)
+    // Component #4: compact cards are AI summaries, not something anyone said.
+    .neq("kind", "checkpoint")
     .limit(10);
   if (messagesError) console.error("globalSearch messages query failed:", messagesError);
 

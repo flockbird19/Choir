@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
-from backend import handoff, llm
+from backend import llm
 from backend.auth import get_current_user
 from tests.fakes import FakeClient
 from tests.test_findings import _fake_anthropic
@@ -51,7 +51,6 @@ def _backend(keys: dict[str, str], captured: dict, has_access: bool = True):
     with (
         patch.object(main, "verify_thread_access", return_value=has_access),
         patch.object(llm, "get_db", return_value=DB),
-        patch.object(handoff, "get_db", return_value=DB),
         patch.object(llm, "get_api_key", side_effect=lookup),
         patch.dict(sys.modules, {"anthropic": _fake_anthropic(captured, "**Goal:** wire the sensor.")}),
     ):
@@ -87,5 +86,5 @@ def test_ai_gets_the_thread_with_names_and_only_pinned_decisions(client):
     sent = captured["messages"][0]["content"]
     assert "Priya (me): How do I wire it to I2C?" in sent
     assert "Choir AI: SDA to GPIO21." in sent
-    assert "- Use the VL53L0X." in sent
+    assert "] Use the VL53L0X." in sent
     assert "Lunch at 1?" not in sent

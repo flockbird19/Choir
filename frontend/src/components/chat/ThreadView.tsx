@@ -7,8 +7,9 @@ import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
 import { ExportPromptDialog } from "./ExportPromptDialog";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X } from "lucide-react";
-import { Button, Dialog, IconButton, Input, Menu, MenuItem } from "@/components/ui";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X, Layers, NotebookText } from "lucide-react";
+import { Button, Dialog, IconButton, Input, Menu, MenuItem, Textarea } from "@/components/ui";
+import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { useRouter } from "next/navigation";
 import { DecisionsSinceBanner } from "./DecisionsSinceBanner";
 import { usePublishFindings } from "../PublishFindingsDialog";
@@ -158,6 +159,12 @@ export function ThreadView({
   const paged = usePagedMessages(thread.id, messages);
   const applyPagedUpdate = paged.applyUpdate;
   const allMessages = useMemo(() => [...paged.older, ...localMessages], [paged.older, localMessages]);
+  // Component #4: an undone compact card disappears; a live one shows where it happened.
+  const shownMessages = useMemo(
+    () => allMessages.filter((m) => !(m.kind === "checkpoint" && m.withdrawn_at)),
+    [allMessages]
+  );
+  const lastRealMessage = [...allMessages].reverse().find((m) => m.kind !== "checkpoint");
 
   // ── Selection State (for Post to Shared) ───────────────────────────────────
   const [selectMode, setSelectMode] = useState(false);
@@ -392,6 +399,58 @@ export function ThreadView({
     toastSuccess("Post withdrawn");
   };
 
+  // ── Compact and project memory (component #4) ──────────────────────────────
+  const [compactOpen, setCompactOpen] = useState(false);
+  const [compactFocus, setCompactFocus] = useState("");
+  const [compacting, setCompacting] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+
+  const handleCompact = async () => {
+    if (compacting) return;
+    setCompacting(true);
+    try {
+      const token = await getSessionToken();
+      if (!token) throw new Error("You're signed out.");
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+      const res = await fetch(`${BACKEND_URL}/api/compact/${thread.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ focus: compactFocus.trim() || null, tz_offset: new Date().getTimezoneOffset() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || "Couldn't compact this thread.");
+      setCompactOpen(false);
+      setCompactFocus("");
+      toastSuccess("Thread compacted");
+    } catch (err) {
+      toastError(err instanceof Error ? err.message : "Couldn't compact this thread.");
+    } finally {
+      setCompacting(false);
+    }
+  };
+
+  const handleUndoCheckpoint = useCallback(
+    async (msg: { id: string }) => {
+      try {
+        const token = await getSessionToken();
+        if (!token) throw new Error("You're signed out.");
+        const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+        const res = await fetch(`${BACKEND_URL}/api/checkpoints/${msg.id}/undo`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || "Couldn't undo the compact.");
+        const original = allMessages.find((m) => m.id === msg.id);
+        if (original) handleRealtimeUpdate({ ...original, withdrawn_at: new Date().toISOString() });
+        toastSuccess("Compact undone");
+      } catch (err) {
+        toastError(err instanceof Error ? err.message : "Couldn't undo the compact.");
+      }
+    },
+    [allMessages, handleRealtimeUpdate, toastError, toastSuccess]
+  );
+
   // ── "Discuss privately" (D2): fork a Team Space message into a private thread ──
   const router = useRouter();
   const [isForking, setIsForking] = useState(false);
@@ -498,7 +557,7 @@ export function ThreadView({
       if (!token) throw new Error("No session token");
 
       const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
-      const res = await fetch(`${BACKEND_URL}/api/digest/${thread.id}`, {
+      const res = await fetch(`${BACKEND_URL}/api/digest/${thread.id}?tz_offset=${new Date().getTimezoneOffset()}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -609,7 +668,7 @@ export function ThreadView({
     if (!isPrivate || dismissedAt === null) return [];
     const since = Math.max(lastActivityAt, dismissedAt);
     return localSharedMessages
-      .filter((m) => !(m.sender_type === "user" && m.sender_id === currentUserId) && !m.withdrawn_at)
+      .filter((m) => !(m.sender_type === "user" && m.sender_id === currentUserId) && !m.withdrawn_at && m.kind !== "checkpoint")
       .filter((m) => Date.parse(m.created_at) > since)
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   }, [isPrivate, localSharedMessages, lastActivityAt, dismissedAt, currentUserId]);
@@ -661,8 +720,12 @@ export function ThreadView({
     if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
   }, []);
 
+  // Component #4: "compacting" while the backend folds older messages before answering.
+  const [streamStatus, setStreamStatus] = useState<string | null>(null);
+
   const handleStreamStart = useCallback(() => {
     setIsStreaming(true);
+    setStreamStatus(null);
     setStreamingContent(null);
     streamBuffer.current = "";
   }, []);
@@ -682,6 +745,7 @@ export function ThreadView({
     if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
     streamFrame.current = null;
     setIsStreaming(false);
+    setStreamStatus(null);
     const currentContent = streamBuffer.current;
     setStreamingContent(null);
 
@@ -714,6 +778,7 @@ export function ThreadView({
     if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
     streamFrame.current = null;
     setIsStreaming(false);
+    setStreamStatus(null);
     setStreamingContent(null);
     if (isPrivate && isMissingKeyError(error)) {
       // "AI waits": the person explicitly asked, so say it every time, with advice that fits.
@@ -851,6 +916,21 @@ export function ThreadView({
               <MenuItem onSelect={handleExportPrompt}>Export as prompt</MenuItem>
             </Menu>
 
+            {/* Component #4: what the AI reads — project memory, and compacting this thread. */}
+            <IconButton
+              label="Project memory"
+              icon={<NotebookText size={15} />}
+              variant="secondary"
+              aria-pressed={memoryOpen}
+              onClick={() => setMemoryOpen(true)}
+            />
+            <IconButton
+              label="Compact this thread"
+              icon={<Layers size={15} />}
+              variant="secondary"
+              onClick={() => setCompactOpen(true)}
+            />
+
             {/* Catch Me Up — only on the shared thread itself */}
             {!isPrivate && (
               <button
@@ -966,7 +1046,9 @@ export function ThreadView({
 
         {/* Messages */}
         <MessageList
-          messages={allMessages}
+          messages={shownMessages}
+          onUndoCheckpoint={handleUndoCheckpoint}
+          streamStatus={streamStatus}
           currentUserId={currentUserId}
           memberNames={threadNames.names}
           namesLoaded={threadNames.loaded}
@@ -1034,10 +1116,11 @@ export function ThreadView({
             onStreamEnd={handleStreamEnd}
             onStreamError={handleStreamError}
             onStreamNotice={toastWarning}
+            onStreamStatus={setStreamStatus}
             aiMode={isPrivate ? (autoReply ? "auto" : "waits") : "mention"}
             onAIModeChange={isPrivate ? handleAIModeChange : undefined}
             savingAIMode={savingAutoReply}
-            canAskAboutThread={allMessages.length > 0 && allMessages[allMessages.length - 1].sender_type === "user"}
+            canAskAboutThread={lastRealMessage?.sender_type === "user"}
             replyingTo={replyTarget}
             onCancelReply={handleCancelReply}
           />
@@ -1050,7 +1133,7 @@ export function ThreadView({
           isOpen={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           sharedThread={sharedThread}
-          sharedMessages={localSharedMessages}
+          sharedMessages={localSharedMessages.filter((m) => !(m.kind === "checkpoint" && m.withdrawn_at))}
           currentUserId={currentUserId}
           memberNames={sharedNames.names}
           namesLoaded={sharedNames.loaded}
@@ -1068,6 +1151,7 @@ export function ThreadView({
           currentUserId={currentUserId}
           memberNames={threadNames.names}
           namesLoaded={threadNames.loaded}
+          decisionsLoaded={threadDecisions.loaded}
           seenBy={seenBy}
           statuses={statuses}
         />
@@ -1091,6 +1175,50 @@ export function ThreadView({
       )}
 
       <ExportPromptDialog isOpen={promptOpen} onClose={() => setPromptOpen(false)} prompt={promptText} />
+
+      {/* ── Compact this thread (component #4) ──────────────────────── */}
+      <Dialog
+        open={compactOpen}
+        onClose={() => setCompactOpen(false)}
+        title="Compact this thread?"
+        description={
+          isPrivate
+            ? "Choir AI summarises everything except the last few messages into a card here, and reads that summary from then on. Your messages stay in the thread, and you can undo it."
+            : "Choir AI summarises everything except the last few messages into a card here, and reads that summary from then on. The messages stay in Team Space, and anyone on the team can undo it."
+        }
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCompactOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleCompact} loading={compacting} leadingIcon={<Layers size={15} aria-hidden="true" />}>
+              Compact
+            </Button>
+          </>
+        }
+      >
+        <Textarea
+          label="Keep in full detail (optional)"
+          hint="Anything the summary must not lose, like a wiring plan or an exact number."
+          value={compactFocus}
+          onChange={(event) => setCompactFocus(event.target.value)}
+          maxLength={500}
+          rows={3}
+        />
+      </Dialog>
+
+      <ProjectMemoryPanel
+        open={memoryOpen}
+        onClose={() => setMemoryOpen(false)}
+        projectId={thread.project_id}
+        sharedThreadId={isPrivate ? sharedThread?.id ?? null : thread.id}
+        inTeamSpace={!isPrivate}
+        decisions={isPrivate ? sharedDecisions.decisions : decisions}
+        decisionsLoaded={isPrivate ? sharedDecisions.loaded : threadDecisions.loaded}
+        names={isPrivate ? sharedNames.names : threadNames.names}
+        currentUserId={currentUserId}
+        onJumpToMessage={isPrivate ? undefined : handleJumpToMessage}
+      />
 
       {/* ── Withdraw a publication ──────────────────────────────────── */}
       <Dialog

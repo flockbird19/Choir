@@ -38,6 +38,7 @@ REQUIRED_TABLES = [
     "profiles",
     "thread_summaries",
     "agent_connections",
+    "project_memory",
 ]
 
 # PostgREST: table not in schema cache / Postgres: undefined table.

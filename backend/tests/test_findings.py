@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
-from backend import findings, handoff, llm
+from backend import findings, llm
 from backend.auth import get_current_user
 from tests.fakes import FakeClient
 
@@ -54,7 +54,6 @@ def _backend(keys: dict[str, str], captured: dict, has_access: bool = True):
     with (
         patch.object(main, "verify_thread_access", return_value=has_access),
         patch.object(llm, "get_db", return_value=DB),
-        patch.object(handoff, "get_db", return_value=DB),
         patch.object(llm, "get_api_key", side_effect=lookup),
         patch.dict(sys.modules, {"anthropic": _fake_anthropic(captured)}),
     ):
@@ -91,7 +90,7 @@ def test_happy_path_drafts_three_sections_from_the_private_thread(client):
     assert "Me: Should we use Postgres?" in prompt
     assert "Choir AI: Yes, for RLS." in prompt
     # D: pinned Decisions are given so the draft can flag disagreement; ordinary chat is not.
-    assert "- We use MySQL." in prompt
+    assert "] We use MySQL." in prompt  # every pinned Decision, with who pinned it and when
     assert "Lunch at 1?" not in prompt
     assert "suggest reconsidering" in captured["system"]
     assert "not as one confident recommendation" in captured["system"]
@@ -100,9 +99,11 @@ def test_happy_path_drafts_three_sections_from_the_private_thread(client):
 def test_source_ids_are_only_the_messages_that_fit_the_budget():
     big = "x" * 15_000
     msgs = [{"id": f"m{i}", "sender_type": "user", "content": big} for i in range(3)]
-    assert [m["id"] for m in findings._recent_that_fit(msgs)] == ["m2"]
-    # A single oversized latest message is still used.
-    assert [m["id"] for m in findings._recent_that_fit([{"id": "only", "content": "y" * 50_000}])] == ["only"]
+    kept, dropped = llm._fit(msgs, findings.TRANSCRIPT_CHARS)
+    assert [m["id"] for m in kept] == ["m2"] and [m["id"] for m in dropped] == ["m0", "m1"]
+    # A single oversized latest message is still used, cut to fit.
+    kept, _ = llm._fit([{"id": "only", "sender_type": "user", "content": "y" * 50_000}], findings.TRANSCRIPT_CHARS)
+    assert [m["id"] for m in kept] == ["only"] and len(kept[0]["content"]) < 25_000
 
 
 def test_shared_thread_and_empty_thread_are_rejected(client):

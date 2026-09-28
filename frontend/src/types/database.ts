@@ -54,7 +54,13 @@ export interface Message {
   // Curation: the publisher changed the selected messages before posting them.
   publish_edited?: boolean;
   // Curation: the publisher withdrew this post; its content is now empty.
+  // For a compact checkpoint, set when someone pressed Undo.
   withdrawn_at?: string | null;
+  // Component #4: 'checkpoint' = a compact card (a summary the AI reads instead of the
+  // messages up to covers_through). Written only by the backend.
+  kind?: "message" | "checkpoint";
+  covers_through?: string | null;
+  covers_count?: number | null;
 }
 
 export interface TeamInvitation {

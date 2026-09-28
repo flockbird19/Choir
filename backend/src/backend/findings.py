@@ -7,14 +7,8 @@ post itself is written by the frontend (postToSharedThread with source_thread_id
 
 from typing import Any
 
-from backend.handoff import _team_decisions
-from backend.llm import (
-    NoApiKeyError,
-    _fetch_messages,
-    _fetch_thread,
-    _resolve_provider_and_model,
-    complete_once,
-)
+from backend import llm, memory
+from backend.llm import NoApiKeyError, _fetch_thread, _resolve_provider_and_model, complete_once
 
 FINDINGS_SYSTEM_PROMPT = (
     "You help a team member share what they worked out in their private AI thread with their team. "
@@ -33,41 +27,23 @@ FINDINGS_SYSTEM_PROMPT = (
     "Keep it under 220 words."
 )
 
-MAX_TRANSCRIPT_CHARS = 24_000
-
-
-def _recent_that_fit(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The most recent whole messages whose text fits the budget (always at least the latest)."""
-    kept: list[dict[str, Any]] = []
-    total = 0
-    for msg in reversed(messages):
-        size = len(msg["content"] or "") + 20
-        if kept and total + size > MAX_TRANSCRIPT_CHARS:
-            break
-        kept.append(msg)
-        total += size
-    kept.reverse()
-    return kept
-
-
-def _transcript(messages: list[dict[str, Any]]) -> str:
-    return "\n\n".join(
-        f"{'Choir AI' if msg['sender_type'] == 'assistant' else 'Me'}: {msg['content']}" for msg in messages
-    )[-MAX_TRANSCRIPT_CHARS:]
+# What the draft reads of the private thread (its compact summary plus the latest messages).
+TRANSCRIPT_CHARS = 24_000
 
 
 def draft_findings(thread_id: str, user_id: str) -> dict[str, Any]:
     """
     Returns {"draft": markdown, "source_message_ids": [...]}: the ids are exactly the messages
-    the AI was shown, so the published post's trail (K3) never claims more than was used.
-    Uses the caller's own key, like Catch Me Up.
+    the AI was shown word for word, so the published post's trail (K3) never claims more than
+    was used. Uses the caller's own key, like Catch Me Up.
     Raises ValueError (not a private thread / nothing to publish), NoApiKeyError, or RuntimeError.
     """
     thread = _fetch_thread(thread_id)
     if not thread or thread.get("type") != "private":
         raise ValueError("Findings can only be published from a private thread.")
 
-    messages = _recent_that_fit(_fetch_messages(thread_id))
+    view = llm.thread_view(thread_id, None, TRANSCRIPT_CHARS)
+    messages = view["messages"]
     if not messages:
         raise ValueError("This thread has no messages to publish yet.")
 
@@ -78,11 +54,16 @@ def draft_findings(thread_id: str, user_id: str) -> dict[str, Any]:
         )
     provider, model, api_key = resolved
 
-    parts = []
-    decisions = _team_decisions(thread["project_id"])
-    if decisions:
-        parts.append("TEAM DECISIONS (pinned in Team Space):\n" + "\n".join(f"- {d['content'].strip()}" for d in decisions))
-    parts.append(f"Here is my private thread:\n\n{_transcript(messages)}")
+    names = llm.team_names_for_thread(thread)
+    tz = llm.user_tz(None)
+    parts = [
+        memory.render(thread["project_id"], 4_000),
+        llm.decisions_block(llm._team_decisions(thread["project_id"]), names, tz, 4_000),
+        llm.checkpoint_block(view["checkpoint"], "EARLIER IN MY PRIVATE THREAD", tz),
+        "Here is my private thread:\n\n"
+        + "\n\n".join(f"{'Choir AI' if m['sender_type'] == 'assistant' else 'Me'}: {m['content']}" for m in messages),
+    ]
+    user_prompt = "\n\n".join(part for part in parts if part)
 
-    draft = complete_once(provider, model, api_key, FINDINGS_SYSTEM_PROMPT, "\n\n".join(parts), max_tokens=700)
+    draft = complete_once(provider, model, api_key, FINDINGS_SYSTEM_PROMPT, user_prompt, max_tokens=700)
     return {"draft": draft.strip(), "source_message_ids": [m["id"] for m in messages]}

@@ -57,6 +57,7 @@ FEATURES = {
     "shared_keys": ("shared_keys", "id"),
     "reply": ("messages", "reply_to_message_id"),
     "withdraw": ("messages", "withdrawn_at,publish_edited"),
+    "context": ("project_memory", "project_id"),
 }
 
 
@@ -223,6 +224,12 @@ def world():
 def needs(world, feature: str) -> None:
     if feature not in world.features:
         pytest.skip(f"schema.sql Batch 1 not applied on this database yet (missing {FEATURES[feature]})")
+
+
+def admin_row_by(world, table: str, column: str, value: str) -> dict:
+    rows = ok(world.admin.select(table, **{column: eq(value)}))
+    assert len(rows) == 1
+    return rows[0]
 
 
 def admin_row(world, table: str, row_id: str) -> dict:
@@ -509,6 +516,73 @@ def test_only_your_own_publication_can_be_withdrawn(world):
     assert_blocked(a.api.update("messages", {"is_decision": True, "pinned_by": a.id}, id=eq(pub)))
     assert admin_row(world, "messages", pub)["is_decision"] is False
     assert_denied(b.api.rpc("withdraw_publication", {"p_message_id": pub}))
+
+
+# ── Context and project memory (component #4) ───────────────────────────────
+
+
+def test_project_memory_is_team_only_and_edited_in_your_own_name(world):
+    needs(world, "context")
+    b, c = world.b, world.c
+    note = [{"id": "n1", "section": "goal", "text": "A plant monitor", "sources": [], "by": b.id}]
+    # Control: a member creates it in their own name, reads it, and edits it.
+    ok(b.api.insert("project_memory", {"project_id": world.p1, "items": note, "version": 1, "updated_by": b.id}))
+    assert len(ok(b.api.select("project_memory", project_id=eq(world.p1)))) == 1
+    assert len(ok(b.api.update("project_memory", {"items": [], "version": 2, "updated_by": b.id}, project_id=eq(world.p1)))) == 1
+    # Not in someone else's name, and not the AI's coverage marker.
+    assert_denied(b.api.update("project_memory", {"items": note, "updated_by": world.a.id}, project_id=eq(world.p1)))
+    assert_denied(b.api.update("project_memory", {"covers_through": "2026-01-01T00:00:00Z"}, project_id=eq(world.p1)))
+    # An outsider can't read, edit or create it.
+    assert_blocked(c.api.select("project_memory", project_id=eq(world.p1)))
+    assert_blocked(c.api.update("project_memory", {"items": note, "updated_by": c.id}, project_id=eq(world.p1)))
+    assert_denied(c.api.insert("project_memory", {"project_id": world.p1, "items": note, "updated_by": c.id}))
+    assert admin_row_by(world, "project_memory", "project_id", world.p1)["items"] == []
+
+
+def test_members_cannot_create_or_pin_compact_checkpoints(world):
+    needs(world, "context")
+    a, b = world.a, world.b
+    post = {"thread_id": world.s1, "sender_type": "user", "sender_id": b.id, "content": "fake summary"}
+    assert_denied(b.api.insert("messages", {**post, "kind": "checkpoint"}))
+    assert_denied(b.api.insert("messages", {**post, "covers_through": "2026-01-01T00:00:00Z"}))
+    checkpoint = ok(world.admin.insert("messages", {
+        "thread_id": world.s1, "sender_type": "assistant", "kind": "checkpoint", "content": "summary",
+        "covers_through": "2026-01-01T00:00:00Z", "covers_count": 3,
+    }))[0]["id"]
+    assert_blocked(a.api.update("messages", {"is_decision": True, "pinned_by": a.id}, id=eq(checkpoint)))
+    assert admin_row(world, "messages", checkpoint)["is_decision"] is False
+    # Control: pinning an ordinary message still works.
+    assert len(ok(a.api.update("messages", {"is_decision": True, "pinned_by": a.id}, id=eq(world.m_s1_b)))) == 1
+    ok(a.api.update("messages", {"is_decision": False, "pinned_by": None, "pinned_at": None}, id=eq(world.m_s1_b)))
+
+
+def test_withdrawing_also_undoes_covering_checkpoints_and_memory_notes(world):
+    needs(world, "context")
+    b = world.b
+    pub = ok(b.api.insert("messages", {
+        "thread_id": world.s1, "sender_type": "user", "sender_id": b.id, "content": "my key sk-oops",
+        "shared_by": b.id, "source_thread_id": world.pb,
+    }))[0]
+    covering = ok(world.admin.insert("messages", {
+        "thread_id": world.s1, "sender_type": "assistant", "kind": "checkpoint", "content": "mentions sk-oops",
+        "covers_through": pub["created_at"], "covers_count": 4,
+    }))[0]["id"]
+    earlier = ok(world.admin.insert("messages", {
+        "thread_id": world.s1, "sender_type": "assistant", "kind": "checkpoint", "content": "older summary",
+        "covers_through": "2020-01-01T00:00:00Z", "covers_count": 1,
+    }))[0]["id"]
+    world.admin.delete("project_memory", project_id=eq(world.p1))
+    ok(world.admin.insert("project_memory", {"project_id": world.p1, "version": 1, "items": [
+        {"id": "cites", "section": "facts", "text": "Key is sk-oops", "sources": [pub["id"]], "by": "ai"},
+        {"id": "other", "section": "goal", "text": "A plant monitor", "sources": [world.m_s1_a], "by": "ai"},
+    ]}))
+
+    response = b.api.rpc("withdraw_publication", {"p_message_id": pub["id"]})
+    assert response.is_success, f"{response.status_code}: {response.text}"
+    assert admin_row(world, "messages", covering)["withdrawn_at"] is not None
+    assert admin_row(world, "messages", earlier)["withdrawn_at"] is None
+    items = admin_row_by(world, "project_memory", "project_id", world.p1)["items"]
+    assert [i["id"] for i in items] == ["other"]
 
 
 # ── Notifications (F3) ──────────────────────────────────────────────────────

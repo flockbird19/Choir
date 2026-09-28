@@ -1,16 +1,15 @@
 """
-"Export as prompt": the AI rewrites a thread (plus the team's Decisions) into a
-self-contained prompt the user can paste into Claude, ChatGPT or any other AI chat.
+"Export as prompt": the AI rewrites a thread (plus the team's Decisions and project memory)
+into a self-contained prompt the user can paste into Claude, ChatGPT or any other AI chat.
 
 Nothing is saved; the user reviews and copies the text in the browser.
 """
 
-from typing import Any, cast
+from typing import Any
 
-from backend.db import get_db
+from backend import llm, memory
 from backend.llm import (
     NoApiKeyError,
-    _fetch_messages,
     _fetch_thread,
     _resolve_provider_and_model,
     complete_once,
@@ -36,7 +35,8 @@ HANDOFF_SYSTEM_PROMPT = (
     "emojis: output only the prompt. Keep it under 450 words unless code needs more room."
 )
 
-MAX_TRANSCRIPT_CHARS = 24_000
+# What the prompt reads of the thread (its compact summary plus the latest messages).
+TRANSCRIPT_CHARS = 24_000
 
 
 def _transcript(messages: list[dict[str, Any]], names: dict[str, str], user_id: str) -> str:
@@ -46,37 +46,22 @@ def _transcript(messages: list[dict[str, Any]], names: dict[str, str], user_id: 
         if msg["sender_type"] != "assistant" and msg.get("sender_id") == user_id:
             label += " (me)"
         lines.append(f"{label}: {msg['content']}")
-    # Keep the most recent part if the thread is very long.
-    return "\n\n".join(lines)[-MAX_TRANSCRIPT_CHARS:]
-
-
-def _team_decisions(project_id: str) -> list[dict[str, Any]]:
-    """Pinned Decisions in the project's Team Space, oldest first."""
-    db = get_db()
-    shared = cast(list[dict[str, Any]], (
-        db.table("threads").select("id").eq("project_id", project_id).eq("type", "shared").execute()
-    ).data)
-    if not shared:
-        return []
-    return cast(list[dict[str, Any]], (
-        db.table("messages").select("*")
-        .eq("thread_id", shared[0]["id"]).eq("is_decision", True)
-        .order("pinned_at")
-        .execute()
-    ).data)
+    return "\n\n".join(lines)
 
 
 def draft_handoff_prompt(thread_id: str, user_id: str) -> dict[str, str]:
     """
     Returns {"prompt": text}. Uses the caller's own key, like Publish findings.
+    Reads the thread the way the AI does (component #4): its compact summary plus the latest
+    messages, every pinned Decision, and project memory.
     Raises ValueError (nothing to export), NoApiKeyError, or RuntimeError.
     """
     thread = _fetch_thread(thread_id)
     if not thread:
         raise ValueError("Thread not found.")
 
-    messages = _fetch_messages(thread_id)
-    if not messages:
+    view = llm.thread_view(thread_id, None, TRANSCRIPT_CHARS)
+    if not view["messages"]:
         raise ValueError("This thread has no messages to turn into a prompt yet.")
 
     resolved = _resolve_provider_and_model(thread, user_id)
@@ -87,12 +72,17 @@ def draft_handoff_prompt(thread_id: str, user_id: str) -> dict[str, str]:
     provider, model, api_key = resolved
 
     names = team_names_for_thread(thread)
+    tz = llm.user_tz(None)
     kind = "my private thread" if thread.get("type") == "private" else "our team's shared thread (Team Space)"
     parts = [f'This is "{thread.get("name") or "Untitled"}", {kind} in Choir, a team chat with an AI assistant ("Choir AI").']
-    decisions = _team_decisions(thread["project_id"])
-    if decisions:
-        parts.append("TEAM DECISIONS (pinned in Team Space):\n" + "\n".join(f"- {d['content'].strip()}" for d in decisions))
-    parts.append("THREAD:\n" + _transcript(messages, names, user_id))
+    for block in (
+        memory.render(thread["project_id"], 4_000),
+        llm.decisions_block(llm._team_decisions(thread["project_id"]), names, tz, 6_000),
+        llm.checkpoint_block(view["checkpoint"], "EARLIER IN THE THREAD", tz),
+    ):
+        if block:
+            parts.append(block)
+    parts.append("THREAD:\n" + _transcript(view["messages"], names, user_id))
 
     prompt = complete_once(provider, model, api_key, HANDOFF_SYSTEM_PROMPT, "\n\n".join(parts), max_tokens=1200)
     return {"prompt": prompt.strip()}

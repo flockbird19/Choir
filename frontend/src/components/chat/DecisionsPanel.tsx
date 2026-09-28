@@ -18,6 +18,8 @@ interface DecisionsPanelProps {
   currentUserId: string;
   memberNames: Record<string, string>;
   namesLoaded: boolean;
+  /** Whether the Decisions fetch has finished; until then the panel says it's loading, not "none". */
+  decisionsLoaded?: boolean;
   /** E5: { userId: last_read_at }. */
   seenBy?: Record<string, string>;
   /** E4 follow-up: { userId: status }, so the author's name can show it. */
@@ -50,6 +52,7 @@ export function DecisionsPanel({
   currentUserId,
   memberNames,
   namesLoaded,
+  decisionsLoaded = true,
   seenBy = EMPTY_SEEN_BY,
   statuses = EMPTY_STATUSES,
 }: DecisionsPanelProps) {
@@ -81,7 +84,11 @@ export function DecisionsPanel({
 
         {/* List */}
         <div className="flex-1 overflow-y-auto">
-          {decisions.length === 0 ? (
+          {decisions.length === 0 && !decisionsLoaded ? (
+            <p role="status" className="p-8 text-center text-sm text-fg-muted">
+              Loading decisions…
+            </p>
+          ) : decisions.length === 0 ? (
             <div className="p-8 text-center">
               <Pin size={20} className="text-fg-subtle mx-auto mb-2" />
               <p className="text-sm font-medium text-fg mb-1">No decisions pinned yet</p>

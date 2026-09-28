@@ -5,6 +5,7 @@ and execute. Inserts, updates and upserts change the fake's tables, so tests
 can inspect them.
 """
 
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -56,6 +57,10 @@ class FakeQuery:
         self._filters.append((column, "gt", value))
         return self
 
+    def lte(self, column: str, value: Any) -> "FakeQuery":
+        self._filters.append((column, "lte", value))
+        return self
+
     def in_(self, column: str, values: Any) -> "FakeQuery":
         self._filters.append((column, "in", list(values)))
         return self
@@ -86,6 +91,8 @@ class FakeQuery:
                 return False
             if op == "gt" and (actual is None or actual <= value):
                 return False
+            if op == "lte" and (actual is None or actual > value):
+                return False
             if op == "in" and actual not in value:
                 return False
         return True
@@ -95,7 +102,7 @@ class FakeQuery:
             raise self._error
         if self._insert is not None:
             # Like a column default of now().
-            row = {"created_at": datetime.now(timezone.utc).isoformat(), **self._insert}
+            row = {"id": str(uuid.uuid4()), "created_at": datetime.now(timezone.utc).isoformat(), **self._insert}
             self._table.append(row)
             return FakeResult([dict(row)])
         if self._upsert is not None:

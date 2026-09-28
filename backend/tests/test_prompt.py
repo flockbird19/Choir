@@ -84,13 +84,14 @@ def test_shared_thread_prompt_includes_whole_team_and_labels_each_sender(fake_ba
 
     system = _flatten_system(fake_backend)
     assert "TEAM MEMBERS (3): Venu (owner); Bob (member) - the person you are talking to; Quiet Priya (member)." in system
-    assert "You are currently talking to: Bob" in system
+    assert "You are answering Bob's latest message" in system
 
     turns = [(m["role"], m["content"]) for m in fake_backend["messages"]]
-    assert ("user", "[Venu]: lets do frontend") in turns
-    assert ("user", "[Bob]: yo gang") in turns
+    # Component #4: every person's turn carries who wrote it and when.
+    assert ("user", "[Venu · 1]: lets do frontend") in turns
+    assert ("user", "[Bob · 2]: yo gang") in turns
     assert ("assistant", "Hi team") in turns
-    assert ("user", "[Former member]: old message") in turns
+    assert ("user", "[Former member · 4]: old message") in turns
 
 
 def test_private_thread_context_names_shared_thread_senders(fake_backend):
@@ -98,12 +99,12 @@ def test_private_thread_context_names_shared_thread_senders(fake_backend):
 
     system = _flatten_system(fake_backend)
     assert "TEAM MEMBERS (3)" in system
-    assert "Venu: lets do frontend" in system
-    assert "Bob (you): yo gang" in system
-    assert "Choir AI: Hi team" in system
+    assert "[Venu · 1]: lets do frontend" in system
+    assert "[Bob (you) · 2]: yo gang" in system
+    assert "[Choir AI · 3]: Hi team" in system
     assert "Team Member:" not in system
-    # Private turns stay unlabelled: only the owner writes there.
-    assert fake_backend["messages"] == [{"role": "user", "content": "how many members?"}]
+    # Private turns carry only the time: only the owner writes there.
+    assert fake_backend["messages"] == [{"role": "user", "content": "[5] how many members?"}]
 
 
 def test_anthropic_replies_get_the_web_search_tool_and_its_policy(fake_backend):

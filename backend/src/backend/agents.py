@@ -189,14 +189,16 @@ def read_team_space(project_id: str) -> str:
 
     recent_resp = (
         db.table("messages")
-        .select("content, created_at, sender_type, sender_id")
+        .select("content, created_at, sender_type, sender_id, kind")
         .eq("thread_id", thread["id"])
         .order("created_at", desc=True)
         .limit(MESSAGE_CONTEXT_LIMIT)
         .execute()
     )
-    # A withdrawn publication has empty content; leave it out.
-    recent = [m for m in reversed(cast(list[dict[str, Any]], recent_resp.data)) if m["content"]]
+    # Withdrawn publications (empty) and compact cards (AI summaries, component #4) are left out.
+    recent = [
+        m for m in reversed(cast(list[dict[str, Any]], recent_resp.data)) if m["content"] and m.get("kind") != "checkpoint"
+    ]
 
     lines: list[str] = []
     if decisions:

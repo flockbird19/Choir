@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo, useState, isValidElement, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, Bot, ArrowUpRight, Copy, Check, Loader2, Pin, PinOff, MessageSquareLock, Reply, Undo2 } from "lucide-react";
+import { ArrowDown, Bot, ArrowUpRight, Copy, Check, ChevronDown, Layers, Loader2, Pin, PinOff, MessageSquareLock, Reply, Undo2 } from "lucide-react";
+import { buttonClasses } from "@/components/ui/Button";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getInitials, publishedLabel } from "@/utils/display-name";
@@ -26,6 +27,72 @@ interface Message {
   reply_to_message_id?: string | null;
   publish_edited?: boolean;
   withdrawn_at?: string | null;
+  kind?: "message" | "checkpoint";
+  covers_through?: string | null;
+  covers_count?: number | null;
+}
+
+// Component #4: a compact checkpoint, shown where it happened. Choir AI reads its summary
+// instead of the messages it covers; the messages themselves stay in the thread.
+function CheckpointCard({
+  msg,
+  by,
+  onUndo,
+}: {
+  msg: Message;
+  by: string | null;
+  onUndo?: (msg: Message) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const upTo = msg.covers_through
+    ? new Date(msg.covers_through).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+    : null;
+  const count = msg.covers_count ?? 0;
+  return (
+    <div id={`message-${msg.id}`} className="mx-auto w-full max-w-2xl py-1">
+      <div className="rounded-card border border-line bg-sunken px-4 py-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Layers size={16} aria-hidden="true" className="shrink-0 text-fg-muted" />
+          <div className="min-w-0 flex-1">
+            <p className="text-body-sm font-semibold text-fg">Context compacted</p>
+            <p className="text-caption text-fg-subtle">
+              {by ? `By ${by}` : "Automatically"} · {count} {count === 1 ? "message" : "messages"} summarised
+              {upTo ? ` up to ${upTo}` : ""}. Choir AI reads this summary plus everything after it.
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setOpen((value) => !value)}
+              aria-expanded={open}
+              aria-controls={`checkpoint-${msg.id}`}
+              className={buttonClasses({ variant: "ghost", size: "sm" })}
+            >
+              {open ? "Hide summary" : "Show summary"}
+              <ChevronDown size={14} aria-hidden="true" className={`transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+            </button>
+            {onUndo && (
+              <button
+                type="button"
+                onClick={() => onUndo(msg)}
+                data-tooltip="Choir AI goes back to reading the messages themselves"
+                className={buttonClasses({ variant: "ghost", size: "sm" })}
+              >
+                Undo
+              </button>
+            )}
+          </div>
+        </div>
+        {open && (
+          <div id={`checkpoint-${msg.id}`} className="mt-3 min-w-0 break-words border-t border-line pt-3 text-sm leading-relaxed text-fg">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {msg.content}
+            </ReactMarkdown>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 interface ReplyPreview {
@@ -94,6 +161,10 @@ interface MessageListProps {
   onReply?: (msg: Message) => void;
   /** Jump to (and highlight) a message this one replies to; pages back to load it if needed. */
   onJumpToMessage?: (id: string) => void;
+  /** Component #4: undo a compact checkpoint card (omit where undo isn't offered). */
+  onUndoCheckpoint?: (msg: Message) => void;
+  /** Component #4: "compacting" while the backend compacts before answering. */
+  streamStatus?: string | null;
   /** Team Space only: withdraw your own post published from a private thread. */
   onWithdraw?: (msg: Message) => void;
 }
@@ -194,6 +265,8 @@ const MessageItem = memo(function MessageItem({
   onReply,
   onJumpToMessage,
   onWithdraw,
+  compactedBy,
+  onUndoCheckpoint,
 }: {
   msg: Message;
   isOwn: boolean;
@@ -211,10 +284,16 @@ const MessageItem = memo(function MessageItem({
   onReply?: (msg: Message) => void;
   onJumpToMessage?: (id: string) => void;
   onWithdraw?: (msg: Message) => void;
+  compactedBy: string | null;
+  onUndoCheckpoint?: (msg: Message) => void;
 }) {
   const isAI = msg.sender_type === "assistant";
   const isSharedFrom = !!msg.shared_by;
   const isPinned = !!msg.is_decision;
+
+  if (msg.kind === "checkpoint") {
+    return <CheckpointCard msg={msg} by={compactedBy} onUndo={onUndoCheckpoint} />;
+  }
 
   if (msg.withdrawn_at) {
     return (
@@ -434,6 +513,8 @@ export function MessageList({
   onReply,
   onJumpToMessage,
   onWithdraw,
+  onUndoCheckpoint,
+  streamStatus,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasNearBottom = useRef(true);
@@ -625,6 +706,14 @@ export function MessageList({
                   onReply={onReply}
                   onJumpToMessage={onJumpToMessage}
                   onWithdraw={onWithdraw}
+                  compactedBy={
+                    msg.kind === "checkpoint" && msg.sender_id
+                      ? msg.sender_id === currentUserId
+                        ? "you"
+                        : memberNames[msg.sender_id] ?? "a teammate"
+                      : null
+                  }
+                  onUndoCheckpoint={onUndoCheckpoint}
                 />
               </div>
             );
@@ -643,10 +732,17 @@ export function MessageList({
                 : "bg-card border border-line"
             }`}>
               {showTypingBubble ? (
-                <span className="flex gap-1 items-center h-4">
-                  <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce [animation-delay:0ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce [animation-delay:150ms]" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce [animation-delay:300ms]" />
+                <span className="flex gap-2 items-center min-h-4">
+                  <span className="flex gap-1 items-center">
+                    <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce motion-reduce:animate-none [animation-delay:0ms]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce motion-reduce:animate-none [animation-delay:150ms]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce motion-reduce:animate-none [animation-delay:300ms]" />
+                  </span>
+                  {streamStatus === "compacting" && (
+                    <span role="status" className="text-caption text-fg-muted">
+                      Compacting earlier messages so nothing is forgotten…
+                    </span>
+                  )}
                 </span>
               ) : (
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>

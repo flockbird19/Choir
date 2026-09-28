@@ -24,7 +24,17 @@ from backend.keys import (
     list_saved_providers,
     store_api_key,
 )
-from backend.llm import NoApiKeyError, generate_digest, sender_label, stream_ai_response, team_names_for_thread
+from backend import memory
+from backend.llm import (
+    NoApiKeyError,
+    compact_now,
+    generate_digest,
+    resolve_key,
+    sender_label,
+    stream_ai_response,
+    team_names_for_thread,
+    user_tz,
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -165,6 +175,9 @@ class ChatRequest(BaseModel):
     model_provider: str | None = None
     model_name: str | None = None
     user_name: str | None = None
+    # Component #4: the message that asked, and the browser's getTimezoneOffset().
+    message_id: str | None = None
+    tz_offset: int | None = None
 
 
 MAX_REQUESTS_PER_MINUTE = 15
@@ -230,7 +243,8 @@ def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
     return StreamingResponse(
         safe_sse_stream(
             stream_ai_response(
-                body.thread_id, user_id, body.model_provider, body.model_name, body.user_name, thread=thread
+                body.thread_id, user_id, body.model_provider, body.model_name, body.user_name, thread=thread,
+                message_id=body.message_id, tz_offset=body.tz_offset,
             )
         ),
         media_type="text/event-stream",
@@ -248,7 +262,7 @@ def chat(body: ChatRequest, user_id: str = Depends(get_current_user)):
 
 
 @app.post("/api/digest/{thread_id}")
-def get_digest(thread_id: str, user_id: str = Depends(get_current_user)):
+def get_digest(thread_id: str, tz_offset: int | None = None, user_id: str = Depends(get_current_user)):
     """
     Summarize what's new in a thread since the caller last used this feature,
     using their own BYOK key. Non-streaming — the response is short by design.
@@ -262,7 +276,7 @@ def get_digest(thread_id: str, user_id: str = Depends(get_current_user)):
         )
 
     try:
-        return generate_digest(thread_id, user_id)
+        return generate_digest(thread_id, user_id, tz_offset)
     except NoApiKeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except ValueError as exc:
@@ -316,6 +330,78 @@ def get_export_prompt(thread_id: str, user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Component #4 — Compact (visible context checkpoints) and project memory
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class CompactRequest(BaseModel):
+    focus: str | None = None
+    tz_offset: int | None = None
+
+
+@app.post("/api/compact/{thread_id}", status_code=201)
+def compact_thread_now(thread_id: str, body: CompactRequest, user_id: str = Depends(get_current_user)):
+    """Fold the thread (all but its last few messages) into a new visible checkpoint card."""
+    _check_and_record_rate_limit(user_id)
+    thread = get_accessible_thread(user_id, thread_id)
+    if not thread:
+        raise HTTPException(status_code=403, detail="You do not have access to this thread.")
+    try:
+        checkpoint = compact_now(thread, user_id, (body.focus or "")[:500] or None, body.tz_offset)
+    except NoApiKeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"id": checkpoint["id"]}
+
+
+@app.post("/api/checkpoints/{message_id}/undo")
+def undo_checkpoint(message_id: str, user_id: str = Depends(get_current_user)):
+    """Undo a compact: the card disappears and the AI goes back to the previous summary."""
+    db = get_db()
+    rows = cast(
+        list[dict[str, Any]],
+        db.table("messages").select("id, thread_id, kind, withdrawn_at").eq("id", message_id).execute().data,
+    )
+    checkpoint = rows[0] if rows else None
+    if not checkpoint or checkpoint.get("kind") != "checkpoint" or not verify_thread_access(user_id, checkpoint["thread_id"]):
+        raise HTTPException(status_code=404, detail="That compact no longer exists.")
+    if not checkpoint.get("withdrawn_at"):
+        db.table("messages").update({"withdrawn_at": datetime.now(timezone.utc).isoformat()}).eq("id", message_id).execute()
+    return {"ok": True}
+
+
+class MemoryRefreshRequest(BaseModel):
+    tz_offset: int | None = None
+
+
+@app.post("/api/memory/{project_id}/refresh")
+def refresh_project_memory(project_id: str, body: MemoryRefreshRequest, user_id: str = Depends(get_current_user)):
+    """Fold the latest Team Space messages into project memory now, with the same key @AI uses there."""
+    _check_and_record_rate_limit(user_id)
+    thread_id = memory.shared_thread_id(project_id)
+    thread = get_accessible_thread(user_id, thread_id) if thread_id else None
+    if not thread:
+        raise HTTPException(status_code=403, detail="You do not have access to this project.")
+    resolved = resolve_key(thread, user_id)
+    if not resolved:
+        raise HTTPException(
+            status_code=400,
+            detail="No API key found. Please add one in Settings → API Keys before updating memory.",
+        )
+    provider, model, api_key = resolved
+    try:
+        row = memory.refresh(
+            project_id, provider, model, api_key, team_names_for_thread(thread), user_tz(body.tz_offset), force=True
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"items": (row or {}).get("items") or [], "covers_through": (row or {}).get("covers_through")}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -410,6 +496,11 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
         if model and msg["sender_type"] == "assistant":
             sender += f" ({model})"
 
+        if msg.get("kind") == "checkpoint":
+            # Component #4: a compact card; an undone one isn't part of the record.
+            if not msg.get("withdrawn_at"):
+                md_lines += [f"_Context compacted ({msg.get('covers_count') or 0} messages):_", "", msg["content"], "", "---", ""]
+            continue
         md_lines.append(f"**{sender}:**")
         if msg.get("withdrawn_at"):
             md_lines += ["", "_Withdrew a post._", "", "---", ""]

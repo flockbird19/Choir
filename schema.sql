@@ -19,6 +19,9 @@
 -- Pending re-run (2026-09-28, L23): trigger blocking ai_auto_reply changes on Team Space.
 -- Pending re-run (2026-09-29, curation): messages.withdrawn_at + publish_edited, the
 -- withdraw_publication() function, and "no pinning a withdrawn post".
+-- Pending re-run (2026-09-29, context & memory): messages.kind/covers_through/covers_count
+-- (compact checkpoints), the project_memory table + is_project_member(), withdraw also undoing
+-- checkpoints and memory items, checkpoints never pinnable.
 -- ============================================================================
 
 begin;
@@ -34,7 +37,8 @@ declare
 begin
   foreach t in array array['messages', 'threads', 'projects', 'team_members', 'teams',
                            'team_invitations', 'user_api_keys', 'thread_reads', 'ai_request_log',
-                           'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections']
+                           'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections',
+                           'project_memory']
   loop
     if to_regclass('public.' || t) is not null then
       execute format('lock table public.%I in access exclusive mode', t);
@@ -212,6 +216,14 @@ alter table public.messages add column if not exists reply_to_message_id uuid
 alter table public.messages add column if not exists publish_edited boolean not null default false;
 alter table public.messages add column if not exists withdrawn_at timestamptz;
 
+-- Component #4, context: a compact checkpoint is a visible card in the thread (kind =
+-- 'checkpoint', written only by the backend). Its content summarises every message up to
+-- covers_through; the AI then reads the card plus the messages after it. Undo = withdrawn_at.
+alter table public.messages add column if not exists kind text not null default 'message'
+  check (kind in ('message', 'checkpoint'));
+alter table public.messages add column if not exists covers_through timestamptz;
+alter table public.messages add column if not exists covers_count integer;
+
 -- L5: invite links expire after 7 days and can be revoked.
 -- (Existing links get 7 days from the first run of this line.)
 alter table public.team_invitations add column if not exists expires_at timestamptz not null
@@ -270,6 +282,20 @@ create table if not exists public.thread_summaries (
   updated_at timestamptz not null default now()
 );
 
+-- Component #4: one shared memory per project, built from Team Space only (never private
+-- threads). items is a JSON array of {id, section, text, sources: [message ids], by: 'ai' |
+-- user id}. The AI keeps its own items current; anything a person wrote or edited is theirs
+-- and the AI never overwrites it. Decisions aren't stored here: they're read live from pins.
+create table if not exists public.project_memory (
+  project_id uuid primary key references public.projects(id) on delete cascade,
+  items jsonb not null default '[]'::jsonb check (jsonb_typeof(items) = 'array'),
+  -- The newest Team Space message the AI has folded in.
+  covers_through timestamptz,
+  version integer not null default 0,
+  updated_by uuid references auth.users(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+
 -- ── 1b. Indexes on the columns the app filters by ────────────────────────────
 -- Postgres indexes primary keys and unique constraints, but never foreign keys.
 -- Without these, opening a thread scans every message and loading the sidebar scans
@@ -308,6 +334,13 @@ begin
   ) then
     alter publication supabase_realtime add table public.thread_reads;
   end if;
+  -- Component #4: the Project memory panel updates live
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'project_memory'
+  ) then
+    alter publication supabase_realtime add table public.project_memory;
+  end if;
 end $$;
 
 -- ── 3. Row Level Security: ON for every table ────────────────────────────────
@@ -326,6 +359,7 @@ alter table public.shared_keys      enable row level security;
 alter table public.profiles         enable row level security;
 alter table public.thread_summaries enable row level security;
 alter table public.agent_connections enable row level security;
+alter table public.project_memory   enable row level security;
 
 -- ── 4. Access helpers (same rules as the app and backend access checks) ──────
 
@@ -398,6 +432,17 @@ as $$
   );
 $$;
 
+-- Component #4: is the caller on the team that owns this project? Same shape as the helpers
+-- above, so a project_memory rule can't be shadowed by one of its own columns.
+create or replace function public.is_project_member(p_project_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from projects where id = p_project_id and public.is_team_member(team_id)
+  );
+$$;
+
 -- ── 5. Access rules ──────────────────────────────────────────────────────────
 
 -- Remove every old rule on these tables so only the ones below exist
@@ -410,7 +455,8 @@ begin
     where schemaname = 'public'
       and tablename in ('teams', 'team_members', 'projects', 'threads', 'messages',
                         'user_api_keys', 'team_invitations', 'thread_reads', 'ai_request_log',
-                        'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections')
+                        'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections',
+                        'project_memory')
   loop
     execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
   end loop;
@@ -523,6 +569,8 @@ create policy "Pin messages in accessible shared threads" on public.messages
     and (pinned_by is null or pinned_by = auth.uid())
     -- A withdrawn post can't be pinned again.
     and (withdrawn_at is null or not is_decision)
+    -- A compact checkpoint is a context summary, never a team Decision.
+    and (kind = 'message' or not is_decision)
   );
 
 -- Withdraw your own publication (a post made from a private thread). Clears its text
@@ -536,6 +584,7 @@ language plpgsql security definer set search_path = public
 as $$
 declare
   v_thread_id uuid;
+  v_created_at timestamptz;
 begin
   update messages
      set content = '', source_message_ids = null, withdrawn_at = now(),
@@ -544,13 +593,25 @@ begin
      and sender_id = auth.uid()
      and shared_by is not null
      and withdrawn_at is null
-  returning thread_id into v_thread_id;
+  returning thread_id, created_at into v_thread_id, v_created_at;
 
   if v_thread_id is null then
     raise exception 'You can only withdraw your own posts from a private thread' using errcode = '42501';
   end if;
 
   delete from thread_summaries where thread_id = v_thread_id;
+  -- Component #4: compact checkpoints that summarised it are undone (the AI rebuilds one
+  -- without it), and project memory items that cite it are dropped.
+  update messages set withdrawn_at = now()
+   where thread_id = v_thread_id and kind = 'checkpoint' and withdrawn_at is null
+     and covers_through >= v_created_at;
+  update project_memory pm
+     set items = coalesce((
+           select jsonb_agg(item) from jsonb_array_elements(pm.items) item
+            where not coalesce(item -> 'sources', '[]'::jsonb) ? p_message_id::text
+         ), '[]'::jsonb),
+         version = pm.version + 1, updated_at = now()
+   where pm.project_id = (select t.project_id from threads t where t.id = v_thread_id);
 end $$;
 revoke execute on function public.withdraw_publication(uuid) from public, anon;
 grant execute on function public.withdraw_publication(uuid) to authenticated;
@@ -626,6 +687,16 @@ create policy "Change your own shared key" on public.shared_keys
 create policy "Stop lending your own key" on public.shared_keys
   for delete using (user_id = auth.uid());
 
+-- Project memory (component #4): the whole team reads it; any member edits it, in their own
+-- name. The backend writes the AI's updates with the service key.
+create policy "Members view project memory" on public.project_memory
+  for select using (public.is_project_member(project_id));
+create policy "Members create project memory as themselves" on public.project_memory
+  for insert with check (public.is_project_member(project_id) and updated_by = auth.uid());
+create policy "Members edit project memory as themselves" on public.project_memory
+  for update using (public.is_project_member(project_id))
+  with check (public.is_project_member(project_id) and updated_by = auth.uid());
+
 -- ── 6. Column permissions ────────────────────────────────────────────────────
 
 -- Signed-in users may only change a message's pin fields, never its content or
@@ -677,5 +748,11 @@ grant insert (id, display_name, status) on public.profiles to authenticated;
 -- E5: a read position may set both timestamps, nothing else.
 revoke update on public.thread_reads from anon, authenticated;
 grant update (last_seen_at, last_read_at) on public.thread_reads to authenticated;
+
+-- Component #4: members edit project memory's items in their own name; only the backend
+-- sets covers_through (what the AI has read).
+revoke insert, update, delete on public.project_memory from anon, authenticated;
+grant insert (project_id, items, version, updated_by) on public.project_memory to authenticated;
+grant update (items, version, updated_by, updated_at) on public.project_memory to authenticated;
 
 commit;

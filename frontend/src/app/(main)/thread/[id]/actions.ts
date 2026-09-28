@@ -420,6 +420,85 @@ export async function unpinMessage(
 // The database function checks it's your own post from a private thread, clears its
 // text, unpins it and drops the stored AI summary. Live update reaches other tabs.
 
+// ── Project memory (component #4) ─────────────────────────────────────────────
+// The whole team edits it in their own name (RLS: members only, updated_by = you). A note
+// stays "by AI" only while its text is exactly what the AI wrote; any edit makes it yours,
+// and the AI never changes a person's note. A version check stops two edits clobbering.
+
+const MEMORY_SECTIONS = ["goal", "facts", "open", "owners"] as const;
+export type MemorySection = (typeof MEMORY_SECTIONS)[number];
+export interface MemoryNote {
+  id: string;
+  section: MemorySection;
+  text: string;
+  sources: string[];
+  by: string;
+}
+const MAX_MEMORY_NOTES = 60;
+const MAX_NOTE_CHARS = 400;
+
+export async function saveProjectMemory(
+  projectId: string,
+  notes: MemoryNote[],
+  expectedVersion: number | null
+): Promise<{ items?: MemoryNote[]; version?: number; error?: string; conflict?: boolean }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not logged in" };
+  if (!Array.isArray(notes) || notes.length > MAX_MEMORY_NOTES) return { error: `Project memory holds up to ${MAX_MEMORY_NOTES} notes.` };
+
+  const supabase = await createClient();
+  const { data: current, error: readError } = await supabase
+    .from("project_memory")
+    .select("items, version")
+    .eq("project_id", projectId)
+    .maybeSingle();
+  if (isMissingColumn(readError) || readError?.code === "PGRST205") return { error: DATABASE_UPDATE_PENDING };
+  if (readError) return { error: "Couldn't load project memory. Please try again." };
+  if ((current?.version ?? null) !== expectedVersion) {
+    return { error: "Someone else just changed project memory, so it's been reloaded. Try again.", conflict: true };
+  }
+
+  // A note keeps its author (the AI or a teammate) only while its text is unchanged;
+  // anything new or edited is credited to whoever saves it.
+  const existing = new Map(((current?.items as MemoryNote[] | undefined) ?? []).map((n) => [n.id, n]));
+  const items: MemoryNote[] = [];
+  for (const note of notes) {
+    const text = String(note?.text ?? "").trim().slice(0, MAX_NOTE_CHARS);
+    if (!text || !MEMORY_SECTIONS.includes(note.section)) continue;
+    const id = String(note.id || crypto.randomUUID()).slice(0, 64);
+    const before = existing.get(id);
+    items.push({
+      id,
+      section: note.section,
+      text,
+      sources: Array.isArray(note.sources) ? note.sources.map(String).slice(0, 20) : [],
+      by: before && before.text === text ? before.by : user.id,
+    });
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = current
+    ? await supabase
+        .from("project_memory")
+        .update({ items, version: current.version + 1, updated_by: user.id, updated_at: now })
+        .eq("project_id", projectId)
+        .eq("version", current.version)
+        .select("items, version")
+    : await supabase
+        .from("project_memory")
+        .insert({ project_id: projectId, items, version: 1, updated_by: user.id })
+        .select("items, version");
+  if (error) {
+    console.error("Error saving project memory:", error);
+    return { error: "Couldn't save project memory. Please try again." };
+  }
+  // No row back: someone saved in between (the version moved), or RLS refused it.
+  if (!data || data.length === 0) {
+    return { error: "Someone else just changed project memory, so it's been reloaded. Try again.", conflict: true };
+  }
+  return { items: data[0].items as MemoryNote[], version: data[0].version as number };
+}
+
 export async function withdrawPublication(messageId: string): Promise<{ success?: boolean; error?: string }> {
   const user = await getCurrentUser();
   if (!user) return { error: "Not logged in" };
