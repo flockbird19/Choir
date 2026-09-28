@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
-from backend import findings, llm
+from backend import findings, handoff, llm
 from backend.auth import get_current_user
 from tests.fakes import FakeClient
 
@@ -23,8 +23,10 @@ DB = FakeClient(
         {"id": "shared", "project_id": "p1", "type": "shared", "owner_id": None},
     ],
     messages=[
-        {"thread_id": "private", "sender_type": "user", "sender_id": "u-me", "content": "Should we use Postgres?", "created_at": "1"},
-        {"thread_id": "private", "sender_type": "assistant", "sender_id": None, "content": "Yes, for RLS.", "created_at": "2"},
+        {"id": "m1", "thread_id": "private", "sender_type": "user", "sender_id": "u-me", "content": "Should we use Postgres?", "created_at": "1"},
+        {"id": "m2", "thread_id": "private", "sender_type": "assistant", "sender_id": None, "content": "Yes, for RLS.", "created_at": "2"},
+        {"id": "d1", "thread_id": "shared", "sender_type": "user", "sender_id": "u-arjun", "content": "We use MySQL.", "created_at": "3", "is_decision": True, "pinned_at": "4"},
+        {"id": "c1", "thread_id": "shared", "sender_type": "user", "sender_id": "u-arjun", "content": "Lunch at 1?", "created_at": "5"},
     ],
 )
 
@@ -52,6 +54,7 @@ def _backend(keys: dict[str, str], captured: dict, has_access: bool = True):
     with (
         patch.object(main, "verify_thread_access", return_value=has_access),
         patch.object(llm, "get_db", return_value=DB),
+        patch.object(handoff, "get_db", return_value=DB),
         patch.object(llm, "get_api_key", side_effect=lookup),
         patch.dict(sys.modules, {"anthropic": _fake_anthropic(captured)}),
     ):
@@ -80,13 +83,26 @@ def test_happy_path_drafts_three_sections_from_the_private_thread(client):
     with _backend({"anthropic": "sk-test"}, captured):
         response = client.post("/api/findings/private")
     assert response.status_code == 200
-    assert response.json() == {"draft": "## Summary\nPostgres it is."}
+    assert response.json() == {"draft": "## Summary\nPostgres it is.", "source_message_ids": ["m1", "m2"]}
     assert captured["api_key"] == "sk-test"
     for heading in ("## Summary", "## Recommendation", "## Open questions"):
         assert heading in captured["system"]
     prompt = captured["messages"][0]["content"]
     assert "Me: Should we use Postgres?" in prompt
     assert "Choir AI: Yes, for RLS." in prompt
+    # D: pinned Decisions are given so the draft can flag disagreement; ordinary chat is not.
+    assert "- We use MySQL." in prompt
+    assert "Lunch at 1?" not in prompt
+    assert "suggest reconsidering" in captured["system"]
+    assert "not as one confident recommendation" in captured["system"]
+
+
+def test_source_ids_are_only_the_messages_that_fit_the_budget():
+    big = "x" * 15_000
+    msgs = [{"id": f"m{i}", "sender_type": "user", "content": big} for i in range(3)]
+    assert [m["id"] for m in findings._recent_that_fit(msgs)] == ["m2"]
+    # A single oversized latest message is still used.
+    assert [m["id"] for m in findings._recent_that_fit([{"id": "only", "content": "y" * 50_000}])] == ["only"]
 
 
 def test_shared_thread_and_empty_thread_are_rejected(client):

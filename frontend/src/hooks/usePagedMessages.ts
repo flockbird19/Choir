@@ -74,5 +74,11 @@ export function usePagedMessages(threadId: string, initial: Message[]) {
     [threadId, initial]
   );
 
-  return { older, hasMore, loading, loadOlder, loadUntil };
+  // A live UPDATE (pin, withdrawal) can target a message in an older page too.
+  const applyUpdate = useCallback((incoming: Message) => {
+    if (!olderRef.current.some((m) => m.id === incoming.id)) return;
+    setOlderBoth(olderRef.current.map((m) => (m.id === incoming.id ? { ...m, ...incoming } : m)));
+  }, []);
+
+  return { older, hasMore, loading, loadOlder, loadUntil, applyUpdate };
 }

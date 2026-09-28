@@ -206,7 +206,9 @@ export async function postToSharedThread(
   sourceThreadId?: string,
   // K3: the private thread's message ids at the time of publishing (the decision
   // trail). Prefer omitting/null over [] when there's nothing to point at.
-  sourceMessageIds?: string[] | null
+  sourceMessageIds?: string[] | null,
+  // The user changed the selected messages before posting, so it isn't an unchanged quote.
+  publishEdited = false
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
@@ -240,6 +242,7 @@ export async function postToSharedThread(
     shared_by: user.id,
     ...(sourceThreadId ? { source_thread_id: sourceThreadId } : {}),
     ...(sourceMessageIds && sourceMessageIds.length > 0 ? { source_message_ids: sourceMessageIds } : {}),
+    ...(publishEdited ? { publish_edited: true } : {}),
   });
 
   if (isMissingColumn(error)) {
@@ -292,6 +295,8 @@ export async function discussPrivately(
     .eq("thread_id", sharedThreadId)
     .maybeSingle();
   if (!message) return { error: "That message no longer exists." };
+  // A withdrawn publication has no text left to discuss.
+  if (!message.content) return { error: "That post was withdrawn." };
 
   let author = "Choir AI";
   if (message.sender_type !== "assistant") {
@@ -408,6 +413,25 @@ export async function unpinMessage(
     return { error: error.message };
   }
 
+  return { success: true };
+}
+
+// ── Withdraw a publication (curation) ────────────────────────────────────────
+// The database function checks it's your own post from a private thread, clears its
+// text, unpins it and drops the stored AI summary. Live update reaches other tabs.
+
+export async function withdrawPublication(messageId: string): Promise<{ success?: boolean; error?: string }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Not logged in" };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("withdraw_publication", { p_message_id: messageId });
+  if (error) {
+    console.error("Error withdrawing a post:", error);
+    if (error.code === "PGRST202") return { error: DATABASE_UPDATE_PENDING };
+    if (error.code === "42501") return { error: "You can only withdraw your own posts from a private thread." };
+    return { error: "Couldn't withdraw the post. Please try again." };
+  }
   return { success: true };
 }
 

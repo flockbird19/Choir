@@ -195,7 +195,8 @@ def read_team_space(project_id: str) -> str:
         .limit(MESSAGE_CONTEXT_LIMIT)
         .execute()
     )
-    recent = list(reversed(cast(list[dict[str, Any]], recent_resp.data)))
+    # A withdrawn publication has empty content; leave it out.
+    recent = [m for m in reversed(cast(list[dict[str, Any]], recent_resp.data)) if m["content"]]
 
     lines: list[str] = []
     if decisions:

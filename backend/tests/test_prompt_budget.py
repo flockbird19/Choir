@@ -164,14 +164,15 @@ def test_generate_digest_uses_the_shared_helper_and_stays_within_budget():
 def test_draft_findings_uses_the_same_shared_helper_as_digest():
     db = FakeClient(
         threads=[{"id": "t1", "project_id": "p1", "type": "private"}],
-        messages=[{"thread_id": "t1", "sender_type": "user", "sender_id": "u1", "content": "hi", "created_at": "1"}],
+        messages=[{"id": "m1", "thread_id": "t1", "sender_type": "user", "sender_id": "u1", "content": "hi", "created_at": "1"}],
     )
     with (
         patch.object(llm, "get_db", return_value=db),
+        patch.object(findings, "_team_decisions", return_value=[]),
         patch.object(llm, "get_api_key", return_value="sk-test"),
         patch.object(findings, "complete_once", return_value="## Summary\nDraft") as mock_complete,
     ):
         result = findings.draft_findings("t1", "u1")
 
-    assert result == {"draft": "## Summary\nDraft"}
+    assert result == {"draft": "## Summary\nDraft", "source_message_ids": ["m1"]}
     mock_complete.assert_called_once()

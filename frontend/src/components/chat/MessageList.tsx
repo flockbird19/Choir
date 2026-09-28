@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo, useState, isValidElement, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDown, Bot, ArrowUpRight, Copy, Check, Loader2, Pin, PinOff, MessageSquareLock, Reply } from "lucide-react";
+import { ArrowDown, Bot, ArrowUpRight, Copy, Check, Loader2, Pin, PinOff, MessageSquareLock, Reply, Undo2 } from "lucide-react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getInitials, publishedLabel } from "@/utils/display-name";
@@ -23,6 +23,8 @@ interface Message {
   source_thread_id?: string | null;
   source_message_ids?: string[] | null;
   reply_to_message_id?: string | null;
+  publish_edited?: boolean;
+  withdrawn_at?: string | null;
 }
 
 interface ReplyPreview {
@@ -91,6 +93,8 @@ interface MessageListProps {
   onReply?: (msg: Message) => void;
   /** Jump to (and highlight) a message this one replies to; pages back to load it if needed. */
   onJumpToMessage?: (id: string) => void;
+  /** Team Space only: withdraw your own post published from a private thread. */
+  onWithdraw?: (msg: Message) => void;
 }
 
 const EMPTY_NAMES: Record<string, string> = {};
@@ -184,6 +188,7 @@ const MessageItem = memo(function MessageItem({
   replyPreview,
   onReply,
   onJumpToMessage,
+  onWithdraw,
 }: {
   msg: Message;
   isOwn: boolean;
@@ -200,10 +205,22 @@ const MessageItem = memo(function MessageItem({
   replyPreview?: ReplyPreview;
   onReply?: (msg: Message) => void;
   onJumpToMessage?: (id: string) => void;
+  onWithdraw?: (msg: Message) => void;
 }) {
   const isAI = msg.sender_type === "assistant";
   const isSharedFrom = !!msg.shared_by;
   const isPinned = !!msg.is_decision;
+
+  if (msg.withdrawn_at) {
+    return (
+      <div id={`message-${msg.id}`} className="flex justify-center py-1">
+        <p className="flex items-center gap-1.5 text-caption text-fg-subtle">
+          <Undo2 size={12} aria-hidden="true" />
+          {isOwn ? "You withdrew a post" : `${senderName} withdrew a post`}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -223,6 +240,7 @@ const MessageItem = memo(function MessageItem({
             {msg.source_thread_id
               ? publishedLabel(isOwn, senderName)
               : `${isOwn ? "You shared" : `${senderName} shared`} from a private thread`}
+            {msg.publish_edited && " · edited"}
           </span>
         </div>
       )}
@@ -362,6 +380,19 @@ const MessageItem = memo(function MessageItem({
                 <MessageSquareLock size={11} aria-hidden="true" />
               </button>
             )}
+            {isSharedThread && isOwn && isSharedFrom && onWithdraw && !selectMode && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onWithdraw(msg);
+                }}
+                title="Withdraw post"
+                aria-label="Withdraw post"
+                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 pointer-coarse:opacity-100 min-w-[24px] min-h-[24px] pointer-coarse:min-w-11 pointer-coarse:min-h-11 flex items-center justify-center rounded-md text-fg-subtle hover:text-danger hover:bg-danger-soft transition-all"
+              >
+                <Undo2 size={11} aria-hidden="true" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -397,6 +428,7 @@ export function MessageList({
   loadingOlder = false,
   onReply,
   onJumpToMessage,
+  onWithdraw,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasNearBottom = useRef(true);
@@ -496,7 +528,7 @@ export function MessageList({
     for (const msg of messages) {
       map.set(msg.id, {
         senderName: resolveSenderName(msg),
-        content: msg.content,
+        content: msg.withdrawn_at ? "Withdrawn post" : msg.content,
         isAI: msg.sender_type === "assistant",
       });
     }
@@ -587,6 +619,7 @@ export function MessageList({
                   replyPreview={msg.reply_to_message_id ? replyPreviews.get(msg.reply_to_message_id) : undefined}
                   onReply={onReply}
                   onJumpToMessage={onJumpToMessage}
+                  onWithdraw={onWithdraw}
                 />
               </div>
             );

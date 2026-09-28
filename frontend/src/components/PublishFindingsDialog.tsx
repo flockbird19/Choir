@@ -2,51 +2,55 @@
 
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
-import { KeyRound, Megaphone } from "lucide-react";
+import { Info, KeyRound, Megaphone, ShieldAlert } from "lucide-react";
 import { getSessionToken, postToSharedThread } from "@/app/(main)/thread/[id]/actions";
 import { isMissingKeyError } from "@/utils/ai-errors";
+import { removeSecret, scanForSecrets, type SecretMatch } from "@/utils/secrets";
 import { useToast } from "@/components/Toast";
 import { Button, buttonClasses } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Textarea } from "@/components/ui/Input";
 import { Skeleton } from "@/components/ui/Skeleton";
-import type { Message } from "@/types/database";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 interface State {
   open: boolean;
+  /** "findings": an AI draft (K2). "selection": messages picked in the thread, no AI call. */
+  mode: "findings" | "selection";
   loading: boolean;
   /** No API key: the draft can't be written, but the user can still write the post. */
   needsKey: boolean;
   draft: string;
+  /** The text before the user touched it; a changed selection counts as edited. */
+  original: string;
+  /** K3 trail: exactly the private messages this post was built from. */
+  sourceIds: string[];
 }
 
-const CLOSED: State = { open: false, loading: false, needsKey: false, draft: "" };
+const CLOSED: State = { open: false, mode: "findings", loading: false, needsKey: false, draft: "", original: "", sourceIds: [] };
 
 /**
- * K2 "Publish findings": `start()` asks the backend for a draft (summary, recommendation,
- * open questions) and opens an editable dialog; confirming posts it to the Team Space,
- * linked to this private thread. The request runs from the click, never from an effect,
- * so it can't fire twice.
+ * One review-and-publish step for everything that crosses from a private thread into
+ * Team Space. `start()` asks the backend for a findings draft; `startWithSelection()`
+ * opens the same dialog on messages the user picked. Nothing posts until the user
+ * confirms, a failed post keeps the draft, and a second click can't post twice.
  */
 export function usePublishFindings({
   threadId,
   sharedThreadId,
   sharedName,
-  messages,
   onPublished,
 }: {
   threadId: string;
   sharedThreadId: string | null | undefined;
   sharedName: string;
-  /** The private thread's own messages, so the post can carry its decision trail (K3). */
-  messages: Message[];
   onPublished?: () => void;
 }) {
   const toast = useToast();
   const [state, setState] = useState<State>(CLOSED);
   const [posting, setPosting] = useState(false);
+  const postingRef = useRef(false);
   // Ignore a draft that arrives after the dialog was closed or reopened.
   const request = useRef(0);
 
@@ -74,7 +78,8 @@ export function usePublishFindings({
         }
         throw new Error(body.detail || "Couldn't draft your findings.");
       }
-      setState({ ...CLOSED, open: true, draft: body.draft ?? "" });
+      const draft = body.draft ?? "";
+      setState({ ...CLOSED, open: true, draft, original: draft, sourceIds: body.source_message_ids ?? [] });
     } catch (err) {
       if (id !== request.current) return;
       setState(CLOSED);
@@ -84,34 +89,56 @@ export function usePublishFindings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
+  const startWithSelection = useCallback((text: string, sourceIds: string[]) => {
+    request.current += 1;
+    setState({ ...CLOSED, open: true, mode: "selection", draft: text, original: text, sourceIds });
+  }, []);
+
   const publish = async () => {
     const content = state.draft.trim();
-    if (!sharedThreadId || !content) return;
+    if (!sharedThreadId || !content || postingRef.current) return;
+    postingRef.current = true;
     setPosting(true);
     try {
-      // K3: the trail is this private thread's own messages at publish time.
-      const sourceMessageIds = messages.length > 0 ? messages.map((m) => m.id) : null;
-      const res = await postToSharedThread(sharedThreadId, content, threadId, sourceMessageIds);
+      const res = await postToSharedThread(
+        sharedThreadId,
+        content,
+        threadId,
+        state.sourceIds.length > 0 ? state.sourceIds : null,
+        // An AI draft is the writer's own post anyway; only changed quotes are marked.
+        state.mode === "selection" && content !== state.original.trim(),
+      );
       if (res.error) {
         toast.error(res.error);
         return;
       }
       close();
-      toast.success(`Posted to ${sharedName}.`);
+      toast.success(`Posted to ${sharedName}`);
       onPublished?.();
     } catch {
-      toast.error(`Couldn't post to ${sharedName}. Please try again.`);
+      toast.error(`Couldn't post to ${sharedName}. Your post is still here, so try again.`);
     } finally {
+      postingRef.current = false;
       setPosting(false);
     }
   };
 
+  const matches = state.loading ? [] : scanForSecrets(state.draft);
+  const credentials = matches.filter((m) => m.kind === "credential");
+  const contacts = matches.filter((m) => m.kind === "contact");
+  const removeMatch = (m: SecretMatch) => setState((s) => ({ ...s, draft: removeSecret(s.draft, m.value) }));
+
+  const isSelection = state.mode === "selection";
   const dialog = (
     <Dialog
       open={state.open}
       onClose={close}
-      title="Publish findings"
-      description={`Share what you worked out here with everyone in ${sharedName}. Only this post is shared, not the thread.`}
+      title={isSelection ? `Post to ${sharedName}` : "Publish findings"}
+      description={
+        isSelection
+          ? `Everyone in ${sharedName} will see this as your post. Only this post is shared, not the thread.`
+          : `Share what you worked out here with everyone in ${sharedName}. Only this post is shared, not the thread.`
+      }
       width="40rem"
       footer={
         <>
@@ -125,7 +152,7 @@ export function usePublishFindings({
             disabled={state.loading || !state.draft.trim()}
             leadingIcon={<Megaphone size={15} aria-hidden="true" />}
           >
-            Post to {sharedName}
+            {credentials.length > 0 ? "Post anyway" : `Post to ${sharedName}`}
           </Button>
         </>
       }
@@ -169,12 +196,81 @@ export function usePublishFindings({
               const draft = event.target.value;
               setState((s) => ({ ...s, draft }));
             }}
-            rows={12}
+            rows={8}
           />
+          <div aria-live="polite" className="flex flex-col gap-3 empty:hidden">
+            {credentials.length > 0 && (
+              <SecretNotice
+                tone="strong"
+                title="This may include a password or key"
+                body={`Anyone in ${sharedName} will be able to read it. Remove it, or post anyway if it's safe to share.`}
+                matches={credentials}
+                onRemove={removeMatch}
+              />
+            )}
+            {contacts.length > 0 && (
+              <SecretNotice
+                tone="light"
+                title="Contact details"
+                body={`Fine if the team should see them. Remove any that are private.`}
+                matches={contacts}
+                onRemove={removeMatch}
+              />
+            )}
+            {matches.length > 0 && (
+              <p className="text-caption text-fg-subtle">This check can miss things, so read your post before sharing it.</p>
+            )}
+          </div>
         </div>
       )}
     </Dialog>
   );
 
-  return { start, dialog };
+  return { start, startWithSelection, dialog };
+}
+
+function SecretNotice({
+  tone,
+  title,
+  body,
+  matches,
+  onRemove,
+}: {
+  tone: "strong" | "light";
+  title: string;
+  body: string;
+  matches: SecretMatch[];
+  onRemove: (m: SecretMatch) => void;
+}) {
+  const strong = tone === "strong";
+  const Icon = strong ? ShieldAlert : Info;
+  return (
+    <div className={`flex gap-3 rounded-control p-3 ${strong ? "border border-danger/40 bg-danger-soft" : "bg-sunken"}`}>
+      <Icon size={16} aria-hidden="true" className={`mt-0.5 shrink-0 ${strong ? "text-danger" : "text-fg-muted"}`} />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex flex-col gap-0.5">
+          <p className="text-body-sm font-semibold text-fg">{title}</p>
+          <p className="text-body-sm text-fg-muted">{body}</p>
+        </div>
+        <ul className="flex flex-col gap-1">
+          {matches.map((m) => (
+            <li key={m.value} className="flex min-w-0 items-center justify-between gap-3">
+              <span className="min-w-0 text-body-sm text-fg">
+                <span className="text-fg-muted">{m.label}: </span>
+                <span className="break-all font-mono text-label">{m.display}</span>
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onRemove(m)}
+                aria-label={`Remove ${m.label.toLowerCase()} ${strong ? "" : m.display}`.trim()}
+              >
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
 }

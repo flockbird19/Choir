@@ -51,6 +51,10 @@ export interface Message {
   source_message_ids?: string[] | null;
   // WhatsApp-style reply: the specific earlier message (same thread) this replies to.
   reply_to_message_id?: string | null;
+  // Curation: the publisher changed the selected messages before posting them.
+  publish_edited?: boolean;
+  // Curation: the publisher withdrew this post; its content is now empty.
+  withdrawn_at?: string | null;
 }
 
 export interface TeamInvitation {

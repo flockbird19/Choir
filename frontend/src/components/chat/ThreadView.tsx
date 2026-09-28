@@ -8,18 +8,18 @@ import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
 import { ExportPromptDialog } from "./ExportPromptDialog";
 import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X } from "lucide-react";
-import { IconButton, Input, Menu, MenuItem } from "@/components/ui";
+import { Button, Dialog, IconButton, Input, Menu, MenuItem } from "@/components/ui";
 import { useRouter } from "next/navigation";
 import { DecisionsSinceBanner } from "./DecisionsSinceBanner";
 import { usePublishFindings } from "../PublishFindingsDialog";
 import {
   discussPrivately,
-  postToSharedThread,
   getSessionToken,
   pinMessage,
   unpinMessage,
   setThreadAutoReply,
   renameThread,
+  withdrawPublication,
 } from "../../app/(main)/thread/[id]/actions";
 import { markOnboardingTourSeen } from "../../app/(main)/profile/actions";
 import { useToast } from "../Toast";
@@ -156,12 +156,12 @@ export function ThreadView({
 
   // ── C3 pagination — "load older" by created_at cursor, ahead of the loaded 50 ──
   const paged = usePagedMessages(thread.id, messages);
+  const applyPagedUpdate = paged.applyUpdate;
   const allMessages = useMemo(() => [...paged.older, ...localMessages], [paged.older, localMessages]);
 
   // ── Selection State (for Post to Shared) ───────────────────────────────────
   const [selectMode, setSelectMode] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
-  const [isPosting, setIsPosting] = useState(false);
 
   const handleToggleSelect = useCallback((id: string) => {
     setSelectedMessageIds((prev) => {
@@ -172,30 +172,6 @@ export function ThreadView({
     });
   }, []);
 
-  const handlePostToShared = async () => {
-    if (!sharedThread || selectedMessageIds.size === 0) return;
-    setIsPosting(true);
-
-    // Compile messages into a markdown block. allMessages (older pages + this visit's
-    // live messages), not the page-load `messages`, since either can be selected.
-    const selectedMsgs = allMessages.filter((m) => selectedMessageIds.has(m.id));
-    let compiledMarkdown = "";
-    for (const msg of selectedMsgs) {
-      const sender = msg.sender_type === "user" ? currentUserName : "Choir AI";
-      compiledMarkdown += `**${sender}:** ${msg.content}\n\n`;
-    }
-
-    const res = await postToSharedThread(sharedThread.id, compiledMarkdown);
-    if (res.success) {
-      setSelectMode(false);
-      setSelectedMessageIds(new Set());
-      setDrawerOpen(true);
-      toastSuccess("Posted to Team Space!");
-    } else {
-      toastError(res.error || "Failed to post to shared thread.");
-    }
-    setIsPosting(false);
-  };
 
   // ── Export ─────────────────────────────────────────────────────────────────
   const [isExporting, setIsExporting] = useState<"md" | "json" | false>(false);
@@ -273,9 +249,10 @@ export function ThreadView({
   const handleRealtimeUpdate = useCallback(
     (incoming: Message) => {
       setLocalMessages((prev) => prev.map((m) => (m.id === incoming.id ? { ...m, ...incoming } : m)));
+      applyPagedUpdate(incoming);
       threadDecisions.applyUpdate(incoming);
     },
-    [threadDecisions]
+    [threadDecisions, applyPagedUpdate]
   );
 
   useRealtimeMessages(thread.id, handleRealtimeInsert, handleRealtimeUpdate);
@@ -376,6 +353,38 @@ export function ThreadView({
     [thread.id, currentUserId, toastError, allMessages, decisions, threadDecisions]
   );
 
+  // ── Withdraw your own publication (curation) ──────────────────────────────
+  const [withdrawTarget, setWithdrawTarget] = useState<{ id: string; is_decision?: boolean } | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const handleWithdraw = useCallback(
+    (msg: { id: string; is_decision?: boolean }) => setWithdrawTarget({ id: msg.id, is_decision: msg.is_decision }),
+    []
+  );
+  const confirmWithdraw = async () => {
+    const original = withdrawTarget && allMessages.find((m) => m.id === withdrawTarget.id);
+    if (!original || withdrawing) return;
+    setWithdrawing(true);
+    const res = await withdrawPublication(original.id);
+    setWithdrawing(false);
+    if (res.error) {
+      toastError(res.error);
+      return;
+    }
+    // The realtime UPDATE confirms this for everyone else; apply it here right away.
+    const withdrawn = {
+      ...original,
+      content: "",
+      withdrawn_at: new Date().toISOString(),
+      source_message_ids: null,
+      is_decision: false,
+      pinned_by: null,
+      pinned_at: null,
+    };
+    handleRealtimeUpdate(withdrawn);
+    setWithdrawTarget(null);
+    toastSuccess("Post withdrawn");
+  };
+
   // ── "Discuss privately" (D2): fork a Team Space message into a private thread ──
   const router = useRouter();
   const [isForking, setIsForking] = useState(false);
@@ -407,9 +416,25 @@ export function ThreadView({
     threadId: thread.id,
     sharedThreadId: sharedThread?.id,
     sharedName: sharedThread?.name || "Team Space",
-    messages: localMessages,
-    onPublished: () => setDrawerOpen(true),
+    onPublished: () => {
+      setSelectMode(false);
+      setSelectedMessageIds(new Set());
+      setDrawerOpen(true);
+    },
   });
+
+  // Post to Team Space opens the same review dialog; nothing posts until the user
+  // confirms there, and the selection stays until the post succeeds.
+  const handlePostToShared = () => {
+    if (!sharedThread || selectedMessageIds.size === 0) return;
+    // allMessages (older pages + this visit's live messages), not the page-load
+    // `messages`, since either can be selected.
+    const selectedMsgs = allMessages.filter((m) => selectedMessageIds.has(m.id));
+    const compiled = selectedMsgs
+      .map((msg) => `**${msg.sender_type === "user" ? currentUserName : "Choir AI"}:** ${msg.content}`)
+      .join("\n\n");
+    findings.startWithSelection(compiled, selectedMsgs.map((m) => m.id));
+  };
 
   // The message list is virtualized (C3), so a target message older than what's loaded
   // may not exist in `allMessages` yet — page back until it does before highlighting it;
@@ -575,7 +600,7 @@ export function ThreadView({
     if (!isPrivate || dismissedAt === null) return [];
     const since = Math.max(lastActivityAt, dismissedAt);
     return localSharedMessages
-      .filter((m) => !(m.sender_type === "user" && m.sender_id === currentUserId))
+      .filter((m) => !(m.sender_type === "user" && m.sender_id === currentUserId) && !m.withdrawn_at)
       .filter((m) => Date.parse(m.created_at) > since)
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   }, [isPrivate, localSharedMessages, lastActivityAt, dismissedAt, currentUserId]);
@@ -955,6 +980,7 @@ export function ThreadView({
           loadingOlder={paged.loading}
           onReply={handleReply}
           onJumpToMessage={handleJumpToMessage}
+          onWithdraw={isPrivate ? undefined : handleWithdraw}
         />
 
         {/* Chat Input or Selection Action Bar */}
@@ -977,24 +1003,11 @@ export function ThreadView({
               </button>
               <button
                 onClick={handlePostToShared}
-                disabled={selectedMessageIds.size === 0 || isPosting}
-                className={`flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white rounded-pill shadow-soft transition-all duration-300 ${
-                  isPosting
-                    ? "bg-private/80 scale-[0.98] cursor-wait shadow-inner"
-                    : "bg-private hover:opacity-90 hover:-translate-y-px active:scale-95 disabled:opacity-50 disabled:hover:translate-y-0"
-                }`}
+                disabled={selectedMessageIds.size === 0}
+                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white dark:text-bg rounded-pill shadow-soft transition-all duration-150 bg-private hover:opacity-90 hover:-translate-y-px active:scale-[0.98] disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:translate-y-0"
               >
-                {isPosting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Posting...
-                  </>
-                ) : (
-                  <>
-                    Post to Team Space
-                    <PanelRightOpen size={15} />
-                  </>
-                )}
+                Post to Team Space…
+                <PanelRightOpen size={15} aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -1069,6 +1082,31 @@ export function ThreadView({
       )}
 
       <ExportPromptDialog isOpen={promptOpen} onClose={() => setPromptOpen(false)} prompt={promptText} />
+
+      {/* ── Withdraw a publication ──────────────────────────────────── */}
+      <Dialog
+        open={withdrawTarget !== null}
+        onClose={() => setWithdrawTarget(null)}
+        title="Withdraw this post?"
+        description={`It will be removed from ${localName || "Team Space"} for everyone, and Choir AI will stop using it.`}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setWithdrawTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={confirmWithdraw} loading={withdrawing}>
+              Withdraw post
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-2 text-body-sm text-fg-muted">
+          {withdrawTarget?.is_decision && (
+            <p className="font-semibold text-fg">This will also remove this post from Decisions.</p>
+          )}
+          <p>Anyone who already read, copied or exported it keeps that copy. Your private thread isn&rsquo;t affected.</p>
+        </div>
+      </Dialog>
 
       {/* ── Onboarding coach-mark tour ──────────────────────────────── */}
       {!isPrivate && tourActive && (

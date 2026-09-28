@@ -56,6 +56,7 @@ FEATURES = {
     "notifications": ("notifications", "id"),
     "shared_keys": ("shared_keys", "id"),
     "reply": ("messages", "reply_to_message_id"),
+    "withdraw": ("messages", "withdrawn_at,publish_edited"),
 }
 
 
@@ -86,6 +87,9 @@ class Rest:
         return self.http.delete(
             f"/rest/v1/{table}", params=filters, headers={**self.headers, "Prefer": "return=representation"}
         )
+
+    def rpc(self, function: str, args: dict) -> httpx.Response:
+        return self.http.post(f"/rest/v1/rpc/{function}", json=args, headers=self.headers)
 
 
 def ok(response: httpx.Response) -> list[dict]:
@@ -472,6 +476,39 @@ def test_reply_must_point_at_a_message_in_the_same_thread(world):
     assert_denied(b.api.insert("messages", {**post, "reply_to_message_id": world.m_pa}))
     # Control: replying to a message actually in this thread works.
     ok(b.api.insert("messages", {**post, "reply_to_message_id": world.m_s1_a}))
+
+
+# ── Withdrawing a publication (curation) ────────────────────────────────────
+
+
+def test_only_your_own_publication_can_be_withdrawn(world):
+    needs(world, "withdraw")
+    a, b = world.a, world.b
+    pub = ok(b.api.insert("messages", {
+        "thread_id": world.s1, "sender_type": "user", "sender_id": b.id, "content": "oops, my key",
+        "shared_by": b.id, "source_thread_id": world.pb, "source_message_ids": [world.m_pb], "publish_edited": True,
+    }))[0]["id"]  # fmt: skip
+    ok(a.api.update("messages", {"is_decision": True, "pinned_by": a.id, "pinned_at": "2026-09-29T00:00:00Z"}, id=eq(pub)))
+    ok(world.admin.insert("thread_summaries", {"thread_id": world.s1, "summary": "mentions oops", "covers_through": "2026-09-29T00:00:00Z"}))
+
+    # Someone else's publication, and your own ordinary message, can't be withdrawn.
+    assert_denied(a.api.rpc("withdraw_publication", {"p_message_id": pub}))
+    assert_denied(b.api.rpc("withdraw_publication", {"p_message_id": world.m_s1_b}))
+    assert admin_row(world, "messages", pub)["content"] == "oops, my key"
+    assert admin_row(world, "messages", world.m_s1_b)["content"] == "B in the team space"
+
+    # Control: withdrawing your own publication clears it everywhere it could leak from.
+    response = b.api.rpc("withdraw_publication", {"p_message_id": pub})
+    assert response.is_success, f"{response.status_code}: {response.text}"
+    row = admin_row(world, "messages", pub)
+    assert row["content"] == "" and row["withdrawn_at"] is not None
+    assert row["is_decision"] is False and row["pinned_by"] is None and row["source_message_ids"] is None
+    assert ok(world.admin.select("thread_summaries", thread_id=eq(world.s1))) == []
+
+    # It can't be pinned again, or withdrawn twice.
+    assert_blocked(a.api.update("messages", {"is_decision": True, "pinned_by": a.id}, id=eq(pub)))
+    assert admin_row(world, "messages", pub)["is_decision"] is False
+    assert_denied(b.api.rpc("withdraw_publication", {"p_message_id": pub}))
 
 
 # ── Notifications (F3) ──────────────────────────────────────────────────────

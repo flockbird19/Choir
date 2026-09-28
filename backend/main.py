@@ -411,6 +411,9 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
             sender += f" ({model})"
 
         md_lines.append(f"**{sender}:**")
+        if msg.get("withdrawn_at"):
+            md_lines += ["", "_Withdrew a post._", "", "---", ""]
+            continue
         published_from = _published_from(msg, names)
         if published_from:
             md_lines.append(f"_Published from {published_from}_")

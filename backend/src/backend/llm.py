@@ -88,7 +88,12 @@ def _fetch_messages(thread_id: str, limit: int = MESSAGE_FETCH_LIMIT) -> list[di
         .limit(limit)
         .execute()
     )
-    return list(reversed(cast(list[dict[str, Any]], resp.data)))
+    return _visible(list(reversed(cast(list[dict[str, Any]], resp.data))))
+
+
+def _visible(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop withdrawn publications: their text is gone and they never reach an AI prompt."""
+    return [m for m in messages if not m.get("withdrawn_at")]
 
 
 def _fetch_message_in_thread(message_id: str, thread_id: str) -> dict[str, Any] | None:
@@ -121,7 +126,7 @@ def _fetch_messages_since(thread_id: str, since: str | None) -> list[dict[str, A
             .order("created_at")
             .execute()
         )
-        return cast(list[dict[str, Any]], resp.data)
+        return _visible(cast(list[dict[str, Any]], resp.data))
 
     resp = (
         db.table("messages")
@@ -131,7 +136,7 @@ def _fetch_messages_since(thread_id: str, since: str | None) -> list[dict[str, A
         .limit(30)
         .execute()
     )
-    return list(reversed(cast(list[dict[str, Any]], resp.data)))
+    return _visible(list(reversed(cast(list[dict[str, Any]], resp.data))))
 
 
 def _fetch_thread_read(thread_id: str, user_id: str) -> str | None:

@@ -64,6 +64,10 @@ class FakeQuery:
         self._limit = count
         return self
 
+    def single(self) -> "FakeQuery":
+        self._single = True
+        return self
+
     def order(self, column: str, desc: bool = False, **_kwargs: Any) -> "FakeQuery":
         # None sorts first, like `nullsfirst`.
         self._data.sort(key=lambda row: row.get(column) or "", reverse=desc)
@@ -104,6 +108,8 @@ class FakeQuery:
         if self._update is not None:
             for row in rows:
                 row.update(self._update)
+        if getattr(self, "_single", False):
+            return FakeResult(rows[0] if rows else None)  # type: ignore[arg-type]
         return FakeResult(rows)
 
 

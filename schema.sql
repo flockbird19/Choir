@@ -17,6 +17,8 @@
 -- project via MCP. Additive only (new columns with a default, new table) — safe to
 -- run against live even though the spike itself is unproven; nothing existing changes.
 -- Pending re-run (2026-09-28, L23): trigger blocking ai_auto_reply changes on Team Space.
+-- Pending re-run (2026-09-29, curation): messages.withdrawn_at + publish_edited, the
+-- withdraw_publication() function, and "no pinning a withdrawn post".
 -- ============================================================================
 
 begin;
@@ -203,6 +205,12 @@ alter table public.messages add column if not exists source_thread_id uuid
 -- WhatsApp-style "reply to" a specific earlier message (same thread only).
 alter table public.messages add column if not exists reply_to_message_id uuid
   references public.messages(id) on delete set null;
+
+-- Curation: the publisher edited selected messages before posting them, so the post
+-- isn't shown as an unchanged quote. And a publication can be withdrawn: the row stays
+-- (replies to it keep working) but its text is cleared. See withdraw_publication().
+alter table public.messages add column if not exists publish_edited boolean not null default false;
+alter table public.messages add column if not exists withdrawn_at timestamptz;
 
 -- L5: invite links expire after 7 days and can be revoked.
 -- (Existing links get 7 days from the first run of this line.)
@@ -513,7 +521,39 @@ create policy "Pin messages in accessible shared threads" on public.messages
     and exists (select 1 from public.threads t where t.id = thread_id and t.type = 'shared')
     -- B3 finding: a pin can only be credited to yourself
     and (pinned_by is null or pinned_by = auth.uid())
+    -- A withdrawn post can't be pinned again.
+    and (withdrawn_at is null or not is_decision)
   );
+
+-- Withdraw your own publication (a post made from a private thread). Clears its text
+-- and trail, removes it from Decisions, and drops Team Space's stored AI summary so the
+-- next AI reply rebuilds it without the withdrawn text. An UPDATE, not a DELETE, so
+-- other open tabs get it live and replies quoting it still resolve. Security definer
+-- because signed-in users can't update message content directly (column grants below).
+create or replace function public.withdraw_publication(p_message_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_thread_id uuid;
+begin
+  update messages
+     set content = '', source_message_ids = null, withdrawn_at = now(),
+         is_decision = false, pinned_by = null, pinned_at = null
+   where id = p_message_id
+     and sender_id = auth.uid()
+     and shared_by is not null
+     and withdrawn_at is null
+  returning thread_id into v_thread_id;
+
+  if v_thread_id is null then
+    raise exception 'You can only withdraw your own posts from a private thread' using errcode = '42501';
+  end if;
+
+  delete from thread_summaries where thread_id = v_thread_id;
+end $$;
+revoke execute on function public.withdraw_publication(uuid) from public, anon;
+grant execute on function public.withdraw_publication(uuid) to authenticated;
 
 -- API keys: only your own (the backend reads them with the service key)
 create policy "Manage own API keys" on public.user_api_keys
@@ -597,7 +637,7 @@ grant update (is_decision, pinned_by, pinned_at) on public.messages to authentic
 -- may be set when posting (id is sent by the app for optimistic sends).
 revoke insert on public.messages from anon, authenticated;
 grant insert (id, thread_id, sender_type, sender_id, content, shared_by, source_thread_id,
-              source_message_ids, reply_to_message_id)
+              source_message_ids, reply_to_message_id, publish_edited)
   on public.messages to authenticated;
 
 -- Any team member may rename it (see "Team members can rename their teams" above).
