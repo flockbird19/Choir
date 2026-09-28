@@ -1008,7 +1008,7 @@ export function ThreadView({
                 disabled={selectedMessageIds.size === 0}
                 className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white dark:text-bg rounded-pill shadow-soft transition-all duration-150 bg-private hover:opacity-90 hover:-translate-y-px active:scale-[0.98] disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:translate-y-0"
               >
-                Post to Team Space…
+                Post to Team Space
                 <PanelRightOpen size={15} aria-hidden="true" />
               </button>
             </div>
