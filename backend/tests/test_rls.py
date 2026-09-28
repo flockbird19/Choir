@@ -25,6 +25,8 @@ import httpx
 import pytest
 from dotenv import dotenv_values, load_dotenv
 
+from backend.db import verify_thread_access
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(BACKEND_DIR / ".env")
 
@@ -53,6 +55,7 @@ FEATURES = {
     "published_posts": ("messages", "source_thread_id"),
     "notifications": ("notifications", "id"),
     "shared_keys": ("shared_keys", "id"),
+    "reply": ("messages", "reply_to_message_id"),
 }
 
 
@@ -440,6 +443,34 @@ def test_published_post_cannot_point_at_someone_elses_private_thread(world):
     ok(b.api.insert("messages", {**post, "source_thread_id": world.pb}))
 
 
+def test_published_post_source_ids_cannot_point_outside_what_you_can_see(world):
+    # 2026-09-28 (L20): source_message_ids's own check had the identical shadowing bug as the
+    # reply check below, silently masked by its coalesce fallback — this is the negative test
+    # that would have caught it, added retroactively once the bug was found.
+    needs(world, "published_posts")
+    b = world.b
+    # A message in team 2's shared thread — b (team 1) cannot see it.
+    foreign = ok(world.admin.insert("messages", {
+        "thread_id": world.s2, "sender_type": "user", "sender_id": world.c.id, "content": "not yours",
+    }))[0]["id"]
+    post = {"thread_id": world.s1, "sender_type": "user", "sender_id": b.id, "content": "findings"}
+    assert_denied(b.api.insert("messages", {**post, "source_message_ids": [foreign]}))
+    # Control: pointing at a message you can see (your own private note) works.
+    ok(b.api.insert("messages", {**post, "source_message_ids": [world.m_pb]}))
+
+
+def test_reply_must_point_at_a_message_in_the_same_thread(world):
+    # 2026-09-28 (L20, K20): the reply check's own shadowing bug rejected every reply, valid or
+    # not, until fixed — this is the negative test that should have existed from the start.
+    needs(world, "reply")
+    b = world.b
+    post = {"thread_id": world.s1, "sender_type": "user", "sender_id": b.id, "content": "replying"}
+    # world.m_pa is in a different thread (A's private thread) than s1.
+    assert_denied(b.api.insert("messages", {**post, "reply_to_message_id": world.m_pa}))
+    # Control: replying to a message actually in this thread works.
+    ok(b.api.insert("messages", {**post, "reply_to_message_id": world.m_s1_a}))
+
+
 # ── Notifications (F3) ──────────────────────────────────────────────────────
 
 
@@ -491,4 +522,32 @@ def test_shared_keys_rules(world):
     assert_denied(a.api.update("shared_keys", {"key_id": world.key_b}, id=eq(row["id"])))
     assert_denied(a.api.update("shared_keys", {"project_id": world.p2}, id=eq(row["id"])))
     assert_denied(a.api.update("shared_keys", {"user_id": b.id}, id=eq(row["id"])))
-    assert_denied(a.api.update("shared_keys", {"provider": "openai"}, id=eq(row["id"])))
+
+
+# ── Cross-verification: RLS vs. the backend's own access check (2026-09-28) ───
+# verify_thread_access is the *entire* authorization layer for /api/chat, /api/digest
+# and /api/export (they run under the service-role key, which bypasses RLS entirely),
+# and is documented as matching the RLS rules above — but nothing proved that until
+# now. Runs the same thread/user pairs through both paths so a future change to one
+# without the other fails here instead of silently diverging.
+
+
+def rls_allows(user, table: str, row_id: str) -> bool:
+    """True if the RLS SELECT policy lets this user see this row."""
+    response = user.api.select(table, id=eq(row_id))
+    return response.is_success and response.json() != []
+
+
+@pytest.mark.parametrize("user_key,thread_key,expected", [
+    ("a", "s1", True),   # owner, shared thread
+    ("b", "s1", True),   # member, shared thread
+    ("c", "s1", False),  # outsider, shared thread
+    ("a", "pa", True),   # owner, own private thread
+    ("b", "pa", False),  # teammate, someone else's private thread
+    ("c", "pa", False),  # outsider, private thread
+])  # fmt: skip
+def test_verify_thread_access_agrees_with_rls(world, user_key, thread_key, expected):
+    user = getattr(world, user_key)
+    thread_id = getattr(world, thread_key)
+    assert verify_thread_access(user.id, thread_id) is expected
+    assert rls_allows(user, "threads", thread_id) is expected

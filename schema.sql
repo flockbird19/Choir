@@ -199,6 +199,10 @@ alter table public.threads add column if not exists forked_from_message_id uuid
 alter table public.messages add column if not exists source_thread_id uuid
   references public.threads(id) on delete set null;
 
+-- WhatsApp-style "reply to" a specific earlier message (same thread only).
+alter table public.messages add column if not exists reply_to_message_id uuid
+  references public.messages(id) on delete set null;
+
 -- L5: invite links expire after 7 days and can be revoked.
 -- (Existing links get 7 days from the first run of this line.)
 alter table public.team_invitations add column if not exists expires_at timestamptz not null
@@ -358,6 +362,33 @@ as $$
   );
 $$;
 
+-- K3/K20 (2026-09-28): the trail/reply checks used to be hand-written inline correlated
+-- subqueries directly in the messages insert policy. One of them (reply_to_message_id) let a
+-- bare column reference silently shadow onto the subquery's own alias instead of the new row,
+-- making the check always false; the identical mistake was found already live and inert in the
+-- other one (source_message_ids), masked by its own coalesce fallback. Named functions with
+-- p_-prefixed parameters, same convention as the three helpers above, make that class of mistake
+-- structurally impossible instead of merely unlikely — a parameter can't be ambiguous with a
+-- column name it never matches.
+create or replace function public.message_in_thread(p_msg_id uuid, p_target_thread_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from messages where id = p_msg_id and thread_id = p_target_thread_id
+  );
+$$;
+
+create or replace function public.all_messages_accessible(p_msg_ids uuid[])
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select coalesce(
+    (select bool_and(public.can_access_thread(thread_id)) from messages where id = any (p_msg_ids)),
+    true
+  );
+$$;
+
 -- ── 5. Access rules ──────────────────────────────────────────────────────────
 
 -- Remove every old rule on these tables so only the ones below exist
@@ -376,9 +407,12 @@ begin
   end loop;
 end $$;
 
--- Teams: members can see their teams; the creator can delete
+-- Teams: members can see their teams; any member can rename it (same as Team Space
+-- threads: nobody "owns" the workspace more than anyone else); only the creator can delete.
 create policy "Members can view their teams" on public.teams
   for select using (public.is_team_member(id));
+create policy "Team members can rename their teams" on public.teams
+  for update using (public.is_team_member(id));
 create policy "Creator can delete team" on public.teams
   for delete using (created_by = auth.uid());
 
@@ -447,16 +481,11 @@ create policy "Send messages as yourself in accessible threads" on public.messag
     and (source_thread_id is null or public.can_access_thread(source_thread_id))
     -- B3 finding: "shared by" can only be yourself
     and (shared_by is null or shared_by = auth.uid())
-    -- K3: the trail can only point at messages you can see. bool_and() over an empty
-    -- array is NULL, which would block a post with an empty trail, so default to true.
-    and (
-      source_message_ids is null
-      or coalesce(
-           (select bool_and(public.can_access_thread(m.thread_id))
-            from public.messages m where m.id = any (source_message_ids)),
-           true
-         )
-    )
+    -- K3: the trail can only point at messages you can see. See the function's own comment
+    -- (§4 above) for why this is a named function rather than an inline subquery.
+    and (source_message_ids is null or public.all_messages_accessible(source_message_ids))
+    -- A reply can only point at a message already in the same thread. Same reasoning as K3.
+    and (reply_to_message_id is null or public.message_in_thread(reply_to_message_id, thread_id))
   );
 create policy "Pin messages in accessible shared threads" on public.messages
   for update
@@ -553,8 +582,12 @@ grant update (is_decision, pinned_by, pinned_at) on public.messages to authentic
 -- may be set when posting (id is sent by the app for optimistic sends).
 revoke insert on public.messages from anon, authenticated;
 grant insert (id, thread_id, sender_type, sender_id, content, shared_by, source_thread_id,
-              source_message_ids)
+              source_message_ids, reply_to_message_id)
   on public.messages to authenticated;
+
+-- Any team member may rename it (see "Team members can rename their teams" above).
+revoke update on public.teams from anon, authenticated;
+grant update (name) on public.teams to authenticated;
 
 -- Signed-in users may change a thread's AI auto-reply setting (mute) or its name,
 -- never its type, owner or project. The two policies above decide who may touch
