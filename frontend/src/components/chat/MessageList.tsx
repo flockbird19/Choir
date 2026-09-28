@@ -156,6 +156,16 @@ export const markdownComponents: Components = {
       : <code className="bg-sunken border border-line px-1.5 py-0.5 rounded text-xs font-mono text-team" {...props} />,
   a: ({ node: _node, ...props }) => <a className="text-team hover:underline" target="_blank" rel="noopener noreferrer" {...props} />,
   blockquote: ({ node: _node, ...props }) => <blockquote className="border-l-2 border-line pl-3 italic text-fg-muted my-2" {...props} />,
+  // Wide tables scroll sideways inside the bubble instead of stretching it.
+  table: ({ node: _node, ...props }) => (
+    <div className="my-2 overflow-x-auto rounded-control border border-line bg-card">
+      <table className="w-full border-collapse text-xs tabular-nums" {...props} />
+    </div>
+  ),
+  thead: ({ node: _node, ...props }) => <thead className="bg-sunken" {...props} />,
+  tr: ({ node: _node, ...props }) => <tr className="border-b border-line last:border-b-0" {...props} />,
+  th: ({ node: _node, ...props }) => <th className="px-3 py-2 text-left font-semibold text-fg whitespace-nowrap" {...props} />,
+  td: ({ node: _node, ...props }) => <td className="px-3 py-2 align-top text-fg" {...props} />,
 };
 
 const MessageItem = memo(function MessageItem({
