@@ -106,6 +106,13 @@ def test_private_thread_context_names_shared_thread_senders(fake_backend):
     assert fake_backend["messages"] == [{"role": "user", "content": "how many members?"}]
 
 
+def test_anthropic_replies_get_the_web_search_tool_and_its_policy(fake_backend):
+    _run("shared", "u-bob")
+
+    assert fake_backend["tools"] == [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]
+    assert "WEB SEARCH:" in _flatten_system(fake_backend)
+
+
 def test_forked_private_thread_tells_the_ai_which_message_is_the_focus(fake_backend):
     forked = {"id": "forked", "project_id": "p1", "type": "private", "owner_id": "u-bob", "forked_from_message_id": "m-venu"}
     shared_msg = {"id": "m-venu", "thread_id": "shared", "sender_type": "user", "sender_id": "u-owner", "content": "lets do frontend", "created_at": "1"}

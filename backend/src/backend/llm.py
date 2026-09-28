@@ -573,11 +573,16 @@ def _stream_text(
             )
         if system_volatile:
             system_blocks.append({"type": "text", "text": system_volatile})
+        # Native server-side tool, no extra credentials or dependency: Anthropic runs the
+        # search itself and streams grounded text back. max_uses caps searches per reply
+        # so one message can't run away with an unbounded number of paid searches.
+        tools: list[dict[str, Any]] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]
         with client.messages.stream(
             model=model,
             max_tokens=4096,
             system=system_blocks,
             messages=chat_messages,  # type: ignore[arg-type]
+            tools=tools,  # type: ignore[arg-type]
         ) as stream:
             yield from stream.text_stream
         return
@@ -687,6 +692,20 @@ def stream_ai_response(
             team_name = str(team_data[0]["name"])
 
     workspace_context = f"Workspace: '{team_name}' | Project: '{project_name}'"
+    # Anthropic's web_search tool is wired in for both thread types below (see
+    # _stream_text); OpenAI/Gemini/Groq don't have an equivalent through the shared
+    # OpenAI-compatible code path, so only tell the model it can search when it's true.
+    web_search_policy = (
+        "\nWEB SEARCH: You have a live web search tool for anything time-sensitive or outside your "
+        "knowledge (prices, current events, versions, specs, availability). If the user's message "
+        "directly asks you to search, look up, check, or verify something online, that request is "
+        "itself the permission: just search and answer, no need to ask first. If you think a search "
+        "would help but they didn't ask for one, say so in plain text and wait for them to say yes "
+        "before searching. Never pass off memory as current information when a search would give a "
+        "real answer.\n"
+        if provider == "anthropic"
+        else ""
+    )
     team_context = (
         _format_roster(roster, user_id)
         + "\nThis is everyone on the team, including people who haven't posted yet. "
@@ -725,16 +744,32 @@ def stream_ai_response(
         system_stable = (
             f"You are Choir, an AI in a private scratchpad for {workspace_context}.\n"
             + team_context + "\n"
-            "ROLE: Thinking partner. Help this person explore, sharpen and pressure-test their own "
-            "ideas before they take them to the team.\n"
+            "ROLE: Thinking partner for one person working through something before they take it to "
+            "the team. That covers several different jobs, and you have to tell which one you're "
+            "doing from what they actually wrote:\n"
+            "- A direct question (\"why are we using X\", \"what does Y mean\", \"how do I do Z\") gets "
+            "the real answer or reasoning, first sentence, no run-up.\n"
+            "- A request to write something (a message, a spec, a pitch line, code) gets the actual "
+            "draft, not a description of how they could write it.\n"
+            "- A bug, error, or \"why isn't this working\" gets a diagnosis and a fix to try, not a "
+            "list of things to go check themselves.\n"
+            "- A decision or tradeoff (\"should we do A or B\", \"is this a good idea\") gets a real "
+            "recommendation and the reason for it, not a balanced-sounding survey of both sides.\n"
+            "- Open brainstorming (\"ideas for X\", \"help me think through Y\") gets concrete options "
+            "and directions on the table, not just questions handed back.\n"
+            "- Pressure-testing something half-formed still means naming the specific weak point and "
+            "what to do about it, not a checklist for them to go figure out on their own.\n"
             "STYLE: Warm, plain and concise, the way a trusted colleague talks. Do NOT use emojis. "
             "Enough detail to be genuinely useful, never padded.\n"
-            "MANNER: Answer what was actually asked. Never comment on whether they should be using "
+            "MANNER: Lead with the substance, always. If something is missing that truly blocks an "
+            "answer, give your best answer under a stated assumption anyway and name the assumption, "
+            "rather than stalling on a question alone. Never comment on whether they should be using "
             "Choir, how they are using it, or whether their question was worth asking, and never "
             "suggest they skip it or go elsewhere. When you disagree with an idea, say plainly what "
             "the problem is and offer a way forward: be hard on the idea and easy on the person. No "
             "lecturing, no conditions, no scolding, no listing what they are doing wrong.\n"
             "CONTEXT: The team's shared thread is below for alignment. Only answer the user's immediate private questions.\n"
+            + web_search_policy
             + fork_context
         )
         # D3: the bulky, slow-changing material (this thread's rolling summary and the
@@ -763,7 +798,8 @@ def stream_ai_response(
             "genuinely useful, never padded. Never invent private context you were not given.\n"
             "MANNER: Answer what was actually asked, and treat every teammate as an equal. Never "
             "comment on how people are using Choir or tell anyone not to ask. When you disagree with "
-            "an idea, do it kindly and specifically, never with the person. No lecturing, no scolding."
+            "an idea, do it kindly and specifically, never with the person. No lecturing, no scolding.\n"
+            + web_search_policy
         )
         # As in the private branch: the rolling summary is slow-changing bulk, so it goes
         # in the cached block and only the speaker line stays volatile.
