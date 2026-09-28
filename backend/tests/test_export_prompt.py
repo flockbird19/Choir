@@ -82,7 +82,7 @@ def test_ai_gets_the_thread_with_names_and_only_pinned_decisions(client):
         response = client.post("/api/export-prompt/private")
     assert response.status_code == 200
     assert response.json() == {"prompt": "**Goal:** wire the sensor."}
-    assert "Synthesize, never replay" in captured["system"]
+    assert "Do not treat an AI recommendation, tentative private conclusion" in captured["system"]
     sent = captured["messages"][0]["content"]
     assert "Priya (me): How do I wire it to I2C?" in sent
     assert "Choir AI: SDA to GPIO21." in sent

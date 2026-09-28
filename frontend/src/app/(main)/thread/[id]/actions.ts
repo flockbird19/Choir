@@ -434,8 +434,8 @@ export interface MemoryNote {
   sources: string[];
   by: string;
 }
-const MAX_MEMORY_NOTES = 60;
-const MAX_NOTE_CHARS = 400;
+const MAX_MEMORY_NOTES = 120; // people's notes plus up to 50 AI notes (memory.py)
+const MAX_NOTE_CHARS = 700; // matches memory.MAX_ITEM_CHARS
 
 export async function saveProjectMemory(
   projectId: string,

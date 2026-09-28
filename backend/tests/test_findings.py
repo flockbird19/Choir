@@ -92,8 +92,8 @@ def test_happy_path_drafts_three_sections_from_the_private_thread(client):
     # D: pinned Decisions are given so the draft can flag disagreement; ordinary chat is not.
     assert "] We use MySQL." in prompt  # every pinned Decision, with who pinned it and when
     assert "Lunch at 1?" not in prompt
-    assert "suggest reconsidering" in captured["system"]
-    assert "not as one confident recommendation" in captured["system"]
+    assert "do not claim the team has reversed its commitment" in captured["system"]
+    assert "Do not manufacture a recommendation to fill the section" in captured["system"]
 
 
 def test_source_ids_are_only_the_messages_that_fit_the_budget():

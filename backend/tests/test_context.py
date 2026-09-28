@@ -222,7 +222,7 @@ def test_reply_target_date_and_decisions_are_in_the_prompt(captured):
     assert "reply to this earlier message from Arjun" in system and "peristaltic pump" in system
     assert "Today is" in system and "UTC+05:30" in system
     assert "TEAM DECISIONS" in system
-    assert "Only pinned Decisions are the team's decisions" in system
+    assert "Formal Decision: an item identified as pinned by application metadata" in system  # prompts.EVIDENCE
 
 
 def test_long_thread_is_compacted_before_answering_and_says_so(captured):

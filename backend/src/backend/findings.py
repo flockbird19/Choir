@@ -7,25 +7,23 @@ post itself is written by the frontend (postToSharedThread with source_thread_id
 
 from typing import Any
 
-from backend import llm, memory
+from backend import llm, memory, prompts
 from backend.llm import NoApiKeyError, _fetch_thread, _resolve_provider_and_model, complete_once
 
-FINDINGS_SYSTEM_PROMPT = (
-    "You help a team member share what they worked out in their private AI thread with their team. "
-    "Write a short Markdown post, in the first person, with exactly these three sections:\n"
-    "## Summary\n2-4 sentences on what was explored and found.\n"
-    "## Recommendation\nWhat the writer proposes the team does, as 1-3 bullet points.\n"
-    "## Open questions\n1-3 bullet points the team should weigh in on. Write 'None' if there are none.\n"
-    "HONESTY: Only claim what the thread actually reached. If the writer weighed several options without "
-    "settling, say so and present them as options, not as one confident recommendation. Keep real "
-    "uncertainty and disagreement visible.\n"
-    "TEAM DECISIONS: If team Decisions are given, check the findings against them. When the findings agree "
-    "with a Decision, you may say so briefly. When they point away from a Decision, say it plainly and "
-    "name the Decision, for example: 'The team chose PostgreSQL; these findings suggest reconsidering "
-    "because...'. Never bend the findings to fit a Decision, and never call a Decision wrong outright.\n"
-    "STYLE: Plain and specific. Do NOT use emojis. No preamble or sign-off; output only the post. "
-    "Keep it under 220 words."
-)
+FINDINGS_SYSTEM_PROMPT = prompts.system(prompts.FINDINGS_JOB)
+
+
+def coverage_line(view: dict[str, Any]) -> str:
+    """What the helper was given (prompts: helpers must know their coverage)."""
+    checkpoint = view.get("checkpoint")
+    latest = len(view["messages"])
+    if checkpoint:
+        return (
+            f"COVERAGE: the whole thread: its first {checkpoint.get('covers_count') or 'earlier'} messages as the "
+            f"compact summary above, then the latest {latest} word for word."
+        )
+    return f"COVERAGE: the whole thread, all {latest} messages word for word."
+
 
 def draft_findings(thread_id: str, user_id: str) -> dict[str, Any]:
     """
@@ -56,10 +54,12 @@ def draft_findings(thread_id: str, user_id: str) -> dict[str, Any]:
         thread_id, None, llm.context_chars(provider) * 3 // 4, provider, model, api_key, names, tz
     )
     messages = view["messages"]
+
     parts = [
         memory.render(thread["project_id"], 4_000),
         llm.decisions_block(llm._team_decisions(thread["project_id"]), names, tz, 4_000),
         llm.checkpoint_block(view["checkpoint"], "EARLIER IN MY PRIVATE THREAD", tz),
+        coverage_line(view),
         "Here is my private thread:\n\n"
         + "\n\n".join(f"{'Choir AI' if m['sender_type'] == 'assistant' else 'Me'}: {m['content']}" for m in messages),
     ]

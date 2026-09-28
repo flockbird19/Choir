@@ -40,3 +40,6 @@ wheels/
 
 # /brag launch-video output (plan, composition, rendered mp4), local-only
 /brag-output/
+
+# Live prompt-eval reports (backend/evals/run_prompt_evals.py) hold model outputs; keep them local.
+backend/evals/results/

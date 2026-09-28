@@ -111,13 +111,13 @@ def test_anthropic_replies_get_the_web_search_tool_and_its_policy(fake_backend):
     _run("shared", "u-bob")
 
     assert fake_backend["tools"] == [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]
-    assert "WEB SEARCH:" in _flatten_system(fake_backend)
+    assert "Use web search when the user explicitly requests" in _flatten_system(fake_backend)
 
 
 def test_both_thread_types_allow_off_topic_questions(fake_backend):
     for thread_id in ("shared", "private"):
         _run(thread_id, "u-bob")
-        assert "OFF-TOPIC:" in _flatten_system(fake_backend)
+        assert "Off-topic requests receive genuine help" in _flatten_system(fake_backend) or "Give off-topic requests genuine help" in _flatten_system(fake_backend)
 
 
 def test_forked_private_thread_tells_the_ai_which_message_is_the_focus(fake_backend):
@@ -137,7 +137,7 @@ def test_forked_private_thread_tells_the_ai_which_message_is_the_focus(fake_back
     system = _flatten_system(fake_backend)
     assert "FOCUS: The user started this private thread to discuss one message from the shared thread, written by Venu:" in system
     assert '"""\nlets do frontend\n"""' in system
-    assert "Treat that message as the focus of this conversation." in system
+    assert "It is where this conversation started; the user may move on from it." in system
 
 
 def test_focus_is_skipped_for_unforked_threads_and_unknown_messages():

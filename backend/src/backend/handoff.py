@@ -7,7 +7,8 @@ Nothing is saved; the user reviews and copies the text in the browser.
 
 from typing import Any
 
-from backend import llm, memory
+from backend import llm, memory, prompts
+from backend.findings import coverage_line
 from backend.llm import (
     NoApiKeyError,
     _fetch_thread,
@@ -17,23 +18,7 @@ from backend.llm import (
     team_names_for_thread,
 )
 
-HANDOFF_SYSTEM_PROMPT = (
-    "You turn a team chat thread into a prompt that its reader will paste into a fresh AI chat "
-    "(Claude, ChatGPT or similar) to carry on the work there. That new AI has seen nothing, so the "
-    "prompt must stand on its own.\n"
-    "Write it in the first person, as the reader talking to the new AI. Use these sections, as short "
-    "bold labels, and leave out any section with nothing real to say:\n"
-    "**Goal:** what I'm trying to get done, in one or two sentences.\n"
-    "**Context:** the background the new AI needs: project, tools, constraints, who is involved.\n"
-    "**Already decided:** team Decisions and conclusions reached in the thread. Treat these as settled.\n"
-    "**What we've worked out:** findings, answers, approaches tried, and what was ruled out and why.\n"
-    "**Still open:** unresolved questions or disagreements.\n"
-    "**What I need from you:** the concrete next thing to help with, based on where the thread left off.\n"
-    "RULES: Synthesize, never replay the conversation turn by turn. Keep every specific that matters "
-    "(names, numbers, versions, file names, code, commands, links) exactly as written; put code in "
-    "fenced blocks. Do not invent anything that isn't in the thread. No preamble, no sign-off, no "
-    "emojis: output only the prompt. Keep it under 450 words unless code needs more room."
-)
+HANDOFF_SYSTEM_PROMPT = prompts.system(prompts.HANDOFF_JOB)
 
 def _transcript(messages: list[dict[str, Any]], names: dict[str, str], user_id: str) -> str:
     lines = []
@@ -81,6 +66,7 @@ def draft_handoff_prompt(thread_id: str, user_id: str) -> dict[str, str]:
     ):
         if block:
             parts.append(block)
+    parts.append(coverage_line(view))
     parts.append("THREAD:\n" + _transcript(view["messages"], names, user_id))
 
     prompt = complete_once(provider, model, api_key, HANDOFF_SYSTEM_PROMPT, "\n\n".join(parts), max_tokens=1200)

@@ -332,7 +332,7 @@ function NoteEditor({
         aria-label={label}
         value={value}
         placeholder={placeholder}
-        maxLength={400}
+        maxLength={700}
         rows={2}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
