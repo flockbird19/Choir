@@ -311,7 +311,7 @@ def test_a_checkpoint_written_while_a_post_is_withdrawn_is_undone():
 
 
 def test_manual_compact_keeps_the_last_few_messages_word_for_word():
-    db = world([msg(i) for i in range(10)])
+    db = world([msg(i, text=f"message {i} " + "k" * 1000) for i in range(80)])
     thread = {"id": "t", "project_id": "p", "type": "shared"}
     with (
         patch.object(llm, "get_db", return_value=db),
@@ -320,12 +320,32 @@ def test_manual_compact_keeps_the_last_few_messages_word_for_word():
     ):
         checkpoint = llm.compact_now(thread, "u-b", "the pump wiring", 0)
     assert checkpoint["sender_id"] == "u-b"
-    assert checkpoint["covers_through"] == at(5) and checkpoint["covers_count"] == 6
+    assert checkpoint["covers_through"] == at(75) and checkpoint["covers_count"] == 76
 
 
-def test_nothing_new_to_compact_is_a_friendly_error():
-    db = world([msg(1)])
+def test_compact_refuses_while_the_whole_thread_still_fits():
+    # A 10-message thread was once compacted and lost an option the AI then denied suggesting.
+    db = world([msg(i) for i in range(10)])
     thread = {"id": "t", "project_id": "p", "type": "shared"}
     with patch.object(llm, "get_db", return_value=db), patch.object(llm, "resolve_key", return_value=("anthropic", "m", "k")):
-        with pytest.raises(ValueError, match="nothing new to compact"):
+        with pytest.raises(ValueError, match="Nothing worth compacting yet"):
             llm.compact_now(thread, "u-a", None, 0)
+
+
+def test_the_real_messages_win_over_a_card_while_everything_fits():
+    long_ai = msg(1, sender=None, text="Options: TimescaleDB, InfluxDB and Apache IoTDB. " + "detail " * 400)
+    messages = [msg(0), long_ai] + [msg(i) for i in range(2, 14)] + [{
+        "id": "cp", "thread_id": "t", "sender_type": "assistant", "kind": "checkpoint",
+        "content": "## Goal\n- a database (IoTDB lost here)", "covers_through": at(8), "covers_count": 9, "created_at": at(9),
+    }]
+    with patch.object(llm, "get_db", return_value=world(messages)):
+        view = llm.thread_view("t", None, 60_000)
+    assert view["checkpoint"] is None
+    kept = {m["id"]: m for m in view["messages"]}
+    assert "m0" in kept and kept["m1"]["content"] == long_ai["content"]  # whole, untrimmed
+    assert "Apache IoTDB" in kept["m1"]["content"]
+
+
+def test_no_pinned_decisions_is_said_outright():
+    block = llm.decisions_block([], {}, timezone.utc, 5_000)
+    assert block.startswith("TEAM DECISIONS: none pinned yet.") and "not a pin" in block

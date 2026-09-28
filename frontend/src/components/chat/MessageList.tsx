@@ -57,7 +57,7 @@ function CheckpointCard({
             <p className="text-body-sm font-semibold text-fg">Context compacted</p>
             <p className="text-caption text-fg-subtle">
               {by ? `By ${by}` : "Automatically"} · {count} {count === 1 ? "message" : "messages"} summarised
-              {upTo ? ` up to ${upTo}` : ""}. Choir AI reads this summary plus everything after it.
+              {upTo ? ` up to ${upTo}` : ""}. Choir AI reads the messages themselves while the thread fits, and this summary once it grows too long.
             </p>
           </div>
           <div className="flex items-center gap-1">

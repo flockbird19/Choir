@@ -107,11 +107,19 @@ def test_private_thread_context_names_shared_thread_senders(fake_backend):
     assert fake_backend["messages"] == [{"role": "user", "content": "[5] how many members?"}]
 
 
-def test_anthropic_replies_get_the_web_search_tool_and_its_policy(fake_backend):
+def test_search_tool_is_only_attached_when_the_message_asks_for_it(fake_backend):
+    # The latest shared message ("old message") doesn't ask for a search: no tool, and the AI
+    # is told it can search only on request (it once searched on its own despite the rule).
     _run("shared", "u-bob")
+    assert "tools" not in fake_backend
+    assert "available only when the person asks for it" in _flatten_system(fake_backend)
 
-    assert fake_backend["tools"] == [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]
-    assert "Use web search when the user explicitly requests" in _flatten_system(fake_backend)
+
+def test_asking_for_a_search_attaches_the_tool():
+    assert llm.asks_for_search("can you search for the latest price?")
+    assert llm.asks_for_search("find me a source link")
+    assert not llm.asks_for_search("which database should we use?")
+    assert not llm.asks_for_search("try the apacheiot db maybe")
 
 
 def test_both_thread_types_allow_off_topic_questions(fake_backend):

@@ -87,7 +87,21 @@ def test_chat_prompts_are_their_job_plus_the_contract(thread, job):
     with chat(world([msg(1, thread=thread)])) as seen:
         list(llm.stream_ai_response(thread, "u-a", message_id="m1"))
     system = _system_text(seen)
-    assert job in system and prompts.EVIDENCE in system and prompts.WEB_SEARCH in system
+    assert job in system and prompts.EVIDENCE in system
+    # "message 1" doesn't ask for a search: no tool, and the on-request note instead.
+    assert prompts.SEARCH_ON_REQUEST in system and "tools" not in seen
+
+
+def test_a_message_asking_for_a_search_gets_the_tool_and_its_rules():
+    with chat(world([msg(1, text="can you search for the latest ESP32 price?")])) as seen:
+        list(llm.stream_ai_response("ts", "u-a", message_id="m1"))
+    assert prompts.WEB_SEARCH in _system_text(seen)
+    assert seen["tools"][0]["type"] == "web_search_20250305"
+
+
+def test_compaction_never_records_anything_as_decided():
+    assert "## Decided" not in prompts.COMPACT_JOB
+    assert "Never state that the team decided anything" in prompts.COMPACT_JOB
 
 
 def test_without_a_search_tool_the_ai_is_told_it_cannot_check_live():

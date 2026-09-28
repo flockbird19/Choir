@@ -9,6 +9,7 @@ Handles:
 """
 
 import json
+import re
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Generator, cast
@@ -227,6 +228,19 @@ def sender_label(msg: dict[str, Any], names: dict[str, str]) -> str:
 # ---------------------------------------------------------------------------
 
 
+# ponytail: a keyword check for "the person asked for a search"; it can miss an unusual
+# phrasing (they can just say "search"), and that's the safe way to be wrong.
+_SEARCH_WORDS = re.compile(
+    r"\b(search|google|look\s+(it|this|that|them)\s+up|look\s+up|online|on\s+the\s+(web|internet)|web|internet"
+    r"|sources?|links?|urls?|websites?|latest|up[\s-]to[\s-]date|news|prices?|verify|fact[\s-]?check)\b",
+    re.I,
+)
+
+
+def asks_for_search(text: str) -> bool:
+    return bool(_SEARCH_WORDS.search(text))
+
+
 def _pin_mark(msg: dict[str, Any]) -> str:
     """The pin comes from the row's metadata, in the header the app writes (prompts.EVIDENCE):
     a message *saying* it's pinned inside its own text is not a Decision."""
@@ -393,17 +407,19 @@ def _latest_message(thread_id: str) -> dict[str, Any] | None:
     return rows[-1] if rows else None
 
 
-def _fit(messages: list[dict[str, Any]], budget_chars: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def _fit(
+    messages: list[dict[str, Any]], budget_chars: int, *, trim: bool = True
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """
     (kept, dropped): newest first until the budget runs out, oldest first in the result.
-    The newest KEEP_WHOLE messages stay whole; older AI replies are trimmed. The newest
-    message is always kept, cut down to the budget if it alone is bigger.
+    The newest KEEP_WHOLE messages stay whole; with `trim`, older AI replies are shortened.
+    The newest message is always kept, cut down to the budget if it alone is bigger.
     """
     kept: list[dict[str, Any]] = []
     used = 0
     for index, msg in enumerate(reversed(messages)):
         content = msg.get("content") or ""
-        if index >= KEEP_WHOLE and msg["sender_type"] == "assistant" and len(content) > OLD_REPLY_CHARS:
+        if trim and index >= KEEP_WHOLE and msg["sender_type"] == "assistant" and len(content) > OLD_REPLY_CHARS:
             content = content[:OLD_REPLY_CHARS] + "\n[...trimmed; the full reply is in the thread]"
         if not kept and len(content) > budget_chars:
             content = content[: max(budget_chars, 200)] + "\n[...cut to fit]"
@@ -421,6 +437,14 @@ def thread_view(thread_id: str, until: str | None, budget_chars: int) -> dict[st
     What the AI reads of one thread: the latest checkpoint, the messages after it that fit,
     and whether anything had to be left out (`overflow`), which means it's time to compact.
     """
+    # The real messages beat any summary of them: when the whole thread fits, read it all and
+    # leave the compact card aside. A card is only a stand-in for what no longer fits.
+    everything, raw_all = _fetch_page(thread_id, None, until, newest=True)
+    if raw_all < FETCH_PAGE:
+        kept, dropped = _fit(everything, budget_chars, trim=False)
+        if not dropped and kept == everything:
+            return {"checkpoint": None, "messages": kept, "overflow": False, "all": everything}
+
     checkpoint = _latest_checkpoint(thread_id, until)
     after = checkpoint["covers_through"] if checkpoint else None
     messages, raw = _fetch_page(thread_id, after, until, newest=True)
@@ -550,6 +574,12 @@ def compact_now(thread: dict[str, Any], user_id: str, focus: str | None, tz_offs
     if not resolved:
         raise NoApiKeyError("No API key found. Please add one in Settings → API Keys before compacting.")
     provider, model, api_key = resolved
+    # While the whole thread fits, Choir AI reads every message and would ignore a card, so a
+    # compact would only lose detail (it once summarised away an option the AI then denied).
+    if not thread_view(thread["id"], None, context_chars(provider) * 3 // 4)["overflow"]:
+        raise ValueError(
+            "Nothing worth compacting yet: Choir AI can still read this whole thread word for word."
+        )
     tail, _ = _fetch_page(thread["id"], newest=True, limit=MANUAL_COMPACT_KEEP + 1)
     if len(tail) <= MANUAL_COMPACT_KEEP:
         raise ValueError("There's nothing new to compact yet.")
@@ -578,7 +608,11 @@ def _team_decisions(project_id: str) -> list[dict[str, Any]]:
 def decisions_block(decisions: list[dict[str, Any]], names: dict[str, str], tz: timezone, budget_chars: int) -> str:
     """Newest Decisions first until the budget runs out; says how many didn't fit."""
     if not decisions:
-        return ""
+        # Said outright: with no section at all, the AI read "sounds good" as a decision.
+        return (
+            "TEAM DECISIONS: none pinned yet. Nothing in this project is a formal Decision until "
+            "someone pins it; agreement in chat, however clear, is not a pin."
+        )
     lines: list[str] = []
     used = 0
     for msg in reversed(decisions):
@@ -739,6 +773,7 @@ def _stream_text(
     system_stable: str,
     system_volatile: str,
     chat_messages: list[dict[str, str]],
+    search: bool = False,
 ) -> Generator[str, None, None]:
     """
     Yield text chunks from one provider call. `system_stable` is the part of the
@@ -762,13 +797,17 @@ def _stream_text(
         # Native server-side tool, no extra credentials or dependency: Anthropic runs the
         # search itself and streams grounded text back. max_uses caps searches per reply
         # so one message can't run away with an unbounded number of paid searches.
-        tools: list[dict[str, Any]] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]
+        # Attached only when the person's message asks for a search (asks_for_search): a rule in
+        # the prompt alone didn't stop the model searching on its own.
+        extra: dict[str, Any] = (
+            {"tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]} if search else {}
+        )
         with client.messages.stream(
             model=model,
             max_tokens=4096,
             system=system_blocks,
             messages=chat_messages,  # type: ignore[arg-type]
-            tools=tools,  # type: ignore[arg-type]
+            **extra,  # type: ignore[arg-type]
         ) as stream:
             yield from stream.text_stream
         return
@@ -899,7 +938,11 @@ def stream_ai_response(
     # Anthropic's web_search tool is wired in for both thread types (see _stream_text);
     # OpenAI/Gemini/Groq have no equivalent through the shared OpenAI-compatible path, so
     # they're told plainly that they can't check anything live.
-    search_rules = prompts.WEB_SEARCH if provider == "anthropic" else prompts.NO_WEB_SEARCH
+    wants_search = bool(trigger and asks_for_search(trigger.get("content") or ""))
+    if provider != "anthropic":
+        search_rules = prompts.NO_WEB_SEARCH
+    else:
+        search_rules = prompts.WEB_SEARCH if wants_search else prompts.SEARCH_ON_REQUEST
     team_context = (
         f"WHERE YOU ARE: {workspace_context}.\n"
         + _format_roster(roster, user_id)
@@ -1006,7 +1049,8 @@ def stream_ai_response(
     asked_at = f" (sent {when(until, tz)})" if until else ""
     system_volatile = (
         f"{today_line(tz)}\nYou are answering {user_name_ctx}'s latest message{asked_at}; "
-        f"it is the last message below. User role: {role_ctx}.\n" + reply_text
+        f"it is the last message below. Answer only that message; leave other people's earlier "
+        f"questions to their own replies unless it asks about them. User role: {role_ctx}.\n" + reply_text
     )
 
     # ── Stream from LLM ───────────────────────────────────────────────────────
@@ -1024,7 +1068,10 @@ def stream_ai_response(
     try:
         while True:
             try:
-                for text in _stream_text(provider, model, api_key, system_stable, system_volatile, chat_messages):
+                for text in _stream_text(
+                    provider, model, api_key, system_stable, system_volatile, chat_messages,
+                    search=provider == "anthropic" and wants_search,
+                ):
                     full_response += text
                     yield _sse({"text": text})
                 break
