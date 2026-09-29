@@ -239,6 +239,14 @@
   --ds-presence-away:    #8F5405;
   --ds-presence-dnd:     #C2362B;
   --ds-presence-offline: #686C78;
+  /* Code syntax colours (DESIGN.md §7, code blocks): each ≥ 4.5:1 on sunken. */
+  --ds-code-keyword:  #1F4E99;
+  --ds-code-function: #0B6B70;
+  --ds-code-type:     #9B3560;
+  --ds-code-string:   #3B6B14;
+  --ds-code-number:   #A3470A;
+  --ds-code-meta:     #A33A1C;
+  --ds-code-comment:  #616677;
   --ds-shadow-raised:   0 1px 2px rgb(16 17 35 / 0.06), 0 8px 24px -12px rgb(16 17 35 / 0.22);
   --ds-shadow-overlay:  0 2px 6px rgb(16 17 35 / 0.08), 0 32px 64px -20px rgb(16 17 35 / 0.4);
   --ds-duration-fast:   150ms;
@@ -313,6 +321,13 @@
   --ds-presence-away:    #E9A94B;
   --ds-presence-dnd:     #F07167;
   --ds-presence-offline: #8D919E;
+  --ds-code-keyword:  #7FA8E0;
+  --ds-code-function: #5CC6C6;
+  --ds-code-type:     #EE8FB4;
+  --ds-code-string:   #9CCB73;
+  --ds-code-number:   #F0A868;
+  --ds-code-meta:     #F2896B;
+  --ds-code-comment:  #8B90A3;
   --ds-shadow-raised:   0 1px 2px rgb(0 0 0 / 0.5), 0 8px 24px -12px rgb(0 0 0 / 0.6);
   --ds-shadow-overlay:  0 2px 6px rgb(0 0 0 / 0.5), 0 32px 64px -20px rgb(0 0 0 / 0.8);
 }
@@ -500,4 +515,16 @@ body {
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ─── Code syntax colours: highlight.js classes from rehype-highlight (MessageList CodeBlock) ─── */
+@layer components {
+  .code-colours .hljs-keyword, .code-colours .hljs-selector-tag, .code-colours .hljs-literal { color: var(--ds-code-keyword); font-weight: 500; }
+  .code-colours .hljs-title.function_, .code-colours .hljs-function .hljs-title, .code-colours .hljs-section, .code-colours .hljs-selector-id, .code-colours .hljs-selector-class { color: var(--ds-code-function); }
+  .code-colours .hljs-title.class_, .code-colours .hljs-type, .code-colours .hljs-built_in, .code-colours .hljs-name { color: var(--ds-code-type); }
+  .code-colours .hljs-string, .code-colours .hljs-regexp, .code-colours .hljs-template-tag, .code-colours .hljs-addition { color: var(--ds-code-string); }
+  .code-colours .hljs-number, .code-colours .hljs-symbol, .code-colours .hljs-bullet { color: var(--ds-code-number); }
+  .code-colours .hljs-meta, .code-colours .hljs-meta .hljs-keyword, .code-colours .hljs-deletion { color: var(--ds-code-meta); }
+  .code-colours .hljs-meta .hljs-string { color: var(--ds-code-string); }
+  .code-colours .hljs-comment, .code-colours .hljs-quote { color: var(--ds-code-comment); font-style: italic; }
 }

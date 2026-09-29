@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from backend import findings, handoff, llm, memory, prompts
-from tests.fakes import FakeClient
+from tests.fakes import FakeClient, anthropic_stream
 
 
 def at(i: int) -> str:
@@ -53,7 +53,7 @@ def chat(db, provider="anthropic"):
         @contextmanager
         def stream(self, **kwargs):
             seen.update(kwargs)
-            yield types.SimpleNamespace(text_stream=iter(("ok",)))
+            yield anthropic_stream(iter(("ok",)))
 
     class FakeCompletions:
         def create(self, **kwargs):

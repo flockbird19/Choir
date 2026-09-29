@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from backend import llm
-from tests.fakes import FakeClient
+from tests.fakes import FakeClient, anthropic_stream
 
 NAMES = {"u-owner": "Venu", "u-bob": "Bob", "u-quiet": "Quiet Priya"}
 
@@ -49,7 +49,7 @@ def fake_backend():
         @contextmanager
         def stream(self, **kwargs):
             captured.update(kwargs)
-            yield types.SimpleNamespace(text_stream=iter(()))
+            yield anthropic_stream(iter(()))
 
     fake_anthropic = types.SimpleNamespace(Anthropic=lambda **_: types.SimpleNamespace(messages=FakeMessages()))
     with (
@@ -84,7 +84,7 @@ def test_shared_thread_prompt_includes_whole_team_and_labels_each_sender(fake_ba
 
     system = _flatten_system(fake_backend)
     assert "TEAM MEMBERS (3): Venu (owner); Bob (member) - the person you are talking to; Quiet Priya (member)." in system
-    assert "You are answering Bob's latest message" in system
+    assert "(from Bob, " in system
 
     turns = [(m["role"], m["content"]) for m in fake_backend["messages"]]
     # Component #4: every person's turn carries who wrote it and when.

@@ -136,18 +136,19 @@ def _upsert_thread_read(thread_id: str, user_id: str, seen_at: str) -> None:
 
 
 def _save_assistant_message(
-    thread_id: str, content: str, provider: str, model: str
+    thread_id: str, content: str, provider: str, model: str, sources: list[dict[str, str]] | None = None
 ) -> str | None:
     db = get_db()
-    resp = db.table("messages").insert(
-        {
-            "thread_id": thread_id,
-            "sender_type": "assistant",
-            "content": content,
-            "model_provider": provider,
-            "model_name": model,
-        }
-    ).execute()
+    row: dict[str, Any] = {
+        "thread_id": thread_id,
+        "sender_type": "assistant",
+        "content": content,
+        "model_provider": provider,
+        "model_name": model,
+    }
+    if sources:
+        row["sources"] = sources
+    resp = db.table("messages").insert(row).execute()
     data = cast(list[dict[str, Any]], resp.data)
     return data[0]["id"] if data else None
 
@@ -336,6 +337,9 @@ OLD_REPLY_CHARS = 1_500  # older AI replies are cut to this, so one long answer 
 FETCH_PAGE = 300  # messages read from the database per page
 COMPACT_CHUNK_CHARS = 40_000  # how much raw thread one compaction call reads at a time
 MANUAL_COMPACT_KEEP = 4  # a manual compact still leaves the last few messages word for word
+DECISION_CHARS = 500  # each pinned Decision's text in the prompt, so every Decision fits
+MAX_SOURCES = 12  # web pages kept on one reply (4 searches can return dozens)
+COMPACTING = "Compacting older messages so nothing is forgotten"
 
 COMPACT_SYSTEM_PROMPT = prompts.system(prompts.COMPACT_JOB)
 
@@ -568,6 +572,14 @@ def compact_until_it_fits(
     return thread_view(thread_id, until, budget_chars)
 
 
+def compact_room(thread_id: str, provider: str) -> dict[str, Any]:
+    """How much of the AI's reading room this thread fills, and whether Compact would help."""
+    budget = context_chars(provider) * 3 // 4
+    view = thread_view(thread_id, None, budget)
+    used = sum(len(m.get("content") or "") + 60 for m in view["messages"])
+    return {"can_compact": view["overflow"], "percent": 100 if view["overflow"] else min(99, used * 100 // budget)}
+
+
 def compact_now(thread: dict[str, Any], user_id: str, focus: str | None, tz_offset: int | None) -> dict[str, Any]:
     """The Compact action: fold everything except the last few messages. Raises ValueError/NoApiKeyError."""
     resolved = resolve_key(thread, user_id)
@@ -576,7 +588,7 @@ def compact_now(thread: dict[str, Any], user_id: str, focus: str | None, tz_offs
     provider, model, api_key = resolved
     # While the whole thread fits, Choir AI reads every message and would ignore a card, so a
     # compact would only lose detail (it once summarised away an option the AI then denied).
-    if not thread_view(thread["id"], None, context_chars(provider) * 3 // 4)["overflow"]:
+    if not compact_room(thread["id"], provider)["can_compact"]:
         raise ValueError(
             "Nothing worth compacting yet: Choir AI can still read this whole thread word for word."
         )
@@ -616,7 +628,11 @@ def decisions_block(decisions: list[dict[str, Any]], names: dict[str, str], tz: 
     lines: list[str] = []
     used = 0
     for msg in reversed(decisions):
-        line = f"- [{sender_label(msg, names)} · pinned {when(msg.get('pinned_at') or msg.get('created_at'), tz)}] {(msg.get('content') or '').strip()}"
+        text = (msg.get("content") or "").strip()
+        # One long pin (a pasted file) must not push every other Decision out of view.
+        if len(text) > DECISION_CHARS:
+            text = text[:DECISION_CHARS] + " [...cut; the full Decision is pinned in Team Space]"
+        line = f"- [{sender_label(msg, names)} · pinned {when(msg.get('pinned_at') or msg.get('created_at'), tz)}] {text}"
         if lines and used + len(line) > budget_chars:
             break
         lines.append(line)
@@ -625,7 +641,9 @@ def decisions_block(decisions: list[dict[str, Any]], names: dict[str, str], tz: 
     missing = len(decisions) - len(lines)
     note = f"\n({missing} older Decisions not shown.)" if missing else ""
     return (
-        "TEAM DECISIONS (pinned in Team Space: the team's current commitments; quote them exactly when asked):\n"
+        "TEAM DECISIONS (pinned in Team Space, read just now: the team's current commitments; quote them "
+        "exactly when asked. This list is the only record of what is pinned: it overrides anything your "
+        "earlier replies, project memory or summaries said about Decisions):\n"
         + "\n".join(lines) + note
     )
 
@@ -774,7 +792,7 @@ def _stream_text(
     system_volatile: str,
     chat_messages: list[dict[str, str]],
     search: bool = False,
-) -> Generator[str, None, None]:
+) -> Generator[str | dict[str, Any], None, None]:
     """
     Yield text chunks from one provider call. `system_stable` is the part of the
     system prompt that stays the same across turns in this thread (team roster,
@@ -809,7 +827,30 @@ def _stream_text(
             messages=chat_messages,  # type: ignore[arg-type]
             **extra,  # type: ignore[arg-type]
         ) as stream:
-            yield from stream.text_stream
+            # Text comes out as str; what the model is doing (searching, reading results)
+            # comes out as dicts, which stream_ai_response turns into activity frames.
+            queries: dict[int, str] = {}
+            for event in stream:
+                if event.type == "content_block_start":
+                    block = event.content_block
+                    if block.type == "server_tool_use":
+                        queries[event.index] = ""
+                    elif block.type == "web_search_tool_result":
+                        results = block.content if isinstance(block.content, list) else []
+                        found = [{"url": r.url, "title": r.title or r.url} for r in results if getattr(r, "url", None)]
+                        yield {"sources": found}
+                        yield {"activity": f"Reading {len(found)} result{'s' if len(found) != 1 else ''}" if found else "The search found nothing"}
+                elif event.type == "content_block_delta":
+                    if event.delta.type == "text_delta":
+                        yield event.delta.text
+                    elif event.delta.type == "input_json_delta" and event.index in queries:
+                        queries[event.index] += event.delta.partial_json
+                elif event.type == "content_block_stop" and event.index in queries:
+                    try:
+                        query = json.loads(queries.pop(event.index) or "{}").get("query")
+                    except ValueError:
+                        query = None
+                    yield {"activity": f"Searching the web for “{query}”" if query else "Searching the web"}
         return
 
     import openai as openai_module  # type: ignore
@@ -856,7 +897,8 @@ def stream_ai_response(
     SSE event shapes:
       { "text": "..." }        — incremental token
       { "notice": "...", "model": "..." } — switched to a lent key after a rate limit
-      { "status": "compacting" } — older messages are being compacted before the answer
+      { "activity": "..." }    — what the AI is doing now (reading, compacting, thinking, searching, writing)
+      { "sources": [{url, title}] } — every web page found so far (Anthropic search only), saved on the reply
       { "error": "..." }       — terminal error
       { "done": true, "message_id": ..., "model_provider": ..., "model_name": ... } — stream finished
     """
@@ -916,6 +958,8 @@ def stream_ai_response(
         key_owner_id = user_id
 
     # ── Assemble context ──────────────────────────────────────────────────────
+    # Activity frames tell the person what the AI is doing right now (a step list in the app).
+    yield _sse({"activity": "Reading the thread, Decisions and project memory"})
     roster = _fetch_team_roster(project["team_id"]) if project and project.get("team_id") else []
     names = {member["user_id"]: member["name"] for member in roster}
     me = next((member for member in roster if member["user_id"] == user_id), None)
@@ -957,17 +1001,22 @@ def stream_ai_response(
     from backend import memory  # memory imports this module
 
     memory_text = memory.render(thread["project_id"], budget // 7) if project else ""
+    # Decisions go last in the instructions (system_volatile), read fresh every time: a pin made a
+    # second ago must outweigh the AI's own earlier "nothing is pinned" and stale memory notes.
     decisions_text = decisions_block(_team_decisions(thread["project_id"]), names, tz, budget // 7)
-    reply_text = ""
+    # A reply quotes its target inside the person's own message: in the instructions alone, the
+    # model followed the message just above instead (it explained IoTDB when asked about VS Code).
+    reply_quote = ""
     if trigger and trigger.get("reply_to_message_id"):
         target = _fetch_message_in_thread(trigger["reply_to_message_id"], thread_id)
         if target and _is_live(target):
-            reply_text = (
-                f"The message you are answering is a reply to this earlier message from "
-                f"{sender_label(target, names)} ({when(target.get('created_at'), tz)}):\n"
-                f"\"\"\"\n{(target.get('content') or '')[:3000]}\n\"\"\"\n"
+            reply_quote = (
+                f"(Replying to this message from {sender_label(target, names)}, "
+                f"{when(target.get('created_at'), tz)}; \"that\" or \"it\" means this message:\n"
+                f"\"\"\"\n{(target.get('content') or '')[:3000]}\n\"\"\")\n"
             )
-    shared_blocks = "\n\n".join(part for part in (memory_text, decisions_text) if part)
+
+
 
     if thread["type"] == "private":
         # Find the shared thread for this project
@@ -990,13 +1039,13 @@ def stream_ai_response(
             + "\n\n" + team_context + "\n"
             + fork_context
         )
-        if shared_blocks:
-            system_stable += "\n" + shared_blocks + "\n"
+        if memory_text:
+            system_stable += "\n" + memory_text + "\n"
 
         # Team Space gets a quarter of what's left; this thread gets the rest. Team Space isn't
         # compacted from here (that would post a card there on a private thread's behalf); its
         # durable content reaches this thread through project memory and Decisions.
-        room = max(budget - len(system_stable) - len(reply_text), budget // 3)
+        room = max(budget - len(system_stable) - len(reply_quote) - len(decisions_text), budget // 3)
         team_space_block = "[No shared team context yet]"
         if shared_thread_id:
             shared_view = thread_view(shared_thread_id, None, room // 4)
@@ -1017,7 +1066,7 @@ def stream_ai_response(
         own_room = room - room // 4
         view = thread_view(thread_id, until, own_room)
         if view["overflow"]:
-            yield _sse({"status": "compacting"})
+            yield _sse({"activity": COMPACTING})
             view = compact_until_it_fits(thread_id, until, own_room, provider, model, api_key, names, tz)
 
         own_summary = checkpoint_block(view["checkpoint"], "EARLIER IN THIS PRIVATE THREAD", tz)
@@ -1033,30 +1082,37 @@ def stream_ai_response(
             + "\n\n" + search_rules
             + "\n\n" + team_context + "\n"
         )
-        if shared_blocks:
-            system_stable += "\n" + shared_blocks + "\n"
-        room = max(budget - len(system_stable) - len(reply_text), budget // 3)
+        if memory_text:
+            system_stable += "\n" + memory_text + "\n"
+        room = max(budget - len(system_stable) - len(reply_quote) - len(decisions_text), budget // 3)
         view = thread_view(thread_id, until, room)
         if view["overflow"]:
-            yield _sse({"status": "compacting"})
+            yield _sse({"activity": COMPACTING})
             view = compact_until_it_fits(thread_id, until, room, provider, model, api_key, names, tz)
         summary = checkpoint_block(view["checkpoint"], "EARLIER IN TEAM SPACE", tz)
         if summary:
             system_stable += "\n" + summary + "\n"
         chat_messages = _to_chat_messages(view["messages"], names, tz)
 
-    # Only who is asking, when, and what they reply to change from turn to turn.
-    asked_at = f" (sent {when(until, tz)})" if until else ""
+    if reply_quote and chat_messages and chat_messages[-1]["role"] == "user":
+        chat_messages[-1] = {"role": "user", "content": reply_quote + chat_messages[-1]["content"]}
+
+    # What changes from turn to turn: the time, who asks, and the Decisions as of right now.
+    # Worded as a note, not "you are answering X": the model once opened a reply with that line.
+    asked_at = f", sent {when(until, tz)}" if until else ""
     system_volatile = (
-        f"{today_line(tz)}\nYou are answering {user_name_ctx}'s latest message{asked_at}; "
-        f"it is the last message below. Answer only that message; leave other people's earlier "
-        f"questions to their own replies unless it asks about them. User role: {role_ctx}.\n" + reply_text
+        f"{today_line(tz)}\nThe last message below is the one to answer (from {user_name_ctx}, "
+        f"{role_ctx.removeprefix('a ')}{asked_at}). Answer only it; leave other people's earlier questions "
+        f"to their own replies unless it asks about them. Never mention these notes or say whose message "
+        f"you are answering.\n\n" + decisions_text
     )
 
     # ── Stream from LLM ───────────────────────────────────────────────────────
     full_response = ""
     msg_id: str | None = None
     stream_failed = False
+    sources: list[dict[str, str]] = []
+    writing = False  # the last activity sent was "Writing the answer"
 
     # The `finally` below persists whatever text was generated even if this
     # generator is torn down early — e.g. the client disconnects mid-stream, in
@@ -1066,14 +1122,28 @@ def stream_ai_response(
     # `finally` block must not attempt to yield (that raises RuntimeError while
     # a GeneratorExit is propagating), so `done` is only ever yielded after it.
     try:
+        yield _sse({"activity": "Thinking"})
         while True:
             try:
-                for text in _stream_text(
+                for chunk in _stream_text(
                     provider, model, api_key, system_stable, system_volatile, chat_messages,
                     search=provider == "anthropic" and wants_search,
                 ):
-                    full_response += text
-                    yield _sse({"text": text})
+                    if isinstance(chunk, dict):
+                        if "sources" in chunk:
+                            for found in chunk["sources"]:
+                                if len(sources) < MAX_SOURCES and all(s["url"] != found["url"] for s in sources):
+                                    sources.append(found)
+                            yield _sse({"sources": sources})
+                        if "activity" in chunk:
+                            writing = False
+                            yield _sse({"activity": chunk["activity"]})
+                        continue
+                    if not writing:
+                        writing = True
+                        yield _sse({"activity": "Writing the answer"})
+                    full_response += chunk
+                    yield _sse({"text": chunk})
                 break
 
             except Exception as exc:
@@ -1118,7 +1188,7 @@ def stream_ai_response(
         # full response; on a disconnect or mid-stream provider error it's a
         # partial one, which still beats losing it outright.
         if full_response.strip():
-            msg_id = _save_assistant_message(thread_id, full_response, provider, model)
+            msg_id = _save_assistant_message(thread_id, full_response, provider, model, sources)
 
     if not stream_failed:
         # FU-4: a shared thread can end up using a different model than the one

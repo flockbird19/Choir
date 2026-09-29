@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Sparkles, KeyRound, Pin } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { markdownComponents } from "./MessageList";
+import { markdownComponents, markdownRehype } from "./MessageList";
 import { Button, Dialog } from "@/components/ui";
 import { stripMarkdownSyntax } from "@/utils/markdown-preview";
 import type { Message } from "@/types/database";
@@ -63,7 +63,7 @@ export function CatchMeUpModal({
       ) : (
         <>
           <div className="text-sm text-fg leading-relaxed">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={markdownRehype} components={markdownComponents}>
               {summary || ""}
             </ReactMarkdown>
           </div>

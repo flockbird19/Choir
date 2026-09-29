@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { TabPanel, Tabs } from "@/components/ui/Tabs";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { markdownComponents } from "@/components/chat/MessageList";
+import { markdownComponents, markdownRehype } from "@/components/chat/MessageList";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -223,7 +223,7 @@ export function usePublishFindings({
             <TabPanel idBase="publish-post" id="preview" selected={view === "preview"}>
               <div className="max-h-56 min-h-40 overflow-y-auto rounded-control border border-line bg-card px-4 py-3 text-sm leading-relaxed text-fg break-words">
                 {state.draft.trim() ? (
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={markdownRehype} components={markdownComponents}>
                     {state.draft}
                   </ReactMarkdown>
                 ) : (

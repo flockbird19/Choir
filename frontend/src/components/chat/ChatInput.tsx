@@ -6,7 +6,13 @@ import { Send, Cpu, Reply, X } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { sendMessage } from "@/app/(main)/thread/[id]/actions";
 import { previewLine } from "@/utils/markdown-preview";
+import { fenceCode, looksLikeCode } from "@/utils/plain-text";
 import { Menu, MenuLabel, MenuRadioItem } from "@/components/ui/Menu";
+
+export interface Source {
+  url: string;
+  title: string;
+}
 
 export interface ReplyTarget {
   id: string;
@@ -28,8 +34,10 @@ interface ChatInputProps {
   onStreamError?: (error: string) => void;
   /** e.g. "Using Ravi's key" when the reply switched to a lent key. */
   onStreamNotice?: (notice: string) => void;
-  /** Component #4: the backend is compacting older messages before it answers. */
-  onStreamStatus?: (status: "compacting") => void;
+  /** What the AI is doing right now ("Thinking", "Searching the web for …"), newest last. */
+  onStreamActivity?: (activity: string) => void;
+  /** Every web page the AI's search found so far in this reply. */
+  onStreamSources?: (sources: Source[]) => void;
   onMessageSent?: (id: string, content: string, replyToId?: string) => void;
   onMessageFailed?: (id: string) => void;
   disabled?: boolean;
@@ -88,7 +96,8 @@ export function ChatInput({
   onStreamEnd,
   onStreamError,
   onStreamNotice,
-  onStreamStatus,
+  onStreamActivity,
+  onStreamSources,
   onMessageSent,
   onMessageFailed,
   disabled,
@@ -136,14 +145,33 @@ export function ChatInput({
   // Replying to the AI is itself the ask — no need to also type @AI.
   const aiIndicated = hasAITrigger || replyingTo?.isAI === true;
 
-  // Auto-resize textarea up to 200px
+  // Auto-resize textarea up to 200px. Past one line the pill becomes a rounded box, so the
+  // curved ends never clip the text (DESIGN.md §7, composer).
+  const [multiline, setMultiline] = useState(false);
   useEffect(() => {
     const ta = textareaRef.current;
     if (ta) {
       ta.style.height = "auto";
       ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+      setMultiline(ta.scrollHeight > 48);
     }
   }, [content]);
+
+  // Pasted code arrives fenced, so it shows as code instead of run-together text.
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = e.clipboardData.getData("text/plain");
+    const ta = e.currentTarget;
+    const before = content.slice(0, ta.selectionStart);
+    const insideFence = (before.match(/```/g)?.length ?? 0) % 2 === 1;
+    if (!looksLikeCode(text) || insideFence) return;
+    e.preventDefault();
+    const fenced = (before && !before.endsWith("\n") ? "\n" : "") + fenceCode(text);
+    // insertText keeps Ctrl+Z working (one undo removes the fences and the paste).
+    // ponytail: execCommand is deprecated but still the only way to keep native undo.
+    if (!document.execCommand("insertText", false, fenced)) {
+      setContent(before + fenced + content.slice(ta.selectionEnd));
+    }
+  };
 
   // Abort any in-progress stream when component unmounts
   useEffect(() => {
@@ -239,8 +267,11 @@ export function ChatInput({
             // The backend switched to a teammate's lent key after a rate limit.
             onStreamNotice?.(String(event.notice));
           }
-          if (event.status === "compacting") {
-            onStreamStatus?.("compacting");
+          if (typeof event.activity === "string") {
+            onStreamActivity?.(event.activity);
+          }
+          if (Array.isArray(event.sources)) {
+            onStreamSources?.(event.sources as Source[]);
           }
           if (event.text) {
             onStreamChunk?.(event.text as string);
@@ -421,8 +452,8 @@ export function ChatInput({
 
         {/* Input container — the pill is the only "object" here; no outer panel around it */}
         <div
-          className={`relative flex items-center gap-2 bg-card border rounded-pill pl-4 pr-1.5 min-h-11
-            transition-all shadow-raised
+          className={`relative flex gap-2 bg-card border pl-4 pr-1.5 min-h-11 transition-all shadow-raised
+            ${multiline ? "items-end rounded-[20px] py-1.5" : "items-center rounded-pill"}
             ${
               aiIndicated
                 ? "border-team/50 ring-2 ring-team/15"
@@ -434,6 +465,7 @@ export function ChatInput({
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             aria-label="Message"
             placeholder={PLACEHOLDERS[aiMode]}
             className="focus-ring-in-container flex-1 max-h-[200px] bg-transparent resize-none outline-none py-2.5 text-fg placeholder:text-fg-subtle text-sm leading-normal"

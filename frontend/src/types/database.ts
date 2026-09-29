@@ -61,6 +61,8 @@ export interface Message {
   kind?: "message" | "checkpoint";
   covers_through?: string | null;
   covers_count?: number | null;
+  // Web pages an AI reply's search found, shown as its Sources. Written only by the backend.
+  sources?: { url: string; title: string }[] | null;
 }
 
 export interface TeamInvitation {

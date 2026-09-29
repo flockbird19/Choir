@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { MessageList } from "./MessageList";
-import { ChatInput, type ReplyTarget } from "./ChatInput";
+import { ChatInput, type ReplyTarget, type Source } from "./ChatInput";
 import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
@@ -404,6 +404,26 @@ export function ThreadView({
   const [compactFocus, setCompactFocus] = useState("");
   const [compacting, setCompacting] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
+  // null while checking; false when the check failed (the box hides, Compact stays usable).
+  const [compactRoom, setCompactRoom] = useState<{ can_compact: boolean; percent: number } | null | false>(null);
+
+  const openCompact = async () => {
+    setCompactRoom(null);
+    setCompactOpen(true);
+    try {
+      const token = await getSessionToken();
+      if (!token) throw new Error("signed out");
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+      const res = await fetch(`${BACKEND_URL}/api/compact/${thread.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(20000),
+      });
+      setCompactRoom(res.ok ? await res.json() : false);
+    } catch {
+      // The check is a nicety; Compact itself still says why it can't run.
+      setCompactRoom(false);
+    }
+  };
 
   const handleCompact = async () => {
     if (compacting) return;
@@ -720,15 +740,28 @@ export function ThreadView({
     if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
   }, []);
 
-  // Component #4: "compacting" while the backend folds older messages before answering.
-  const [streamStatus, setStreamStatus] = useState<string | null>(null);
+  // What the AI is doing, step by step ("Reading the thread", "Searching the web for …"),
+  // and the web pages it found; the sources stay on the saved reply.
+  const [streamSteps, setStreamSteps] = useState<string[]>([]);
+  const [streamSources, setStreamSources] = useState<Source[]>([]);
+  const streamSourcesRef = useRef<Source[]>([]);
+  const handleStreamActivity = useCallback((step: string) => setStreamSteps((prev) => [...prev, step]), []);
+  const handleStreamSources = useCallback((sources: Source[]) => {
+    streamSourcesRef.current = sources;
+    setStreamSources(sources);
+  }, []);
+  const resetStreamActivity = useCallback(() => {
+    setStreamSteps([]);
+    setStreamSources([]);
+    streamSourcesRef.current = [];
+  }, []);
 
   const handleStreamStart = useCallback(() => {
     setIsStreaming(true);
-    setStreamStatus(null);
+    resetStreamActivity();
     setStreamingContent(null);
     streamBuffer.current = "";
-  }, []);
+  }, [resetStreamActivity]);
 
   const handleStreamChunk = useCallback((text: string) => {
     streamBuffer.current += text;
@@ -745,8 +778,9 @@ export function ThreadView({
     if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
     streamFrame.current = null;
     setIsStreaming(false);
-    setStreamStatus(null);
     const currentContent = streamBuffer.current;
+    const sources = streamSourcesRef.current;
+    resetStreamActivity();
     setStreamingContent(null);
 
     // Optimistically commit the stream content as a real message
@@ -762,6 +796,7 @@ export function ThreadView({
             content: currentContent,
             model_provider: modelProvider,
             model_name: modelName,
+            sources: sources.length ? sources : null,
             created_at: new Date().toISOString(),
           } as Message,
         ];
@@ -771,14 +806,14 @@ export function ThreadView({
       // Next's router cache catch up in the background — fire-and-forget.
       router.refresh();
     }
-  }, [thread.id, router]);
+  }, [thread.id, router, resetStreamActivity]);
 
   const missingKeyToastShown = useRef(false);
   const handleStreamError = useCallback((error: string) => {
     if (streamFrame.current) cancelAnimationFrame(streamFrame.current);
     streamFrame.current = null;
     setIsStreaming(false);
-    setStreamStatus(null);
+    resetStreamActivity();
     setStreamingContent(null);
     if (isPrivate && isMissingKeyError(error)) {
       // "AI waits": the person explicitly asked, so say it every time, with advice that fits.
@@ -793,7 +828,7 @@ export function ThreadView({
       return;
     }
     toastError(error);
-  }, [isPrivate, autoReply, toastError]);
+  }, [isPrivate, autoReply, toastError, resetStreamActivity]);
 
   return (
     <div className="flex-1 flex w-full h-full relative overflow-hidden">
@@ -928,7 +963,7 @@ export function ThreadView({
               label="Compact this thread"
               icon={<Layers size={15} />}
               variant="secondary"
-              onClick={() => setCompactOpen(true)}
+              onClick={openCompact}
             />
 
             {/* Catch Me Up — only on the shared thread itself */}
@@ -1048,7 +1083,8 @@ export function ThreadView({
         <MessageList
           messages={shownMessages}
           onUndoCheckpoint={handleUndoCheckpoint}
-          streamStatus={streamStatus}
+          streamSteps={streamSteps}
+          streamSources={streamSources}
           currentUserId={currentUserId}
           memberNames={threadNames.names}
           namesLoaded={threadNames.loaded}
@@ -1116,7 +1152,8 @@ export function ThreadView({
             onStreamEnd={handleStreamEnd}
             onStreamError={handleStreamError}
             onStreamNotice={toastWarning}
-            onStreamStatus={setStreamStatus}
+            onStreamActivity={handleStreamActivity}
+            onStreamSources={handleStreamSources}
             aiMode={isPrivate ? (autoReply ? "auto" : "waits") : "mention"}
             onAIModeChange={isPrivate ? handleAIModeChange : undefined}
             savingAIMode={savingAutoReply}
@@ -1191,12 +1228,50 @@ export function ThreadView({
             <Button variant="ghost" onClick={() => setCompactOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" onClick={handleCompact} loading={compacting} leadingIcon={<Layers size={15} aria-hidden="true" />}>
+            <Button
+              variant="primary"
+              onClick={handleCompact}
+              loading={compacting}
+              disabled={!!compactRoom && !compactRoom.can_compact}
+              leadingIcon={<Layers size={15} aria-hidden="true" />}
+            >
               Compact
             </Button>
           </>
         }
       >
+        {/* Compact only helps once the thread overflows; until then, say how full it is. */}
+        {compactRoom !== false && (
+        <div className="mb-4 rounded-card border border-line bg-sunken px-4 py-3" aria-live="polite">
+          {compactRoom ? (
+            <>
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-body-sm font-semibold text-fg">
+                  {compactRoom.can_compact ? "Too long to read in full" : "Nothing to compact yet"}
+                </p>
+                <p className="font-mono text-[12px] text-fg-muted">{compactRoom.percent}% of AI reading room</p>
+              </div>
+              <div
+                role="meter"
+                aria-label="How much of Choir AI's reading room this thread fills"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={compactRoom.percent}
+                className="mt-2 h-1.5 overflow-hidden rounded-pill bg-line"
+              >
+                <div className="h-full rounded-pill bg-team" style={{ width: `${compactRoom.percent}%` }} />
+              </div>
+              <p className="mt-2 text-caption text-fg-subtle">
+                {compactRoom.can_compact
+                  ? "Choir AI can't read every message any more, so compacting keeps the older ones in view."
+                  : "Choir AI still reads every message in this thread word for word, so compacting now would only lose detail. It compacts automatically once the thread is too long."}
+              </p>
+            </>
+          ) : (
+            <p className="text-caption text-fg-subtle">Checking how much of this thread Choir AI can read…</p>
+          )}
+        </div>
+        )}
         <Textarea
           label="Keep in full detail (optional)"
           hint="Anything the summary must not lose, like a wiring plan or an exact number."

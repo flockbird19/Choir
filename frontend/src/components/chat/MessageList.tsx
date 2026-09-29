@@ -3,9 +3,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo, useState, isValidElement, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, Bot, ArrowUpRight, Copy, Check, ChevronDown, Layers, Loader2, Pin, PinOff, MessageSquareLock, Reply, Undo2 } from "lucide-react";
+import { keepLineBreaks } from "@/utils/plain-text";
 import { buttonClasses } from "@/components/ui/Button";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { type Components, type Options as MarkdownOptions } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import { common } from "lowlight";
+import dockerfile from "highlight.js/lib/languages/dockerfile";
+import powershell from "highlight.js/lib/languages/powershell";
+import verilog from "highlight.js/lib/languages/verilog";
+import vhdl from "highlight.js/lib/languages/vhdl";
+
 import { getInitials, publishedLabel } from "@/utils/display-name";
 import { previewLine } from "@/utils/markdown-preview";
 import { whoHasSeen } from "@/hooks/useSeenBy";
@@ -30,6 +38,79 @@ interface Message {
   kind?: "message" | "checkpoint";
   covers_through?: string | null;
   covers_count?: number | null;
+  sources?: Source[] | null;
+}
+
+interface Source {
+  url: string;
+  title: string;
+}
+
+const EMPTY_STEPS: string[] = [];
+const EMPTY_SOURCES: Source[] = [];
+
+// People's own messages: no indented code blocks (a pasted, indented line is not code the
+// person meant to fence) and every line break kept (utils/plain-text keepLineBreaks).
+function noIndentedCode(this: { data: (key: string) => unknown }) {
+  const extensions = (this.data("micromarkExtensions") as unknown[] | undefined) ?? [];
+  extensions.push({ disable: { null: ["codeIndented"] } });
+  (this as unknown as { data: (key: string, value: unknown) => void }).data("micromarkExtensions", extensions);
+}
+const PERSON_REMARK = [remarkGfm, noIndentedCode];
+const AI_REMARK = [remarkGfm];
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+// The web pages an AI reply searched, as small links under it (DESIGN.md §7, AI message).
+function SourcesRow({ sources }: { sources: Source[] }) {
+  return (
+    <div className="mt-1.5 mx-1 flex max-w-full flex-wrap items-center gap-1.5">
+      <span className="font-mono text-[11px] uppercase tracking-wide text-fg-subtle">Sources</span>
+      {sources.map((s) => (
+        <a
+          key={s.url}
+          href={s.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-tooltip={s.title}
+          className="inline-flex max-w-[16rem] items-center gap-1 rounded-pill border border-line bg-card px-2.5 py-0.5 font-mono text-[12px] text-fg-muted transition-colors hover:border-team-line hover:text-team"
+        >
+          <span className="truncate">{hostOf(s.url)}</span>
+          <ArrowUpRight size={11} aria-hidden="true" className="shrink-0" />
+          <span className="sr-only">{s.title} (opens in a new tab)</span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+// What the AI is doing while it answers, Claude Code style: done steps ticked, the current one
+// spinning. Screen readers hear the current step (role="status").
+function ActivitySteps({ steps }: { steps: string[] }) {
+  if (!steps.length) return null;
+  return (
+    <ol className="flex flex-col gap-1 text-caption">
+      {steps.map((step, i) => {
+        const current = i === steps.length - 1;
+        return (
+          <li key={i} className={`flex items-center gap-2 ${current ? "text-fg-muted" : "text-fg-subtle"}`}>
+            {current ? (
+              <Loader2 size={12} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />
+            ) : (
+              <Check size={12} aria-hidden="true" className="shrink-0" />
+            )}
+            <span role={current ? "status" : undefined}>{current ? `${step}…` : step}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
 }
 
 // Component #4: a compact checkpoint, shown where it happened. Choir AI reads its summary
@@ -85,7 +166,7 @@ function CheckpointCard({
         </div>
         {open && (
           <div id={`checkpoint-${msg.id}`} className="mt-3 min-w-0 break-words border-t border-line pt-3 text-sm leading-relaxed text-fg">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={markdownRehype} components={markdownComponents}>
               {msg.content}
             </ReactMarkdown>
           </div>
@@ -163,8 +244,10 @@ interface MessageListProps {
   onJumpToMessage?: (id: string) => void;
   /** Component #4: undo a compact checkpoint card (omit where undo isn't offered). */
   onUndoCheckpoint?: (msg: Message) => void;
-  /** Component #4: "compacting" while the backend compacts before answering. */
-  streamStatus?: string | null;
+  /** What the AI has done so far in the reply being written, newest (current) last. */
+  streamSteps?: string[];
+  /** Web pages the AI's search found so far in the reply being written. */
+  streamSources?: Source[];
   /** Team Space only: withdraw your own post published from a private thread. */
   onWithdraw?: (msg: Message) => void;
 }
@@ -184,10 +267,39 @@ function extractText(node: ReactNode): string {
   return "";
 }
 
+// Syntax colours for code blocks: highlight.js's ~37 common languages plus a few this team
+// uses. Blocks without a language tag (pasted code) are detected automatically; anything
+// unrecognised stays plain. Colours are the --color-code-* tokens (DESIGN.md §7, code blocks).
+export const markdownRehype: MarkdownOptions["rehypePlugins"] = [
+  [rehypeHighlight, { languages: { ...common, dockerfile, powershell, verilog, vhdl }, detect: true, plainText: ["text", "txt", "plain"] }],
+];
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  arduino: "Arduino", bash: "Bash", c: "C", cpp: "C++", csharp: "C#", css: "CSS", diff: "Diff", dockerfile: "Dockerfile",
+  go: "Go", graphql: "GraphQL", ini: "INI", java: "Java", javascript: "JavaScript", json: "JSON", kotlin: "Kotlin",
+  less: "Less", lua: "Lua", makefile: "Makefile", markdown: "Markdown", objectivec: "Objective-C", perl: "Perl",
+  php: "PHP", powershell: "PowerShell", python: "Python", "python-repl": "Python", r: "R", ruby: "Ruby", rust: "Rust",
+  scss: "SCSS", shell: "Shell", sql: "SQL", swift: "Swift", typescript: "TypeScript", vbnet: "VB.NET",
+  verilog: "Verilog", vhdl: "VHDL", wasm: "WebAssembly", xml: "HTML / XML", yaml: "YAML",
+  // Short names people and models write after ```
+  js: "JavaScript", jsx: "JavaScript", ts: "TypeScript", tsx: "TypeScript", py: "Python", sh: "Shell", zsh: "Shell",
+  html: "HTML", yml: "YAML", ino: "Arduino", "c++": "C++", cs: "C#", rs: "Rust", kt: "Kotlin", rb: "Ruby",
+  ps1: "PowerShell", docker: "Dockerfile", sv: "Verilog", md: "Markdown", golang: "Go",
+};
+
+function languageOf(children: ReactNode): string | null {
+  const code = Array.isArray(children) ? children[0] : children;
+  if (!isValidElement<{ className?: string }>(code)) return null;
+  const lang = /language-([\w-]+)/.exec(code.props.className ?? "")?.[1];
+  if (!lang || ["text", "txt", "plain", "plaintext"].includes(lang)) return null;
+  return LANGUAGE_NAMES[lang] ?? lang;
+}
+
 // Fix: destructure `node` explicitly so it is NOT forwarded to DOM elements
-const CodeBlock: Components["pre"] = ({ children, ...props }) => {
+const CodeBlock: Components["pre"] = ({ children, node: _node, ...props }) => {
   const [copied, setCopied] = useState(false);
   const textContent = extractText(children);
+  const language = languageOf(children);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(textContent);
@@ -196,16 +308,22 @@ const CodeBlock: Components["pre"] = ({ children, ...props }) => {
   };
 
   return (
-    <div className="relative group my-3">
-      <button
-        onClick={handleCopy}
-        className="absolute top-2 right-2 p-1.5 rounded-md bg-hover border border-line text-fg-subtle opacity-0 group-hover:opacity-100 hover:text-fg transition-all z-10"
-        data-tooltip={copied ? "Copied" : "Copy code"}
-        aria-label={copied ? "Copied" : "Copy code"}
-      >
-        {copied ? <Check size={14} className="text-private" /> : <Copy size={14} />}
-      </button>
-      <pre className="bg-sunken border border-line rounded-bubble p-3 overflow-x-auto text-xs font-mono w-full m-0" {...props}>
+    <div className="my-3 w-full overflow-hidden rounded-control border border-line bg-sunken">
+      <div className="flex items-center justify-between gap-2 border-b border-line py-1 pl-3 pr-1.5">
+        <span className="font-mono text-[11px] uppercase tracking-wide text-fg-subtle">{language ?? "Code"}</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="inline-flex min-h-6 items-center gap-1 rounded-pill px-2 text-[12px] font-medium text-fg-muted transition-colors hover:bg-hover hover:text-fg pointer-coarse:min-h-11"
+          aria-label={copied ? "Copied" : "Copy code"}
+        >
+          {copied ? <Check size={12} aria-hidden="true" className="text-private" /> : <Copy size={12} aria-hidden="true" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      {/* A fence without a language gets no `language-*` class, so `code` below styles it as
+          inline code; inside a block that pill look is undone here. */}
+      <pre className="code-colours m-0 w-full overflow-x-auto p-3 font-mono text-xs leading-relaxed [&>code]:border-0 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-fg" {...props}>
         {children}
       </pre>
     </div>
@@ -403,10 +521,11 @@ const MessageItem = memo(function MessageItem({
                 <p className="text-xs text-fg-subtle truncate">{replyPreview?.content || "Tap to view"}</p>
               </button>
             )}
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-              {msg.content}
+            <ReactMarkdown remarkPlugins={isAI ? AI_REMARK : PERSON_REMARK} rehypePlugins={markdownRehype} components={markdownComponents}>
+              {isAI ? msg.content : keepLineBreaks(msg.content)}
             </ReactMarkdown>
           </div>
+          {isAI && msg.sources && msg.sources.length > 0 && <SourcesRow sources={msg.sources} />}
 
           <div className="flex items-center gap-2 mt-1 mx-1">
             {isPinned && (
@@ -514,7 +633,8 @@ export function MessageList({
   onJumpToMessage,
   onWithdraw,
   onUndoCheckpoint,
-  streamStatus,
+  streamSteps = EMPTY_STEPS,
+  streamSources = EMPTY_SOURCES,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasNearBottom = useRef(true);
@@ -732,27 +852,27 @@ export function MessageList({
                 : "bg-card border border-line"
             }`}>
               {showTypingBubble ? (
-                <span className="flex gap-2 items-center min-h-4">
-                  <span className="flex gap-1 items-center">
+                streamSteps.length > 0 ? (
+                  <ActivitySteps steps={streamSteps} />
+                ) : (
+                  <span className="flex gap-1 items-center min-h-4">
                     <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce motion-reduce:animate-none [animation-delay:0ms]" />
                     <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce motion-reduce:animate-none [animation-delay:150ms]" />
                     <span className="w-1.5 h-1.5 rounded-full bg-fg-subtle animate-bounce motion-reduce:animate-none [animation-delay:300ms]" />
                   </span>
-                  {streamStatus === "compacting" && (
-                    <span role="status" className="text-caption text-fg-muted">
-                      Compacting earlier messages so nothing is forgotten…
-                    </span>
-                  )}
-                </span>
+                )
               ) : (
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                <ReactMarkdown remarkPlugins={AI_REMARK} rehypePlugins={markdownRehype} components={markdownComponents}>
                   {streamingContent || ""}
                 </ReactMarkdown>
               )}
             </div>
+            {showStreamingBubble && streamSources.length > 0 && <SourcesRow sources={streamSources} />}
             {showStreamingBubble && (
-              <span className="text-[10px] text-fg-subtle mt-1 mx-1 animate-pulse">
-                AI is typing…
+              // Once text flows, the step list folds into this one line: what it's doing now.
+              <span role="status" className="text-caption text-fg-subtle mt-1 mx-1 flex items-center gap-1.5">
+                <Loader2 size={11} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
+                {streamSteps.at(-1) ?? "Writing the answer"}…
               </span>
             )}
           </div>

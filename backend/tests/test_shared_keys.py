@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from backend import llm, shared_keys
-from tests.fakes import FakeClient
+from tests.fakes import FakeClient, anthropic_stream
 
 NAMES = {"u-owner": "Venu", "u-ravi": "Ravi", "u-meera": "Meera", "u-gone": "Gone"}
 
@@ -99,7 +99,7 @@ def run(db, thread_id="shared", user_id="u-ravi", limited=(), limited_after_text
         @contextmanager
         def stream(self, **kwargs):
             tried.append((self.api_key, kwargs["model"]))
-            yield types.SimpleNamespace(text_stream=text_for(self.api_key))
+            yield anthropic_stream(text_for(self.api_key))
 
     class FakeCompletions:
         def __init__(self, api_key):
@@ -124,7 +124,7 @@ def run(db, thread_id="shared", user_id="u-ravi", limited=(), limited_after_text
     with (
         patch.object(llm, "get_db", return_value=db),
         patch.object(llm, "get_api_key", side_effect=fake_get_api_key),
-        patch.object(llm, "_save_assistant_message", side_effect=lambda *args: (saved if saved is not None else []).append(args) or "msg-1"),
+        patch.object(llm, "_save_assistant_message", side_effect=lambda *args: (saved if saved is not None else []).append(args[:4]) or "msg-1"),
         patch.dict(sys.modules, {"anthropic": fake_anthropic, "openai": fake_openai}),
     ):
         frames = [json.loads(f.removeprefix("data: ")) for f in llm.stream_ai_response(thread_id, user_id, "anthropic", "claude-opus-5", None)]
@@ -270,7 +270,7 @@ def test_no_retry_after_text_has_streamed():
     tried, frames, _ = run(db, limited_after_text={"sk-owner"})
     assert [key for key, _ in tried] == ["sk-owner"]
     assert notices(frames) == []
-    assert frames[0] == {"text": "Hello"}
+    assert [f for f in frames if "text" in f][0] == {"text": "Hello"}
     assert "Rate limit reached" in frames[-1]["error"]
     # The owner still hears about it.
     assert len(db._tables["notifications"]) == 1

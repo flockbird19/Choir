@@ -28,6 +28,7 @@ from backend import memory
 from backend.llm import (
     NoApiKeyError,
     compact_now,
+    compact_room,
     generate_digest,
     resolve_key,
     sender_label,
@@ -340,6 +341,16 @@ def get_export_prompt(thread_id: str, user_id: str = Depends(get_current_user)):
 class CompactRequest(BaseModel):
     focus: str | None = None
     tz_offset: int | None = None
+
+
+@app.get("/api/compact/{thread_id}")
+def compact_status(thread_id: str, user_id: str = Depends(get_current_user)):
+    """How full the AI's reading room is for this thread, so Compact can say why it's not needed yet."""
+    thread = get_accessible_thread(user_id, thread_id)
+    if not thread:
+        raise HTTPException(status_code=403, detail="You do not have access to this thread.")
+    resolved = resolve_key(thread, user_id)
+    return compact_room(thread_id, resolved[0] if resolved else "anthropic")
 
 
 @app.post("/api/compact/{thread_id}", status_code=201)

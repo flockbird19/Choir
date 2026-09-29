@@ -22,6 +22,7 @@
 -- Pending re-run (2026-09-29, context & memory): messages.kind/covers_through/covers_count
 -- (compact checkpoints), the project_memory table + is_project_member(), withdraw also undoing
 -- checkpoints and memory items, checkpoints never pinnable.
+-- Pending re-run (2026-09-30, AI activity): messages.sources (web pages an AI reply used).
 -- ============================================================================
 
 begin;
@@ -223,6 +224,10 @@ alter table public.messages add column if not exists kind text not null default 
   check (kind in ('message', 'checkpoint'));
 alter table public.messages add column if not exists covers_through timestamptz;
 alter table public.messages add column if not exists covers_count integer;
+
+-- Web pages an AI reply searched ([{url, title}]), shown as its Sources. Written only by the
+-- backend: it is not in the insert or update grants below, so people can't set it.
+alter table public.messages add column if not exists sources jsonb;
 
 -- L5: invite links expire after 7 days and can be revoked.
 -- (Existing links get 7 days from the first run of this line.)

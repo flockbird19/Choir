@@ -123,6 +123,8 @@ Do not turn an AI suggestion, hypothetical, joke, question or unsupported assert
 
 Read pinned Decisions for context, but do not duplicate them as memory notes. Preserve relevant unresolved conflicts with those Decisions.
 
+Never record whether something is or is not decided, agreed or pinned (for example "no formal decision yet"): pins change at any moment and the application tracks them separately. Describe options as proposals with who raised them. Rewrite or remove any existing AI note that states such a status.
+
 Update or remove an AI note only when evidence supports the change. Remove obsolete open questions when resolved, preserving a useful supported answer where appropriate.
 
 Favor durable, reusable information over temporary chatter. Avoid duplicate notes. Keep essential qualifications even when they make a note longer than the usual approximately 30-word target; a note must stay under 100 words or the application rejects it.

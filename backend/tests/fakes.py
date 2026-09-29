@@ -139,3 +139,13 @@ class FakeClient:
 
     def table(self, name: str) -> FakeQuery:
         return FakeQuery(self._tables.setdefault(name, []), self._errors.get(name))
+
+
+def anthropic_stream(texts, extra_events=()):
+    """What `client.messages.stream()` yields when iterated: events, here text deltas only
+    (plus any `extra_events`, e.g. a search), in the shape llm._stream_text reads."""
+    from types import SimpleNamespace as NS
+
+    yield from extra_events
+    for text in texts:
+        yield NS(type="content_block_delta", index=0, delta=NS(type="text_delta", text=text))

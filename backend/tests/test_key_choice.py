@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 from backend import llm
-from tests.fakes import FakeClient
+from tests.fakes import FakeClient, anthropic_stream
 
 DB = FakeClient(
     teams=[{"id": "team-1", "name": "hackathon"}],
@@ -45,7 +45,7 @@ def _run(thread_id: str, user_id: str, keys: dict[tuple[str, str], str]):
         @contextmanager
         def stream(self, **kwargs):
             used["model"] = kwargs["model"]
-            yield types.SimpleNamespace(text_stream=iter(()))
+            yield anthropic_stream(iter(()))
 
     def fake_client(**kwargs):
         used["api_key"] = kwargs["api_key"]
