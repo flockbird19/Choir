@@ -206,17 +206,22 @@ def test_replying_to_the_image_opens_only_the_image(captured):  # noqa: F811
     assert "being replied to" in captured["messages"][-1]["content"][0]["text"]
 
 
-def test_without_files_or_a_reply_only_the_latest_files_are_opened(captured):  # noqa: F811
+def test_without_files_or_a_reply_every_recent_file_is_opened_newest_first(captured):  # noqa: F811
+    # Live failure: a PDF, then a screenshot, then "who's building it according to the pdf?"
+    # opened only the screenshot, so the AI never saw the PDF.
     calls: list[str] = []
     db = world([
-        msg(1, sender="u-a", text="", attachments=[PDF]),
-        msg(2, sender="u-b", text="", attachments=[PNG]),
-        msg(3, sender="u-a", text="what is this?"),
+        msg(1, sender="u-a", text="what do you think of the abstract?", attachments=[PDF]),
+        msg(2, sender="u-b", text="what do you see?", attachments=[PNG]),
+        msg(3, sender="u-a", text="who's building it according to the pdf?"),
     ])
     with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download", fake_storage(calls)):
         list(llm.stream_ai_response("t", "u-a", message_id="m3", tz_offset=0))
-    assert calls == [PNG["path"]]
-    assert captured["messages"][-1]["content"][0]["text"].startswith("[File: shot.png, attached earlier by Arjun")
+    assert calls == [PNG["path"], PDF["path"]]
+    last = captured["messages"][-1]["content"]
+    assert [block["type"] for block in last] == ["text", "image", "text", "document", "text"]
+    assert last[0]["text"].startswith("[File: shot.png, attached earlier by Arjun")
+    assert last[2]["text"].startswith("[File: poster.pdf, attached earlier by Priya")
 
 
 def test_no_files_means_a_plain_text_turn(captured):  # noqa: F811

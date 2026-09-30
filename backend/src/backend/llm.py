@@ -1046,10 +1046,13 @@ def stream_ai_response(
     elif has_files(target):
         asked.append((target, f"attached to the message being replied to ({earlier(target)})"))  # type: ignore[arg-type]
     elif trigger:
+        # No file of its own and not a reply: every file from the latest messages, newest first,
+        # each labelled, so "who's building it according to the pdf?" finds the PDF even after a
+        # screenshot was shared since (live failure: only the newest file was opened).
         recent, _ = _fetch_page(thread_id, None, until, newest=True, limit=files.RECENT_FILE_MESSAGES)
-        latest = next((m for m in reversed(recent) if m.get("id") != trigger.get("id") and has_files(m)), None)
-        if latest:
-            asked.append((latest, f"{earlier(latest)}; the latest file shared here"))
+        for m in reversed(recent):
+            if m.get("id") != trigger.get("id") and has_files(m):
+                asked.append((m, earlier(m)))
     if asked:
         yield _sse({"activity": "Opening the attached files"})
     ai_media, file_text = files.read_for_ai(

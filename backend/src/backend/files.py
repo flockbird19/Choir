@@ -38,8 +38,8 @@ MEDIA_BYTES = 20 * 1024 * 1024
 # Word and PowerPoint files are zips: at most this many parts, and this much unpacked XML.
 OFFICE_PARTS = 500
 OFFICE_UNPACKED_BYTES = 40 * 1024 * 1024
-# How far back the AI looks for "the latest shared file" when a question has none of its own.
-RECENT_FILE_MESSAGES = 10
+# How far back the AI looks for shared files when a question has none of its own (and isn't a reply).
+RECENT_FILE_MESSAGES = 20
 # Text files are read in full up to this size, and all of them together up to TEXT_TOTAL chars.
 TEXT_BYTES = 50 * 1024
 TEXT_TOTAL = 60_000
