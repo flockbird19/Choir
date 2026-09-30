@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Generator, cast
 
-from backend import prompts, shared_keys
+from backend import files, prompts, shared_keys
 from backend.db import get_db
 from backend.keys import get_api_key
 from backend.shared_keys import KeyCandidate
@@ -96,8 +96,9 @@ def _visible(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Drop withdrawn publications (their text is gone and never reaches an AI prompt) and
     compact checkpoint cards (read separately as the thread's summary, never as a message).
+    Attached files become a note line in the text, so every AI reader knows they're there.
     """
-    return [m for m in messages if _is_live(m)]
+    return [files.with_notes(m) for m in messages if _is_live(m)]
 
 
 def _fetch_message_in_thread(message_id: str, thread_id: str) -> dict[str, Any] | None:
@@ -389,7 +390,7 @@ def _fetch_page(
     rows = cast(list[dict[str, Any]], query.order("created_at", desc=newest).limit(limit).execute().data)
     if newest:
         rows = list(reversed(rows))
-    return [m for m in rows if _is_live(m)], len(rows)
+    return _visible(rows), len(rows)
 
 
 def _latest_checkpoint(thread_id: str, until: str | None = None) -> dict[str, Any] | None:
@@ -614,7 +615,7 @@ def _team_decisions(project_id: str) -> list[dict[str, Any]]:
     rows = cast(list[dict[str, Any]], (
         db.table("messages").select("*").eq("thread_id", shared[0]["id"]).eq("is_decision", True).order("pinned_at").execute()
     ).data)
-    return [m for m in rows if _is_live(m)]
+    return _visible(rows)
 
 
 def decisions_block(decisions: list[dict[str, Any]], names: dict[str, str], tz: timezone, budget_chars: int) -> str:
@@ -792,12 +793,14 @@ def _stream_text(
     system_volatile: str,
     chat_messages: list[dict[str, str]],
     search: bool = False,
+    media: list[dict[str, Any]] | None = None,
 ) -> Generator[str | dict[str, Any], None, None]:
     """
     Yield text chunks from one provider call. `system_stable` is the part of the
     system prompt that stays the same across turns in this thread (team roster,
     role/style instructions); `system_volatile` is what changes every turn (who's
-    talking, the trimmed recent context).
+    talking, the trimmed recent context). `media` (Anthropic image and document blocks)
+    goes with the last message, the one being answered.
     """
     if provider == "anthropic":
         import anthropic  # type: ignore
@@ -820,11 +823,14 @@ def _stream_text(
         extra: dict[str, Any] = (
             {"tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]} if search else {}
         )
+        messages: list[dict[str, Any]] = list(chat_messages)
+        if media and messages and messages[-1]["role"] == "user":
+            messages[-1] = {"role": "user", "content": [*media, {"type": "text", "text": messages[-1]["content"]}]}
         with client.messages.stream(
             model=model,
             max_tokens=4096,
             system=system_blocks,
-            messages=chat_messages,  # type: ignore[arg-type]
+            messages=messages,  # type: ignore[arg-type]
             **extra,  # type: ignore[arg-type]
         ) as stream:
             # Text comes out as str; what the model is doing (searching, reading results)
@@ -1007,15 +1013,49 @@ def stream_ai_response(
     # A reply quotes its target inside the person's own message: in the instructions alone, the
     # model followed the message just above instead (it explained IoTDB when asked about VS Code).
     reply_quote = ""
+    target: dict[str, Any] | None = None
     if trigger and trigger.get("reply_to_message_id"):
         target = _fetch_message_in_thread(trigger["reply_to_message_id"], thread_id)
         if target and _is_live(target):
             reply_quote = (
                 f"(Replying to this message from {sender_label(target, names)}, "
                 f"{when(target.get('created_at'), tz)}; \"that\" or \"it\" means this message:\n"
-                f"\"\"\"\n{(target.get('content') or '')[:3000]}\n\"\"\")\n"
+                f"\"\"\"\n{(files.with_notes(target).get('content') or '')[:3000]}\n\"\"\")\n"
             )
+        else:
+            target = None
 
+    # The files the question is about, and only those (live failure: with a PDF and a later image
+    # both handed over unlabelled, "what do you see?" about the image got an answer about both):
+    # the asking message's own files and the replied-to message's; else the replied-to message's;
+    # else the latest earlier message with files ("what do you think of this poster?" after the
+    # upload). Every file is labelled with where it came from. Anthropic sees images and PDFs
+    # themselves; every provider reads text, Word and PowerPoint files. Other files in the thread
+    # stay as their note line.
+    def has_files(m: dict[str, Any] | None) -> bool:
+        return bool(m and m.get("sender_type") == "user" and files.attachments_of(m))
+
+    def earlier(m: dict[str, Any]) -> str:
+        return f"attached earlier by {sender_label(m, names)}, {when(m.get('created_at'), tz)}"
+
+    asked: list[tuple[dict[str, Any], str]] = []
+    if has_files(trigger):
+        asked.append((trigger, "attached to the message you're answering"))  # type: ignore[arg-type]
+        if has_files(target):
+            asked.append((target, f"attached to the message it replies to ({earlier(target)})"))  # type: ignore[arg-type]
+    elif has_files(target):
+        asked.append((target, f"attached to the message being replied to ({earlier(target)})"))  # type: ignore[arg-type]
+    elif trigger:
+        recent, _ = _fetch_page(thread_id, None, until, newest=True, limit=files.RECENT_FILE_MESSAGES)
+        latest = next((m for m in reversed(recent) if m.get("id") != trigger.get("id") and has_files(m)), None)
+        if latest:
+            asked.append((latest, f"{earlier(latest)}; the latest file shared here"))
+    if asked:
+        yield _sse({"activity": "Opening the attached files"})
+    ai_media, file_text = files.read_for_ai(
+        [m for m, _ in asked], native=provider == "anthropic", where=[place for _, place in asked]
+    )
+    file_block = f"\n\n{file_text}" if file_text else ""
 
 
     if thread["type"] == "private":
@@ -1045,7 +1085,7 @@ def stream_ai_response(
         # Team Space gets a quarter of what's left; this thread gets the rest. Team Space isn't
         # compacted from here (that would post a card there on a private thread's behalf); its
         # durable content reaches this thread through project memory and Decisions.
-        room = max(budget - len(system_stable) - len(reply_quote) - len(decisions_text), budget // 3)
+        room = max(budget - len(system_stable) - len(reply_quote) - len(file_block) - len(decisions_text), budget // 3)
         team_space_block = "[No shared team context yet]"
         if shared_thread_id:
             shared_view = thread_view(shared_thread_id, None, room // 4)
@@ -1084,7 +1124,7 @@ def stream_ai_response(
         )
         if memory_text:
             system_stable += "\n" + memory_text + "\n"
-        room = max(budget - len(system_stable) - len(reply_quote) - len(decisions_text), budget // 3)
+        room = max(budget - len(system_stable) - len(reply_quote) - len(file_block) - len(decisions_text), budget // 3)
         view = thread_view(thread_id, until, room)
         if view["overflow"]:
             yield _sse({"activity": COMPACTING})
@@ -1094,8 +1134,8 @@ def stream_ai_response(
             system_stable += "\n" + summary + "\n"
         chat_messages = _to_chat_messages(view["messages"], names, tz)
 
-    if reply_quote and chat_messages and chat_messages[-1]["role"] == "user":
-        chat_messages[-1] = {"role": "user", "content": reply_quote + chat_messages[-1]["content"]}
+    if (reply_quote or file_block) and chat_messages and chat_messages[-1]["role"] == "user":
+        chat_messages[-1] = {"role": "user", "content": reply_quote + chat_messages[-1]["content"] + file_block}
 
     # What changes from turn to turn: the time, who asks, and the Decisions as of right now.
     # Worded as a note, not "you are answering X": the model once opened a reply with that line.
@@ -1128,6 +1168,7 @@ def stream_ai_response(
                 for chunk in _stream_text(
                     provider, model, api_key, system_stable, system_volatile, chat_messages,
                     search=provider == "anthropic" and wants_search,
+                    media=ai_media if provider == "anthropic" else None,
                 ):
                     if isinstance(chunk, dict):
                         if "sources" in chunk:

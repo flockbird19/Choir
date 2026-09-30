@@ -16,6 +16,9 @@ import vhdl from "highlight.js/lib/languages/vhdl";
 
 import { getInitials, publishedLabel } from "@/utils/display-name";
 import { previewLine } from "@/utils/markdown-preview";
+import { messageText } from "@/utils/attachments";
+import type { Attachment } from "@/types/database";
+import { MessageAttachments } from "./MessageAttachments";
 import { whoHasSeen } from "@/hooks/useSeenBy";
 import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 import type { StatusId } from "@/app/(main)/profile/actions";
@@ -39,6 +42,7 @@ interface Message {
   covers_through?: string | null;
   covers_count?: number | null;
   sources?: Source[] | null;
+  attachments?: Attachment[] | null;
 }
 
 interface Source {
@@ -521,9 +525,16 @@ const MessageItem = memo(function MessageItem({
                 <p className="text-xs text-fg-subtle truncate">{replyPreview?.content || "Tap to view"}</p>
               </button>
             )}
-            <ReactMarkdown remarkPlugins={isAI ? AI_REMARK : PERSON_REMARK} rehypePlugins={markdownRehype} components={markdownComponents}>
-              {isAI ? msg.content : keepLineBreaks(msg.content)}
-            </ReactMarkdown>
+            {msg.attachments && msg.attachments.length > 0 && (
+              <div className={msg.content.trim() ? "mb-2" : ""}>
+                <MessageAttachments files={msg.attachments} interactive={!selectMode} />
+              </div>
+            )}
+            {msg.content.trim() && (
+              <ReactMarkdown remarkPlugins={isAI ? AI_REMARK : PERSON_REMARK} rehypePlugins={markdownRehype} components={markdownComponents}>
+                {isAI ? msg.content : keepLineBreaks(msg.content)}
+              </ReactMarkdown>
+            )}
           </div>
           {isAI && msg.sources && msg.sources.length > 0 && <SourcesRow sources={msg.sources} />}
 
@@ -734,7 +745,7 @@ export function MessageList({
     for (const msg of messages) {
       map.set(msg.id, {
         senderName: resolveSenderName(msg),
-        content: msg.withdrawn_at ? "Withdrawn post" : previewLine(msg.content),
+        content: msg.withdrawn_at ? "Withdrawn post" : previewLine(messageText(msg)),
         isAI: msg.sender_type === "assistant",
       });
     }

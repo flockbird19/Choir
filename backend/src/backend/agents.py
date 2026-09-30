@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 from backend.db import get_db, verify_team_access
+from backend.files import with_notes
 from backend.llm import sender_label, team_names_for_thread
 
 MESSAGE_CONTEXT_LIMIT = 30
@@ -179,17 +180,17 @@ def read_team_space(project_id: str) -> str:
 
     decisions_resp = (
         db.table("messages")
-        .select("content, created_at, sender_type, sender_id")
+        .select("content, created_at, sender_type, sender_id, attachments")
         .eq("thread_id", thread["id"])
         .eq("is_decision", True)
         .order("created_at")
         .execute()
     )
-    decisions = cast(list[dict[str, Any]], decisions_resp.data)
+    decisions = [with_notes(m) for m in cast(list[dict[str, Any]], decisions_resp.data)]
 
     recent_resp = (
         db.table("messages")
-        .select("content, created_at, sender_type, sender_id, kind")
+        .select("content, created_at, sender_type, sender_id, kind, attachments")
         .eq("thread_id", thread["id"])
         .order("created_at", desc=True)
         .limit(MESSAGE_CONTEXT_LIMIT)
@@ -197,7 +198,9 @@ def read_team_space(project_id: str) -> str:
     )
     # Withdrawn publications (empty) and compact cards (AI summaries, component #4) are left out.
     recent = [
-        m for m in reversed(cast(list[dict[str, Any]], recent_resp.data)) if m["content"] and m.get("kind") != "checkpoint"
+        with_notes(m)
+        for m in reversed(cast(list[dict[str, Any]], recent_resp.data))
+        if (m["content"] or m.get("attachments")) and m.get("kind") != "checkpoint"
     ]
 
     lines: list[str] = []

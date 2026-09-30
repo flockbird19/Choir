@@ -7,6 +7,8 @@ import { getDecisions, getMessagesBefore, getWorkspace } from "@/utils/supabase/
 import { getTeamMemberNames } from "@/utils/supabase/member-names";
 import { getDisplayName } from "@/utils/display-name";
 import { revalidatePath } from "next/cache";
+import type { Attachment } from "@/types/database";
+import { ATTACHMENTS_BUCKET, storageName, validAttachments } from "@/utils/attachments";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://127.0.0.1:8000";
 
@@ -41,7 +43,8 @@ export async function sendMessage(
   threadId: string,
   content: string,
   messageId?: string,
-  replyToMessageId?: string
+  replyToMessageId?: string,
+  attachments?: Attachment[]
 ) {
   const supabase = await createClient();
   const user = await getCurrentUser();
@@ -54,6 +57,11 @@ export async function sendMessage(
     return { error: NO_THREAD_ACCESS };
   }
 
+  // Files must already be in this thread's own folder (the database checks the same).
+  const files = validAttachments(attachments, threadId);
+  if (files === null) return { error: "Those files can't be attached here. Remove them and try again." };
+  if (!content.trim() && files.length === 0) return { error: "Write a message or attach a file." };
+
   const insertData: {
     id?: string;
     thread_id: string;
@@ -61,11 +69,13 @@ export async function sendMessage(
     sender_id: string;
     content: string;
     reply_to_message_id?: string;
+    attachments?: Attachment[];
   } = {
     thread_id: threadId,
     sender_type: "user",
     sender_id: user.id,
     content,
+    ...(files.length > 0 ? { attachments: files } : {}),
   };
 
   if (messageId) {
@@ -77,6 +87,9 @@ export async function sendMessage(
 
   const { data, error } = await supabase.from("messages").insert(insertData).select().single();
 
+  if (isMissingColumn(error) && files.length > 0) {
+    return { error: DATABASE_UPDATE_PENDING };
+  }
   if (isMissingColumn(error) && replyToMessageId) {
     // The reply column isn't there yet (schema.sql not re-run) — send the message
     // without it rather than blocking the send entirely.
@@ -208,7 +221,10 @@ export async function postToSharedThread(
   // trail). Prefer omitting/null over [] when there's nothing to point at.
   sourceMessageIds?: string[] | null,
   // The user changed the selected messages before posting, so it isn't an unchanged quote.
-  publishEdited = false
+  publishEdited = false,
+  // Files from the private thread that the user kept in the review dialog. They're copied
+  // into Team Space's folder; the private originals stay private.
+  files?: Attachment[]
 ): Promise<{ success?: boolean; error?: string }> {
   const supabase = await createClient();
   const user = await getCurrentUser();
@@ -231,6 +247,26 @@ export async function postToSharedThread(
     }
   }
 
+  const originals = files && files.length > 0 && sourceThreadId ? validAttachments(files, sourceThreadId) : [];
+  if (originals === null || (files && files.length > 0 && !sourceThreadId)) {
+    return { error: "Only files from your own private thread can be posted with it." };
+  }
+  if (!content.trim() && originals.length === 0) return { error: "Write something or keep a file to post." };
+
+  // Copy each kept file into Team Space. If any copy fails, remove the ones made so far.
+  const bucket = supabase.storage.from(ATTACHMENTS_BUCKET);
+  const copies: Attachment[] = [];
+  for (const file of originals) {
+    const path = `${sharedThreadId}/${crypto.randomUUID()}/${storageName(file.name)}`;
+    const { error: copyError } = await bucket.copy(file.path, path);
+    if (copyError) {
+      console.error("Error copying a file to Team Space:", copyError);
+      if (copies.length > 0) await bucket.remove(copies.map((c) => c.path));
+      return { error: `Couldn't copy ${file.name} to Team Space. Nothing was posted; please try again.` };
+    }
+    copies.push({ ...file, path });
+  }
+
   // Insert the compiled markdown block into the shared thread.
   // We set `shared_by` to the current user's ID so the frontend can display
   // the "Shared from private exploration" banner.
@@ -243,8 +279,10 @@ export async function postToSharedThread(
     ...(sourceThreadId ? { source_thread_id: sourceThreadId } : {}),
     ...(sourceMessageIds && sourceMessageIds.length > 0 ? { source_message_ids: sourceMessageIds } : {}),
     ...(publishEdited ? { publish_edited: true } : {}),
+    ...(copies.length > 0 ? { attachments: copies } : {}),
   });
 
+  if (error && copies.length > 0) await bucket.remove(copies.map((c) => c.path));
   if (isMissingColumn(error)) {
     console.error("Error posting to shared thread (database update pending):", error);
     return { error: DATABASE_UPDATE_PENDING };
@@ -504,12 +542,21 @@ export async function withdrawPublication(messageId: string): Promise<{ success?
   if (!user) return { error: "Not logged in" };
 
   const supabase = await createClient();
+  // The post's files, read before withdrawing clears them, so their copies can be removed too.
+  const { data: before } = await supabase.from("messages").select("attachments").eq("id", messageId).maybeSingle();
   const { error } = await supabase.rpc("withdraw_publication", { p_message_id: messageId });
   if (error) {
     console.error("Error withdrawing a post:", error);
     if (error.code === "PGRST202") return { error: DATABASE_UPDATE_PENDING };
     if (error.code === "42501") return { error: "You can only withdraw your own posts from a private thread." };
     return { error: "Couldn't withdraw the post. Please try again." };
+  }
+  const paths = ((before?.attachments as Attachment[] | null) ?? []).map((f) => f.path);
+  if (paths.length > 0) {
+    const { error: removeError } = await supabase.storage.from(ATTACHMENTS_BUCKET).remove(paths);
+    // The post is already withdrawn and its file list cleared, so nobody can reach the files
+    // through Choir; an unremoved copy only takes up space.
+    if (removeError) console.error("Couldn't remove a withdrawn post's files:", removeError);
   }
   return { success: true };
 }

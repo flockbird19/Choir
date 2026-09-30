@@ -23,6 +23,9 @@
 -- (compact checkpoints), the project_memory table + is_project_member(), withdraw also undoing
 -- checkpoints and memory items, checkpoints never pinnable.
 -- Pending re-run (2026-09-30, AI activity): messages.sources (web pages an AI reply used).
+-- Pending re-run (2026-09-30, file uploads, branch file-uploads): messages.attachments, the
+-- attachment helpers, the private "attachments" storage bucket and its rules (§7), withdraw
+-- also clearing a post's attachments.
 -- ============================================================================
 
 begin;
@@ -228,6 +231,11 @@ alter table public.messages add column if not exists covers_count integer;
 -- Web pages an AI reply searched ([{url, title}]), shown as its Sources. Written only by the
 -- backend: it is not in the insert or update grants below, so people can't set it.
 alter table public.messages add column if not exists sources jsonb;
+
+-- Files attached to a message: [{path, name, size, type}]. `path` is the file's place in the
+-- private "attachments" storage bucket, "<thread id>/<random id>/<file name>"; the insert
+-- rule below only accepts paths inside the message's own thread folder.
+alter table public.messages add column if not exists attachments jsonb;
 
 -- L5: invite links expire after 7 days and can be revoked.
 -- (Existing links get 7 days from the first run of this line.)
@@ -448,6 +456,108 @@ as $$
   );
 $$;
 
+-- Files (2026-09-30): a stored file's path is "<thread id>/<random id>/<file name>", and its
+-- first folder decides who may read it: exactly the people who can open that thread. Null for
+-- anything that doesn't start with a thread id, so a malformed path is denied, never an error.
+create or replace function public.attachment_thread(p_name text)
+returns uuid
+language sql immutable set search_path = public
+as $$
+  select case
+    when split_part(p_name, '/', 1) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    then split_part(p_name, '/', 1)::uuid
+  end;
+$$;
+
+create or replace function public.can_access_attachment(p_name text)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select coalesce(public.can_access_thread(public.attachment_thread(p_name)), false);
+$$;
+
+-- Who may read a stored file: its uploader (while it waits in their composer), and everyone
+-- who can open the thread once a live message carries it. So a file you attach and then take
+-- out, or haven't sent yet, is never visible to teammates, and a withdrawn post's files stop
+-- being reachable the moment it's withdrawn.
+create or replace function public.can_read_attachment(p_name text, p_owner_id text)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select public.can_access_attachment(p_name)
+    and (
+      p_owner_id = (select auth.uid())::text
+      or exists (
+        select 1 from messages m
+        where m.thread_id = public.attachment_thread(p_name)
+          and m.withdrawn_at is null
+          and m.attachments @> jsonb_build_array(jsonb_build_object('path', p_name))
+      )
+    );
+$$;
+
+-- Upload limits per person, so one account (anyone can sign up) can't fill the project's
+-- storage for everyone: at most 300 MB stored in all, and 60 uploads in any hour.
+create or replace function public.attachment_quota_ok()
+returns boolean
+language sql stable security definer set search_path = public, storage
+as $$
+  select
+    (select coalesce(sum((o.metadata ->> 'size')::bigint), 0) from storage.objects o
+      where o.bucket_id = 'attachments' and o.owner_id = (select auth.uid())::text) < 300 * 1024 * 1024
+    and
+    (select count(*) from storage.objects o
+      where o.bucket_id = 'attachments' and o.owner_id = (select auth.uid())::text
+        and o.created_at > now() - interval '1 hour') < 60;
+$$;
+
+-- A message may only list files its sender uploaded, with the stored file's real size and
+-- type: no pointing at a teammate's unsent file, and no "invoice.pdf, 2 KB" label on
+-- something else. Text comparisons, so a malformed entry is refused, never an error.
+create or replace function public.attachments_are_yours(p_attachments jsonb)
+returns boolean
+language sql stable security definer set search_path = public, storage
+as $$
+  select case when jsonb_typeof(p_attachments) = 'array' then not exists (
+    select 1 from jsonb_array_elements(p_attachments) a
+    where not exists (
+      select 1 from storage.objects o
+      where o.bucket_id = 'attachments'
+        and o.name = a ->> 'path'
+        and o.owner_id = (select auth.uid())::text
+        and o.metadata ->> 'size' = a ->> 'size'
+        and o.metadata ->> 'mimetype' = a ->> 'type'
+    )
+  ) else false end;
+$$;
+
+-- A message's attachments list: 1 to 10 files, each inside the message's own thread folder,
+-- with a name and a size of at most 10 MB (the bucket enforces the real size on upload).
+create or replace function public.attachments_in_thread(p_attachments jsonb, p_thread_id uuid)
+returns boolean
+language sql immutable set search_path = public
+as $$
+  -- CASE, not AND: SQL doesn't promise to check "is it a list" before reading it as one.
+  select case when jsonb_typeof(p_attachments) = 'array' then
+    jsonb_array_length(p_attachments) between 1 and 10
+    and not exists (
+      select 1 from jsonb_array_elements(p_attachments) a
+      where jsonb_typeof(a) <> 'object'
+         or public.attachment_thread(a ->> 'path') is distinct from p_thread_id
+         or coalesce((a ->> 'path') like '%..%', true)
+         or length(coalesce(a ->> 'name', '')) not between 1 and 255
+         -- No control characters or invisible direction marks (they can disguise "fdp.exe"
+         -- as "exe.pdf").
+         or (a ->> 'name') ~ '[[:cntrl:]‎‏‪-‮⁦-⁩]'
+         or coalesce(
+              case when jsonb_typeof(a -> 'size') = 'number' then (a ->> 'size')::numeric end,
+              -1
+            ) not between 0 and 10485760
+         or length(coalesce(a ->> 'type', '')) > 255
+    )
+  else false end;
+$$;
+
 -- ── 5. Access rules ──────────────────────────────────────────────────────────
 
 -- Remove every old rule on these tables so only the ones below exist
@@ -560,6 +670,11 @@ create policy "Send messages as yourself in accessible threads" on public.messag
     and (source_message_ids is null or public.all_messages_accessible(source_message_ids))
     -- A reply can only point at a message already in the same thread. Same reasoning as K3.
     and (reply_to_message_id is null or public.message_in_thread(reply_to_message_id, thread_id))
+    -- Files can only come from this thread's own folder (a private file can't be pulled
+    -- into Team Space by pointing at it; publishing copies it instead).
+    and (attachments is null or (
+      public.attachments_in_thread(attachments, thread_id) and public.attachments_are_yours(attachments)
+    ))
   );
 create policy "Pin messages in accessible shared threads" on public.messages
   for update
@@ -592,7 +707,7 @@ declare
   v_created_at timestamptz;
 begin
   update messages
-     set content = '', source_message_ids = null, withdrawn_at = now(),
+     set content = '', source_message_ids = null, attachments = null, withdrawn_at = now(),
          is_decision = false, pinned_by = null, pinned_at = null
    where id = p_message_id
      and sender_id = auth.uid()
@@ -713,7 +828,7 @@ grant update (is_decision, pinned_by, pinned_at) on public.messages to authentic
 -- may be set when posting (id is sent by the app for optimistic sends).
 revoke insert on public.messages from anon, authenticated;
 grant insert (id, thread_id, sender_type, sender_id, content, shared_by, source_thread_id,
-              source_message_ids, reply_to_message_id, publish_edited)
+              source_message_ids, reply_to_message_id, publish_edited, attachments)
   on public.messages to authenticated;
 
 -- Any team member may rename it (see "Team members can rename their teams" above).
@@ -759,5 +874,27 @@ grant update (last_seen_at, last_read_at) on public.thread_reads to authenticate
 revoke insert, update, delete on public.project_memory from anon, authenticated;
 grant insert (project_id, items, version, updated_by) on public.project_memory to authenticated;
 grant update (items, version, updated_by, updated_at) on public.project_memory to authenticated;
+
+-- ── 7. File storage (2026-09-30) ─────────────────────────────────────────────
+-- One private bucket; files are only ever reached through short-lived signed links, which
+-- the storage server hands out only to people these rules allow. 10 MB per file.
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('attachments', 'attachments', false, 10485760)
+on conflict (id) do update set public = false, file_size_limit = 10485760, allowed_mime_types = null;
+
+drop policy if exists "Choir: read files in threads you can open" on storage.objects;
+drop policy if exists "Choir: add files to threads you can open" on storage.objects;
+drop policy if exists "Choir: remove your own files" on storage.objects;
+create policy "Choir: read files in threads you can open" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'attachments' and public.can_read_attachment(name, owner_id));
+create policy "Choir: add files to threads you can open" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'attachments' and public.can_access_attachment(name) and public.attachment_quota_ok());
+-- Only the uploader removes a file (a withdrawn post's copies, or one taken out of the
+-- composer before sending). No update rule: a stored file is never replaced or moved.
+create policy "Choir: remove your own files" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'attachments' and owner_id = (select auth.uid())::text and public.can_access_attachment(name));
 
 commit;

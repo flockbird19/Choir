@@ -58,6 +58,7 @@ FEATURES = {
     "reply": ("messages", "reply_to_message_id"),
     "withdraw": ("messages", "withdrawn_at,publish_edited"),
     "context": ("project_memory", "project_id"),
+    "attachments": ("messages", "attachments"),
 }
 
 
@@ -130,6 +131,7 @@ def world():
     run = secrets.token_hex(4)
     users: list[str] = []
     teams: list[str] = []
+    file_threads: list[str] = []
 
     def create_user(label: str) -> SimpleNamespace:
         email = f"choir.e2e.rls.{run}.{label}@example.com"
@@ -174,6 +176,7 @@ def world():
         s2 = insert("threads", {"project_id": p2, "type": "shared", "name": "Team Space"})["id"]
         pa = insert("threads", {"project_id": p1, "type": "private", "owner_id": a.id, "name": "A private"})["id"]
         pb = insert("threads", {"project_id": p1, "type": "private", "owner_id": b.id, "name": "B private"})["id"]
+        file_threads.extend([s1, s2, pa, pb])
 
         # One message at a time: PostgREST bulk inserts need identical keys.
         def message(thread: str, sender: str | None, content: str) -> str:
@@ -212,6 +215,22 @@ def world():
             notif_a=notif_a, notif_b=notif_b,
         )  # fmt: skip
     finally:
+        # Stored files don't cascade with their threads: remove every test thread's folder.
+        for thread_id in file_threads:
+            if thread_id:
+                listed = http.post(
+                    "/storage/v1/object/list/attachments",
+                    json={"prefix": thread_id, "limit": 1000},
+                    headers=admin.headers,
+                )
+                folders = [f"{thread_id}/{f['name']}" for f in (listed.json() if listed.is_success else [])]
+                for folder in folders:
+                    inner = http.post(
+                        "/storage/v1/object/list/attachments", json={"prefix": folder, "limit": 1000}, headers=admin.headers
+                    )
+                    paths = [f"{folder}/{f['name']}" for f in (inner.json() if inner.is_success else [])]
+                    if paths:
+                        http.request("DELETE", "/storage/v1/object/attachments", json={"prefixes": paths}, headers=admin.headers)
         # Teams first (cascades to projects, threads, messages, invites, shared keys,
         # notifications), then users (cascades to their keys and read state).
         for team_id in teams:
@@ -516,6 +535,195 @@ def test_only_your_own_publication_can_be_withdrawn(world):
     assert_blocked(a.api.update("messages", {"is_decision": True, "pinned_by": a.id}, id=eq(pub)))
     assert admin_row(world, "messages", pub)["is_decision"] is False
     assert_denied(b.api.rpc("withdraw_publication", {"p_message_id": pub}))
+
+
+# ── File attachments (2026-09-30) ───────────────────────────────────────────
+
+
+def _file(thread_id: str, name: str = "notes.txt", size: int = 5) -> dict:
+    return {"path": f"{thread_id}/{secrets.token_hex(8)}/{name}", "name": name, "size": size, "type": "text/plain"}
+
+
+def _upload(api, path: str, body: bytes = b"hello", content_type: str = "text/plain") -> httpx.Response:
+    return api.http.post(
+        f"/storage/v1/object/attachments/{path}",
+        content=body,
+        # Same as the app: without it the storage CDN keeps serving a removed file for an hour.
+        headers={**api.headers, "Content-Type": content_type, "cache-control": "no-cache"},
+    )
+
+
+def _stored(api, thread_id: str, name: str = "notes.txt", body: bytes = b"hello", content_type: str = "text/plain") -> dict:
+    """Uploads a real file as this caller and returns its attachment entry."""
+    file = {**_file(thread_id, name, len(body)), "type": content_type}
+    response = _upload(api, file["path"], body, content_type)
+    assert response.is_success, f"{response.status_code}: {response.text}"
+    return file
+
+
+def _download(api, path: str) -> httpx.Response:
+    return api.http.get(f"/storage/v1/object/authenticated/attachments/{path}", headers=api.headers)
+
+
+def _sign(api, path: str) -> httpx.Response:
+    return api.http.post(f"/storage/v1/object/sign/attachments/{path}", json={"expiresIn": 60}, headers=api.headers)
+
+
+def _remove(api, path: str) -> httpx.Response:
+    return api.http.request("DELETE", "/storage/v1/object/attachments", json={"prefixes": [path]}, headers=api.headers)
+
+
+def _post(user, thread_id: str, files, **extra) -> httpx.Response:
+    row = {"thread_id": thread_id, "sender_type": "user", "sender_id": user.id, "content": "", "attachments": files}
+    return user.api.insert("messages", {**row, **extra})
+
+
+def test_attachment_lists_are_well_formed_and_from_the_messages_own_thread(world):
+    needs(world, "attachments")
+    a = world.a
+    mine = _stored(a.api, world.s1)
+    private = _stored(a.api, world.pa)
+    # A file from your own private thread can't be pulled into Team Space by pointing at it.
+    assert_denied(_post(a, world.s1, [private]))
+    # Malformed lists are refused, never an error.
+    for bad in (
+        [{**mine, "path": f"{world.s1}/../{world.pb}/x"}],
+        [{**mine, "path": "not-a-thread/x/y.txt"}],
+        [mine] * 11,
+        [{**mine, "size": 10485761}],
+        [{**mine, "size": "5"}],
+        [{**mine, "name": ""}],
+        [{**mine, "name": "report‮fdp.exe"}],
+        [{**mine, "name": "two\nlines.txt"}],
+        [],
+        {"path": mine["path"]},
+        ["just a string"],
+    ):
+        assert_denied(_post(a, world.s1, bad))
+    # Control: your own stored files, in this thread, described truthfully.
+    row = ok(_post(a, world.s1, [mine, _stored(a.api, world.s1, "b.txt")]))[0]
+    assert len(row["attachments"]) == 2
+    ok(_post(a, world.pa, [private]))
+
+
+def test_a_message_can_only_list_your_own_real_files(world):
+    needs(world, "attachments")
+    a, b = world.a, world.b
+    theirs = _stored(a.api, world.s1, "draft.txt")
+    # Pointing at a teammate's unsent file, or at a file that doesn't exist, is refused.
+    assert_denied(_post(b, world.s1, [theirs]))
+    assert_denied(_post(b, world.s1, [_file(world.s1)]))
+    # The size and type must be the stored file's own: no "invoice, 2 KB" label on something else.
+    mine = _stored(b.api, world.s1, "photo.png", b"\x89PNG....", "image/png")
+    assert_denied(_post(b, world.s1, [{**mine, "size": 2048}]))
+    assert_denied(_post(b, world.s1, [{**mine, "type": "application/pdf"}]))
+    # Control: the truth is accepted.
+    ok(_post(b, world.s1, [mine]))
+
+
+def test_files_are_seen_only_once_sent_and_follow_thread_access(world):
+    needs(world, "attachments")
+    a, b, c = world.a, world.b, world.c
+    team_file = _stored(a.api, world.s1)
+    private_file = _stored(a.api, world.pa)
+
+    # Waiting in A's composer: only A can read it, not even a teammate.
+    assert _download(a.api, team_file["path"]).is_success
+    assert not _download(b.api, team_file["path"]).is_success
+    assert not _sign(b.api, team_file["path"]).is_success
+    # Nor can a teammate list the folder to find unsent files.
+    listed = b.api.http.post(
+        "/storage/v1/object/list/attachments", json={"prefix": world.s1, "limit": 100}, headers=b.api.headers
+    )
+    assert listed.is_success and team_file["path"].split("/")[1] not in [f["name"] for f in listed.json()]
+
+    # Control: once sent, teammates read it and get links.
+    ok(_post(a, world.s1, [team_file]))
+    response = _download(b.api, team_file["path"])
+    assert response.is_success and response.content == b"hello"
+    assert _sign(b.api, team_file["path"]).is_success
+
+    # A private file stays A's alone, sent or not: no read, no link for anyone else.
+    ok(_post(a, world.pa, [private_file]))
+    for api in (b.api, c.api, world.anon):
+        assert not _download(api, private_file["path"]).is_success
+        assert not _sign(api, private_file["path"]).is_success
+    # An outsider can't read Team Space files either.
+    assert not _download(c.api, team_file["path"]).is_success
+    assert not _sign(c.api, team_file["path"]).is_success
+
+    # No uploads into threads you can't open, outside a thread folder, escaping it, or anonymously.
+    assert not _upload(b.api, _file(world.pa)["path"]).is_success
+    assert not _upload(c.api, _file(world.s1)["path"]).is_success
+    assert not _upload(a.api, "not-a-thread/x/y.txt").is_success
+    assert not _upload(a.api, f"{world.s1}/x/../../{world.pb}/y.txt").is_success
+    assert not _upload(world.anon, _file(world.s1)["path"]).is_success
+    # A stored file can't be replaced (even asking for an overwrite) or moved.
+    assert not _upload(a.api, team_file["path"], b"changed").is_success
+    overwrite = a.api.http.post(
+        f"/storage/v1/object/attachments/{team_file['path']}",
+        content=b"changed",
+        headers={**a.api.headers, "Content-Type": "text/plain", "x-upsert": "true"},
+    )
+    assert not overwrite.is_success
+    moved = a.api.http.post(
+        "/storage/v1/object/move",
+        json={"bucketId": "attachments", "sourceKey": team_file["path"], "destinationKey": f"{world.s1}/moved/x.txt"},
+        headers=a.api.headers,
+    )
+    assert not moved.is_success
+    assert _download(b.api, team_file["path"]).content == b"hello"
+    # A teammate can't copy a private file into Team Space (they can't read it).
+    copied = b.api.http.post(
+        "/storage/v1/object/copy",
+        json={"bucketId": "attachments", "sourceKey": private_file["path"], "destinationKey": f"{world.s1}/stolen/x.txt"},
+        headers=b.api.headers,
+    )
+    assert not copied.is_success
+
+    # Only the uploader removes a file. A teammate's or outsider's attempt removes nothing.
+    _remove(b.api, team_file["path"])
+    _remove(c.api, team_file["path"])
+    assert _download(a.api, team_file["path"]).is_success
+    removed = _remove(a.api, team_file["path"])
+    assert removed.is_success and len(removed.json()) == 1
+    # Nobody can get a new link to it (the app only ever shows fresh links). The storage CDN may
+    # still hand the bytes to someone who fetched them moments before; that can't be revoked.
+    assert not _sign(a.api, team_file["path"]).is_success
+    assert not _sign(b.api, team_file["path"]).is_success
+
+
+def test_stored_files_are_capped_at_10_mb(world):
+    needs(world, "attachments")
+    a = world.a
+    assert not _upload(a.api, _file(world.s1)["path"], b"x" * (10 * 1024 * 1024 + 1)).is_success
+    # Control: exactly 10 MB is accepted.
+    assert _upload(a.api, _file(world.s1)["path"], b"x" * (10 * 1024 * 1024)).is_success
+
+
+def test_uploads_are_limited_per_person_per_hour(world):
+    needs(world, "attachments")
+    c = world.c
+    # Control: 60 uploads in an hour are fine.
+    for i in range(60):
+        response = _upload(c.api, _file(world.s2, f"f{i}.txt")["path"], b"x")
+        assert response.is_success, f"upload {i + 1}: {response.status_code} {response.text}"
+    # The 61st is refused.
+    assert not _upload(c.api, _file(world.s2, "one-too-many.txt")["path"], b"x").is_success
+
+
+def test_withdrawing_a_publication_clears_its_attachments_and_hides_them(world):
+    needs(world, "attachments")
+    needs(world, "withdraw")
+    a, b = world.a, world.b
+    shot = _stored(b.api, world.s1, "shot.png", b"\x89PNG", "image/png")
+    pub = ok(_post(b, world.s1, [shot], content="screenshot", shared_by=b.id, source_thread_id=world.pb))[0]["id"]
+    assert _sign(a.api, shot["path"]).is_success
+    response = b.api.rpc("withdraw_publication", {"p_message_id": pub})
+    assert response.is_success, f"{response.status_code}: {response.text}"
+    assert admin_row(world, "messages", pub)["attachments"] is None
+    # Not in a live message any more: teammates can't get a link, even before it's removed.
+    assert not _sign(a.api, shot["path"]).is_success
 
 
 # ── Context and project memory (component #4) ───────────────────────────────

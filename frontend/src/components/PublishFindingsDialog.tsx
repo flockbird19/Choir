@@ -2,7 +2,9 @@
 
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
-import { Info, KeyRound, Megaphone, ShieldAlert } from "lucide-react";
+import { Info, KeyRound, Megaphone, Paperclip, ShieldAlert } from "lucide-react";
+import type { Attachment } from "@/types/database";
+import { formatBytes, MAX_FILES } from "@/utils/attachments";
 import { getSessionToken, postToSharedThread } from "@/app/(main)/thread/[id]/actions";
 import { isMissingKeyError } from "@/utils/ai-errors";
 import { removeSecret, scanForSecrets, type SecretMatch } from "@/utils/secrets";
@@ -30,9 +32,11 @@ interface State {
   original: string;
   /** K3 trail: exactly the private messages this post was built from. */
   sourceIds: string[];
+  /** Files on the selected messages; the user can take any out before posting. */
+  files: Attachment[];
 }
 
-const CLOSED: State = { open: false, mode: "findings", loading: false, needsKey: false, draft: "", original: "", sourceIds: [] };
+const CLOSED: State = { open: false, mode: "findings", loading: false, needsKey: false, draft: "", original: "", sourceIds: [], files: [] };
 
 /**
  * One review-and-publish step for everything that crosses from a private thread into
@@ -97,15 +101,18 @@ export function usePublishFindings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
 
-  const startWithSelection = useCallback((text: string, sourceIds: string[]) => {
+  const startWithSelection = useCallback((text: string, sourceIds: string[], files: Attachment[] = []) => {
     request.current += 1;
-    setView("preview");
-    setState({ ...CLOSED, open: true, mode: "selection", draft: text, original: text, sourceIds });
+    setView(text.trim() ? "preview" : "write");
+    setState({ ...CLOSED, open: true, mode: "selection", draft: text, original: text, sourceIds, files });
   }, []);
+
+  const tooManyFiles = state.files.length > MAX_FILES;
+  const removeFile = (path: string) => setState((s) => ({ ...s, files: s.files.filter((f) => f.path !== path) }));
 
   const publish = async () => {
     const content = state.draft.trim();
-    if (!sharedThreadId || !content || postingRef.current) return;
+    if (!sharedThreadId || (!content && state.files.length === 0) || tooManyFiles || postingRef.current) return;
     postingRef.current = true;
     setPosting(true);
     // If the dialog is closed or reopened on another draft while this posts, the result
@@ -119,6 +126,7 @@ export function usePublishFindings({
         state.sourceIds.length > 0 ? state.sourceIds : null,
         // An AI draft is the writer's own post anyway; only changed quotes are marked.
         state.mode === "selection" && content !== state.original.trim(),
+        state.files,
       );
       const current = id === request.current;
       if (res.error) {
@@ -167,7 +175,7 @@ export function usePublishFindings({
             variant="primary"
             onClick={publish}
             loading={posting}
-            disabled={state.loading || !state.draft.trim()}
+            disabled={state.loading || (!state.draft.trim() && state.files.length === 0) || tooManyFiles}
             leadingIcon={<Megaphone size={15} aria-hidden="true" />}
           >
             {credentials.length > 0 ? "Post anyway" : `Post to ${sharedName}`}
@@ -246,6 +254,30 @@ export function usePublishFindings({
               />
             </TabPanel>
           </div>
+          {state.files.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-body-sm font-semibold text-fg">
+                Files <span className="font-normal text-fg-muted">(copied to {sharedName}; the originals stay private)</span>
+              </p>
+              <ul className="flex flex-col gap-1.5">
+                {state.files.map((file) => (
+                  <li key={file.path} className="flex min-w-0 items-center gap-3 rounded-control border border-line bg-card px-3 py-2">
+                    <Paperclip size={15} aria-hidden="true" className="shrink-0 text-fg-muted" />
+                    <span className="min-w-0 flex-1 truncate text-body-sm text-fg">{file.name}</span>
+                    <span className="shrink-0 text-caption text-fg-muted">{formatBytes(file.size)}</span>
+                    <Button variant="secondary" size="sm" onClick={() => removeFile(file.path)} aria-label={`Don't post ${file.name}`}>
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              {tooManyFiles && (
+                <p role="alert" className="text-caption text-danger">
+                  A post can carry up to {MAX_FILES} files. Remove {state.files.length - MAX_FILES} to post.
+                </p>
+              )}
+            </div>
+          )}
           <div aria-live="polite" className="flex flex-col gap-3 empty:hidden">
             {credentials.length > 0 && (
               <SecretNotice

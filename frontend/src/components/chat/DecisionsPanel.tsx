@@ -2,6 +2,7 @@
 
 import { X, Pin, Eye, MessageSquareLock } from "lucide-react";
 import { Message } from "@/types/database";
+import { messageText } from "@/utils/attachments";
 import { Sheet, IconButton } from "@/components/ui";
 import { whoHasSeen } from "@/hooks/useSeenBy";
 import { useDecisionTrailModels } from "@/hooks/useDecisionTrail";
@@ -119,7 +120,7 @@ export function DecisionsPanel({
                     possessive={msg.sender_id === currentUserId ? "your own" : `${authorName(msg)}'s`}
                   />
                   <p className="text-sm text-fg leading-relaxed line-clamp-4 whitespace-pre-wrap">
-                    {stripMarkdownSyntax(msg.content)}
+                    {stripMarkdownSyntax(messageText(msg))}
                   </p>
                   <div className="flex items-center justify-between mt-2">
                     <span className="flex items-center gap-1.5 text-[10px] font-mono text-fg-subtle">

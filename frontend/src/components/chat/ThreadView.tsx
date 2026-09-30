@@ -7,7 +7,7 @@ import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
 import { ExportPromptDialog } from "./ExportPromptDialog";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X, Layers, NotebookText } from "lucide-react";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X, Layers, NotebookText, Paperclip } from "lucide-react";
 import { Button, Dialog, IconButton, Input, Menu, MenuItem, Textarea } from "@/components/ui";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { useRouter } from "next/navigation";
@@ -33,7 +33,10 @@ import { useThreadDecisions } from "@/hooks/useThreadDecisions";
 import { useTeammateStatuses, STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 import { CoachMarks, type CoachStep } from "../onboarding/CoachMarks";
 
-import { Thread, Message } from "@/types/database";
+import { Thread, Message, type Attachment } from "@/types/database";
+import { messageText } from "@/utils/attachments";
+import { FilePreviewPanel } from "./FilePreviewPanel";
+import { FilePreviewContext } from "./filePreviewContext";
 import { isMissingKeyError, MISSING_KEY_AUTO_REPLY_MESSAGE, MISSING_KEY_ASK_MESSAGE } from "@/utils/ai-errors";
 
 // Onboarding rebuild: real targets in the actual Team Space UI. Whether the
@@ -97,7 +100,7 @@ export function ThreadView({
   // clear it when switching threads. Only the fields MessageList's row shape
   // guarantees (it keeps its own local Message type, narrower than the shared
   // one — no thread_id, for instance). ──
-  type ReplySourceMessage = { id: string; sender_type: string; sender_id?: string | null; content: string };
+  type ReplySourceMessage = { id: string; sender_type: string; sender_id?: string | null; content: string; attachments?: Attachment[] | null };
   const [replyingTo, setReplyingTo] = useState<ReplySourceMessage | null>(null);
   const handleReply = useCallback((msg: ReplySourceMessage) => setReplyingTo(msg), []);
   const handleCancelReply = useCallback(() => setReplyingTo(null), []);
@@ -396,6 +399,7 @@ export function ThreadView({
       content: "",
       withdrawn_at: new Date().toISOString(),
       source_message_ids: null,
+      attachments: null,
       is_decision: false,
       pinned_by: null,
       pinned_at: null,
@@ -525,9 +529,12 @@ export function ThreadView({
     // The name on its own line, so a message that opens with a table, heading or list
     // still renders as one.
     const compiled = selectedMsgs
+      .filter((msg) => msg.content.trim())
       .map((msg) => `**${msg.sender_type === "user" ? currentUserName : "Choir AI"}:**\n\n${msg.content}`)
       .join("\n\n");
-    findings.startWithSelection(compiled, selectedMsgs.map((m) => m.id));
+    // Files go through the same review: listed in the dialog, each removable, copied on post.
+    const files = selectedMsgs.flatMap((msg) => msg.attachments ?? []);
+    findings.startWithSelection(compiled, selectedMsgs.map((m) => m.id), files);
   };
 
   // The message list is virtualized (C3), so a target message older than what's loaded
@@ -560,7 +567,7 @@ export function ThreadView({
             : (!replyingTo.sender_id || replyingTo.sender_id === currentUserId
                 ? currentUserName
                 : threadNames.names[replyingTo.sender_id ?? ""] ?? "Teammate"),
-        content: replyingTo.content,
+        content: messageText(replyingTo),
         isAI: replyingTo.sender_type === "assistant",
       }
     : null;
@@ -721,7 +728,20 @@ export function ThreadView({
     }
   }, [newDecisions, newSharedMessages, dismissKey]);
 
-  const handleMessageSent = useCallback((id: string, content: string, replyToId?: string) => {
+  // A clicked file opens in the preview panel on the right (and un-minimizes it).
+  const [previewFile, setPreviewFile] = useState<Attachment | null>(null);
+  const [previewMinimized, setPreviewMinimized] = useState(false);
+  const openFilePreview = useCallback((file: Attachment) => {
+    setPreviewFile(file);
+    setPreviewMinimized(false);
+  }, []);
+
+  // Files dropped anywhere on the thread go to the composer's tray.
+  const addFilesRef = useRef<((files: File[]) => void) | null>(null);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const dragDepth = useRef(0);
+
+  const handleMessageSent = useCallback((id: string, content: string, replyToId?: string, attachments?: Attachment[]) => {
     setLocalMessages((prev) => {
       if (prev.some(m => m.id === id)) return prev; // Prevent React Strict Mode duplicates
       return [
@@ -734,6 +754,7 @@ export function ThreadView({
           content,
           created_at: new Date().toISOString(),
           reply_to_message_id: replyToId ?? null,
+          attachments: attachments && attachments.length > 0 ? attachments : null,
         } as Message,
       ];
     });
@@ -840,10 +861,41 @@ export function ThreadView({
   }, [isPrivate, autoReply, toastError, resetStreamActivity]);
 
   return (
+    <FilePreviewContext.Provider value={openFilePreview}>
     <div className="flex-1 flex w-full h-full relative overflow-hidden">
 
       {/* ── Main Thread Column ──────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 h-full">
+      <div
+        className="relative flex-1 flex flex-col min-w-0 h-full"
+        onDragEnter={(e) => {
+          if (selectMode || !e.dataTransfer.types.includes("Files")) return;
+          dragDepth.current += 1;
+          setDraggingFiles(true);
+        }}
+        onDragOver={(e) => {
+          if (selectMode || !e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDraggingFiles(false);
+        }}
+        onDrop={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          dragDepth.current = 0;
+          setDraggingFiles(false);
+          if (!selectMode && e.dataTransfer.files.length > 0) addFilesRef.current?.(Array.from(e.dataTransfer.files));
+        }}
+      >
+        {draggingFiles && (
+          <div className="pointer-events-none absolute inset-3 z-30 flex flex-col items-center justify-center gap-1.5 rounded-panel border-2 border-dashed border-team bg-card/95">
+            <Paperclip size={22} aria-hidden="true" className="text-team" />
+            <p className="text-body font-semibold text-fg">Drop files to attach</p>
+            <p className="text-caption text-fg-muted">Up to 10 files, 10 MB each</p>
+          </div>
+        )}
 
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-line bg-card/90 backdrop-blur-md flex items-center justify-between sticky top-0 z-10">
@@ -1196,9 +1248,20 @@ export function ThreadView({
             replyingTo={replyTarget}
             onCancelReply={handleCancelReply}
             onTypingChange={setTyping}
+            addFilesRef={addFilesRef}
           />
         )}
       </div>
+
+      {/* ── File preview (resizable, minimizable) ──────────────────── */}
+      {previewFile && (
+        <FilePreviewPanel
+          file={previewFile}
+          minimized={previewMinimized}
+          onMinimizedChange={setPreviewMinimized}
+          onClose={() => setPreviewFile(null)}
+        />
+      )}
 
       {/* ── Context Drawer ──────────────────────────────────────────── */}
       {isPrivate && sharedThread && (
@@ -1367,5 +1430,6 @@ export function ThreadView({
         />
       )}
     </div>
+    </FilePreviewContext.Provider>
   );
 }

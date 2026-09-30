@@ -2,7 +2,10 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Send, Cpu, Reply, X } from "lucide-react";
+import { Send, Cpu, Reply, X, Paperclip } from "lucide-react";
+import type { Attachment } from "@/types/database";
+import { useComposerFiles } from "./useComposerFiles";
+import { ComposerFiles } from "./ComposerFiles";
 import { createClient } from "@/utils/supabase/client";
 import { sendMessage } from "@/app/(main)/thread/[id]/actions";
 import { previewLine } from "@/utils/markdown-preview";
@@ -39,7 +42,9 @@ interface ChatInputProps {
   onStreamActivity?: (activity: string) => void;
   /** Every web page the AI's search found so far in this reply. */
   onStreamSources?: (sources: Source[]) => void;
-  onMessageSent?: (id: string, content: string, replyToId?: string) => void;
+  onMessageSent?: (id: string, content: string, replyToId?: string, attachments?: Attachment[]) => void;
+  /** Set by the composer so the thread can hand it files dropped anywhere on it. */
+  addFilesRef?: React.RefObject<((files: File[]) => void) | null>;
   onMessageFailed?: (id: string) => void;
   disabled?: boolean;
   /**
@@ -111,6 +116,7 @@ export function ChatInput({
   replyingTo = null,
   onCancelReply,
   onTypingChange,
+  addFilesRef,
 }: ChatInputProps) {
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -118,6 +124,22 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const router = useRouter();
+
+  // Files for the next message: picked with the paperclip, pasted, or dropped on the thread.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerFiles = useComposerFiles(threadId, setSendError);
+  const filesSettled = !composerFiles.uploading && !composerFiles.failed;
+  const addFiles = composerFiles.add;
+  useEffect(() => {
+    if (!addFilesRef) return;
+    addFilesRef.current = (list) => {
+      addFiles(list);
+      textareaRef.current?.focus();
+    };
+    return () => {
+      addFilesRef.current = null;
+    };
+  }, [addFilesRef, addFiles]);
 
   // Default to first model
   const [selectedModelStr, setSelectedModelStr] = useState<string>(
@@ -161,9 +183,16 @@ export function ChatInput({
     }
   }, [content]);
 
-  // Pasted code arrives fenced, so it shows as code instead of run-together text.
+  // A pasted screenshot or file is attached; pasted code arrives fenced, so it shows as
+  // code instead of run-together text. Text wins when the clipboard holds both.
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const text = e.clipboardData.getData("text/plain");
+    const pastedFiles = Array.from(e.clipboardData.files);
+    if (pastedFiles.length > 0 && !text.trim()) {
+      e.preventDefault();
+      composerFiles.add(pastedFiles);
+      return;
+    }
     const ta = e.currentTarget;
     const before = content.slice(0, ta.selectionStart);
     const insideFence = (before.match(/```/g)?.length ?? 0) % 2 === 1;
@@ -313,14 +342,18 @@ export function ChatInput({
   const handleSubmit = async (askAI = false) => {
     // Not blocked by an earlier save still in flight: the bubble is already shown, and
     // Next dispatches server actions one at a time, so messages still save in order.
-    if (!content.trim() || disabled) return;
+    // Files must have finished uploading (or been taken out) first.
+    if ((!content.trim() && composerFiles.ready.length === 0) || !filesSettled || disabled) return;
     setSendError(null);
     setIsSubmitting(true);
 
     const textToSend = content;
     const replyToId = replyingTo?.id;
     const aiTriggered = askAI || aiMode === "auto" || aiIndicated;
+    const filesToSend = composerFiles.ready;
+    const trayBefore = composerFiles.files;
     setContent("");
+    composerFiles.clear();
     onTypingChange?.(false);
     onCancelReply?.();
     if (textareaRef.current) {
@@ -331,17 +364,21 @@ export function ChatInput({
 
     // TRUE OPTIMISTIC UI: Generate ID and display immediately
     const optimisticId = crypto.randomUUID();
-    onMessageSent?.(optimisticId, textToSend, replyToId);
+    onMessageSent?.(optimisticId, textToSend, replyToId, filesToSend);
 
     // 1. Save the user message to DB in the background
-    const result = await sendMessage(threadId, textToSend, optimisticId, replyToId);
-    if (result.error) {
+    const result = await sendMessage(threadId, textToSend, optimisticId, replyToId, filesToSend).catch(() => ({
+      error: "Couldn't reach Choir to send your message. Check your connection and try again.",
+    }));
+    if ("error" in result && result.error) {
       // Remove the optimistic bubble from the UI
       if (onMessageFailed) {
         onMessageFailed(optimisticId);
       }
-      // Put the text back, ahead of anything typed since (the box stays usable while saving).
+      // Put the text back, ahead of anything typed since (the box stays usable while saving),
+      // and the files (still stored) back in the tray.
       setContent((current) => (current.trim() ? `${textToSend}\n\n${current}` : textToSend));
+      composerFiles.restore(trayBefore);
       setSendError(result.error);
       setIsSubmitting(false);
       return;
@@ -367,11 +404,13 @@ export function ChatInput({
   // "AI waits": with text, send it and ask; with an empty composer, ask the AI to respond
   // to the thread as it stands (the backend reads the whole thread either way). The empty
   // case needs the latest message to be yours, or the model would be continuing its own turn.
-  const canAskEmpty = !content.trim() && canAskAboutThread;
-  const askDisabled = !!disabled || (!content.trim() && (isSubmitting || !canAskAboutThread));
+  const hasSomething = !!content.trim() || composerFiles.ready.length > 0;
+  const canAskEmpty = !hasSomething && canAskAboutThread;
+  const askDisabled = !!disabled || !filesSettled || (!hasSomething && (isSubmitting || !canAskAboutThread));
+  const canSend = hasSomething && filesSettled && !disabled;
   const handleAskAI = async () => {
     if (askDisabled) return;
-    if (content.trim()) {
+    if (hasSomething) {
       await handleSubmit(true);
       return;
     }
@@ -472,6 +511,8 @@ export function ChatInput({
           </div>
         )}
 
+        <ComposerFiles files={composerFiles.files} onRemove={composerFiles.remove} onRetry={composerFiles.retry} />
+
         {/* Input container — the pill is the only "object" here; no outer panel around it */}
         <div
           className={`relative flex gap-2 bg-card border pl-1.5 pr-1.5 min-h-11 transition-all shadow-raised
@@ -482,6 +523,28 @@ export function ChatInput({
                 : "border-line-strong focus-within:border-team/60 focus-within:ring-2 focus-within:ring-team/15"
             }`}
         >
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Attach files"
+            data-tooltip="Attach files (up to 10 MB each)"
+            className="grid size-8 shrink-0 place-items-center rounded-full text-fg-subtle transition-colors hover:bg-hover hover:text-fg-muted"
+          >
+            <Paperclip size={16} aria-hidden="true" />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={(e) => {
+              if (e.target.files?.length) composerFiles.add(Array.from(e.target.files));
+              e.target.value = "";
+              textareaRef.current?.focus();
+            }}
+          />
           <EmojiPickerButton onPick={insertEmoji} />
           <textarea
             ref={textareaRef}
@@ -550,7 +613,7 @@ export function ChatInput({
                 onClick={() => void handleAskAI()}
                 disabled={askDisabled}
                 data-tooltip={
-                  content.trim()
+                  hasSomething
                     ? "Send and ask AI"
                     : canAskEmpty
                       ? "Ask AI to respond to your messages above"
@@ -565,21 +628,21 @@ export function ChatInput({
             {/* Send button — private colour: it's your message, regardless of thread */}
             <button
               onClick={() => void handleSubmit()}
-              disabled={!content.trim() || disabled}
-              aria-label="Send message"
+              disabled={!canSend}
+              aria-label={composerFiles.uploading ? "Send message (waiting for files to upload)" : "Send message"}
               data-tooltip="Send"
               data-tooltip-shortcut="Enter"
               className={`size-11 rounded-full flex items-center justify-center transition-all shrink-0
                 ${
-                  content.trim() && !disabled
+                  canSend
                     ? "bg-private text-white shadow-soft hover:opacity-90 active:scale-95"
                     : "bg-hover text-fg-subtle cursor-not-allowed"
                 }`}
             >
-              {isSubmitting && !content.trim() ? (
+              {(isSubmitting && !hasSomething) || composerFiles.uploading ? (
                 <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
               ) : (
-                <Send size={16} className={content.trim() ? "translate-x-px" : ""} />
+                <Send size={16} className={hasSomething ? "translate-x-px" : ""} />
               )}
             </button>
           </div>

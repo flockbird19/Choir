@@ -63,6 +63,19 @@ export interface Message {
   covers_count?: number | null;
   // Web pages an AI reply's search found, shown as its Sources. Written only by the backend.
   sources?: { url: string; title: string }[] | null;
+  // Files attached to the message (private "attachments" storage bucket).
+  attachments?: Attachment[] | null;
+}
+
+/** A file on a message. `path` is "<thread id>/<random id>/<file name>" in the attachments bucket. */
+export interface Attachment {
+  path: string;
+  name: string;
+  size: number;
+  type: string;
+  /** Image size in pixels, so the bubble can reserve its space before it loads. */
+  width?: number;
+  height?: number;
 }
 
 export interface TeamInvitation {

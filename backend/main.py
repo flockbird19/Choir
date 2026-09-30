@@ -18,6 +18,7 @@ from backend.auth import get_current_user
 from backend.db import find_missing_tables, get_accessible_thread, get_db, verify_thread_access
 from backend.errors import ErrorMiddleware, safe_sse_stream
 from backend.findings import draft_findings
+from backend.files import attachments_of, human_size, kind as file_kind
 from backend.handoff import draft_handoff_prompt
 from backend.keys import (
     delete_api_key,
@@ -520,7 +521,10 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
         if published_from:
             md_lines.append(f"_Published from {published_from}_")
         md_lines.append("")
-        md_lines.append(msg["content"])
+        if msg["content"]:
+            md_lines.append(msg["content"])
+        for file in attachments_of(msg):
+            md_lines.append(f"_Attached: {file.get('name') or 'file'} ({file_kind(file)}, {human_size(file.get('size'))})_")
         md_lines.append("")
         md_lines.append("---")
         md_lines.append("")

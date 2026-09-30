@@ -15,6 +15,7 @@ import {
 import { useToast } from "@/components/Toast";
 import { Button, IconButton, Sheet } from "@/components/ui";
 import type { Message } from "@/types/database";
+import { messageText } from "@/utils/attachments";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
@@ -223,7 +224,7 @@ export function ProjectMemoryPanel({
               <ul className="space-y-1.5">
                 {decisions.map((d) => (
                   <li key={d.id} className="rounded-control border border-decision-line bg-decision-soft px-3 py-2 text-body-sm text-fg">
-                    <span className="line-clamp-3">{previewLine(d.content)}</span>
+                    <span className="line-clamp-3">{previewLine(messageText(d))}</span>
                   </li>
                 ))}
               </ul>

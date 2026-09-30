@@ -8,6 +8,7 @@ import { markdownComponents, markdownRehype } from "./MessageList";
 import { Button, Dialog } from "@/components/ui";
 import { stripMarkdownSyntax } from "@/utils/markdown-preview";
 import type { Message } from "@/types/database";
+import { messageText } from "@/utils/attachments";
 
 interface CatchMeUpModalProps {
   isOpen: boolean;
@@ -123,7 +124,7 @@ function NoKeyState({
               <li key={d.id} className="flex gap-2 text-fg">
                 <Pin size={13} className="mt-1 shrink-0 text-decision" aria-hidden="true" />
                 <div>
-                  <span className="line-clamp-2 whitespace-pre-wrap">{stripMarkdownSyntax(d.content)}</span>
+                  <span className="line-clamp-2 whitespace-pre-wrap">{stripMarkdownSyntax(messageText(d))}</span>
                   {d.pinned_by && (
                     <p className="text-[11px] text-fg-subtle">Pinned by {names[d.pinned_by] ?? "a teammate"}</p>
                   )}
