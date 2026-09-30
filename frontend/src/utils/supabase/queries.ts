@@ -38,6 +38,17 @@ export const getWorkspace = cache(async (userId: string): Promise<Workspace> => 
   };
 });
 
+// When this user last had Team Space open (the "Seen by" read position), or when they
+// joined the team if they never have. The private-thread banner counts news from here.
+export async function getTeamSpaceSeenSince(userId: string, sharedThreadId: string, teamId: string): Promise<string | null> {
+  const supabase = await createClient();
+  const [read, member] = await Promise.all([
+    supabase.from("thread_reads").select("last_read_at").eq("thread_id", sharedThreadId).eq("user_id", userId).maybeSingle(),
+    supabase.from("team_members").select("joined_at").eq("team_id", teamId).eq("user_id", userId).maybeSingle(),
+  ]);
+  return (read.data?.last_read_at as string | null | undefined) ?? (member.data?.joined_at as string | undefined) ?? null;
+}
+
 // C3: initial load is capped so opening a long thread doesn't render its whole
 // history; "load older" (getMessagesBefore) pages further back on demand.
 export const MESSAGE_PAGE_SIZE = 50;

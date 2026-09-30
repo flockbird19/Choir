@@ -1,4 +1,4 @@
-import { getMessages, getWorkspace, getSeenOnboardingTour } from "@/utils/supabase/queries";
+import { getMessages, getWorkspace, getSeenOnboardingTour, getTeamSpaceSeenSince } from "@/utils/supabase/queries";
 import { getAccessibleThread, getCurrentUser } from "@/utils/supabase/access";
 import { getDisplayName } from "@/utils/display-name";
 import { ThreadView } from "@/components/chat/ThreadView";
@@ -52,14 +52,17 @@ export default async function ThreadPage({
   }
 
   // Same request-scoped workspace the layout and access check already loaded.
+  const workspace = thread.type === "private" ? await getWorkspace(user.id) : null;
   const sharedThread: Thread | null =
-    thread.type === "private"
-      ? (await getWorkspace(user.id)).threads.find(
-          (t) => t.project_id === thread.project_id && t.type === "shared"
-        ) ?? null
-      : null;
+    workspace?.threads.find((t) => t.project_id === thread.project_id && t.type === "shared") ?? null;
+  const teamId = workspace?.projects.find((p) => p.id === thread.project_id)?.team_id;
 
-  const sharedMessages: Message[] = sharedThread ? await getMessages(sharedThread.id) : [];
+  const [sharedMessages, teamSpaceSeenSince]: [Message[], string | null] = sharedThread
+    ? await Promise.all([
+        getMessages(sharedThread.id),
+        teamId ? getTeamSpaceSeenSince(user.id, sharedThread.id, teamId) : Promise.resolve(null),
+      ])
+    : [[], null];
 
   // Only pay for this round trip when the tour was actually requested.
   const wantsTour = thread.type === "shared" && tour === "1";
@@ -73,6 +76,7 @@ export default async function ThreadPage({
       messages={messages}
       sharedThread={sharedThread}
       sharedMessages={sharedMessages}
+      teamSpaceSeenSince={teamSpaceSeenSince}
       currentUserId={user.id}
       currentUserName={getDisplayName(user)}
       // Set by the invite flow (?catchup=1) so newcomers get a digest of what they missed.

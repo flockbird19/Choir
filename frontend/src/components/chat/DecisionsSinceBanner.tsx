@@ -47,13 +47,13 @@ export function DecisionsSinceBanner({
   let byline: string | null;
   if (hasDecisions) {
     const latest = decisions[0];
-    title = `Team decided ${decisions.length === 1 ? "something" : `${decisions.length} things`} since you started here`;
+    title = `Team decided ${decisions.length === 1 ? "something" : `${decisions.length} things`} since you last opened Team Space`;
     detail = `${decisions.length > 1 ? "Latest: " : ""}${preview(latest.content)}`;
     byline = latest.pinned_by ? `pinned by ${names[latest.pinned_by] ?? "a teammate"}` : null;
   } else {
     const latest = newMessages[0];
     const from = latest.sender_type === "assistant" ? "Choir AI" : names[latest.sender_id ?? ""] ?? "a teammate";
-    title = `${messagesLabel} in Team Space since you started here`;
+    title = `${messagesLabel} in Team Space since you last opened it`;
     detail = `Latest from ${from}: ${preview(latest.content)}`;
     byline = null;
   }

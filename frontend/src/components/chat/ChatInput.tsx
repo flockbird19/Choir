@@ -8,6 +8,7 @@ import { sendMessage } from "@/app/(main)/thread/[id]/actions";
 import { previewLine } from "@/utils/markdown-preview";
 import { fenceCode, looksLikeCode } from "@/utils/plain-text";
 import { Menu, MenuLabel, MenuRadioItem } from "@/components/ui/Menu";
+import { EmojiPickerButton } from "./EmojiPickerButton";
 
 export interface Source {
   url: string;
@@ -54,6 +55,8 @@ interface ChatInputProps {
   /** WhatsApp-style "replying to" — set via the Reply icon on a message. */
   replyingTo?: ReplyTarget | null;
   onCancelReply?: () => void;
+  /** Tells teammates you're typing (true on each keystroke with text, false on send/clear). */
+  onTypingChange?: (typing: boolean) => void;
 }
 
 const AVAILABLE_MODELS = [
@@ -107,6 +110,7 @@ export function ChatInput({
   canAskAboutThread = false,
   replyingTo = null,
   onCancelReply,
+  onTypingChange,
 }: ChatInputProps) {
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -170,6 +174,16 @@ export function ChatInput({
     // ponytail: execCommand is deprecated but still the only way to keep native undo.
     if (!document.execCommand("insertText", false, fenced)) {
       setContent(before + fenced + content.slice(ta.selectionEnd));
+    }
+  };
+
+  // Emoji go in at the caret, the same undoable way as a paste.
+  const insertEmoji = (emoji: string) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.focus();
+    if (!document.execCommand("insertText", false, emoji)) {
+      setContent(content.slice(0, ta.selectionStart) + emoji + content.slice(ta.selectionEnd));
     }
   };
 
@@ -297,7 +311,9 @@ export function ChatInput({
   };
 
   const handleSubmit = async (askAI = false) => {
-    if (!content.trim() || isSubmitting || disabled) return;
+    // Not blocked by an earlier save still in flight: the bubble is already shown, and
+    // Next dispatches server actions one at a time, so messages still save in order.
+    if (!content.trim() || disabled) return;
     setSendError(null);
     setIsSubmitting(true);
 
@@ -305,8 +321,13 @@ export function ChatInput({
     const replyToId = replyingTo?.id;
     const aiTriggered = askAI || aiMode === "auto" || aiIndicated;
     setContent("");
+    onTypingChange?.(false);
     onCancelReply?.();
-    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      // Clicking Send moves focus to the button; bring it back so you can keep typing.
+      textareaRef.current.focus();
+    }
 
     // TRUE OPTIMISTIC UI: Generate ID and display immediately
     const optimisticId = crypto.randomUUID();
@@ -319,7 +340,8 @@ export function ChatInput({
       if (onMessageFailed) {
         onMessageFailed(optimisticId);
       }
-      setContent(textToSend); // Put text back into the input box
+      // Put the text back, ahead of anything typed since (the box stays usable while saving).
+      setContent((current) => (current.trim() ? `${textToSend}\n\n${current}` : textToSend));
       setSendError(result.error);
       setIsSubmitting(false);
       return;
@@ -346,7 +368,7 @@ export function ChatInput({
   // to the thread as it stands (the backend reads the whole thread either way). The empty
   // case needs the latest message to be yours, or the model would be continuing its own turn.
   const canAskEmpty = !content.trim() && canAskAboutThread;
-  const askDisabled = isSubmitting || !!disabled || (!content.trim() && !canAskAboutThread);
+  const askDisabled = !!disabled || (!content.trim() && (isSubmitting || !canAskAboutThread));
   const handleAskAI = async () => {
     if (askDisabled) return;
     if (content.trim()) {
@@ -452,7 +474,7 @@ export function ChatInput({
 
         {/* Input container — the pill is the only "object" here; no outer panel around it */}
         <div
-          className={`relative flex gap-2 bg-card border pl-4 pr-1.5 min-h-11 transition-all shadow-raised
+          className={`relative flex gap-2 bg-card border pl-1.5 pr-1.5 min-h-11 transition-all shadow-raised
             ${multiline ? "items-end rounded-[20px] py-1.5" : "items-center rounded-pill"}
             ${
               aiIndicated
@@ -460,17 +482,21 @@ export function ChatInput({
                 : "border-line-strong focus-within:border-team/60 focus-within:ring-2 focus-within:ring-team/15"
             }`}
         >
+          <EmojiPickerButton onPick={insertEmoji} />
           <textarea
             ref={textareaRef}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={(e) => {
+              setContent(e.target.value);
+              onTypingChange?.(e.target.value.trim().length > 0);
+            }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             aria-label="Message"
             placeholder={PLACEHOLDERS[aiMode]}
             className="focus-ring-in-container flex-1 max-h-[200px] bg-transparent resize-none outline-none py-2.5 text-fg placeholder:text-fg-subtle text-sm leading-normal"
             rows={1}
-            disabled={isSubmitting || disabled}
+            // Never disabled: a disabled box drops focus. Send and Ask AI wait instead.
           />
 
           <div className="flex items-center gap-1.5 shrink-0">
@@ -539,18 +565,18 @@ export function ChatInput({
             {/* Send button — private colour: it's your message, regardless of thread */}
             <button
               onClick={() => void handleSubmit()}
-              disabled={!content.trim() || isSubmitting || disabled}
+              disabled={!content.trim() || disabled}
               aria-label="Send message"
               data-tooltip="Send"
               data-tooltip-shortcut="Enter"
               className={`size-11 rounded-full flex items-center justify-center transition-all shrink-0
                 ${
-                  content.trim() && !isSubmitting && !disabled
+                  content.trim() && !disabled
                     ? "bg-private text-white shadow-soft hover:opacity-90 active:scale-95"
                     : "bg-hover text-fg-subtle cursor-not-allowed"
                 }`}
             >
-              {isSubmitting ? (
+              {isSubmitting && !content.trim() ? (
                 <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
               ) : (
                 <Send size={16} className={content.trim() ? "translate-x-px" : ""} />

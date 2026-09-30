@@ -72,6 +72,7 @@ export function ThreadView({
   messages,
   sharedThread,
   sharedMessages,
+  teamSpaceSeenSince = null,
   currentUserId,
   currentUserName,
   autoCatchUp = false,
@@ -81,6 +82,8 @@ export function ThreadView({
   messages: Message[];
   sharedThread?: Thread | null;
   sharedMessages?: Message[];
+  /** Private threads: when you last had Team Space open (or joined the team). */
+  teamSpaceSeenSince?: string | null;
   currentUserId: string;
   currentUserName: string;
   autoCatchUp?: boolean;
@@ -330,7 +333,10 @@ export function ThreadView({
   // Private threads emit no thread-level presence at all. The presence channel is a public
   // Realtime channel (not RLS-protected), so joining one for a private thread would rely on
   // the thread id staying secret: obscurity, not a boundary.
-  const presentUsers = useThreadPresence(isPrivate ? null : thread.id, currentUserName);
+  const { others: presentUsers, typing: typingUsers, setTyping } = useThreadPresence(
+    isPrivate ? null : thread.id,
+    currentUserName
+  );
 
   // ── E4 follow-up: teammates' status (online/away/dnd/offline), live ────────
   const statuses = useTeammateStatuses();
@@ -653,11 +659,14 @@ export function ThreadView({
     }
   }, [autoReply, thread.id, toastError]);
 
-  // ── "Team decided since you started" (private threads) ─────────────────────
-  // Decisions pinned in the Team Space after this thread's last activity before this
-  // visit. It stays put while you work; dismissing hides everything pinned so far.
-  const [lastActivityAt] = useState(() =>
-    Math.max(Date.parse(thread.created_at) || 0, ...messages.map((m) => Date.parse(m.created_at) || 0))
+  // ── "Team decided since you last opened Team Space" (private threads) ──────
+  // News from after you last had Team Space open (or joined the team), so what you
+  // already read there never counts. Falls back to this thread's last activity if the
+  // read position couldn't be loaded. Dismissing hides everything so far.
+  const [lastActivityAt] = useState(
+    () =>
+      Date.parse(teamSpaceSeenSince ?? "") ||
+      Math.max(Date.parse(thread.created_at) || 0, ...messages.map((m) => Date.parse(m.created_at) || 0))
   );
   const dismissKey = `choir:decisions-banner-dismissed:${thread.id}`;
   // null until the saved dismissal is read after mount, so a dismissed banner never flashes.
@@ -1110,6 +1119,32 @@ export function ThreadView({
           onWithdraw={isPrivate ? undefined : handleWithdraw}
         />
 
+        {/* Who's typing (Team Space). A fixed-height row so the list doesn't jump. */}
+        {!isPrivate && (
+          <div role="status" aria-live="polite" className="flex h-6 items-center gap-2 px-6 text-caption text-fg-muted">
+            {typingUsers.length > 0 && (
+              <>
+                <span className="flex items-center gap-[3px]" aria-hidden="true">
+                  {[0, 150, 300].map((delay) => (
+                    <span
+                      key={delay}
+                      className="h-[5px] w-[5px] rounded-full bg-fg-subtle animate-typing"
+                      style={{ animationDelay: `${delay}ms` }}
+                    />
+                  ))}
+                </span>
+                <span>
+                  {typingUsers.length === 1
+                    ? `${typingUsers[0].name} is typing…`
+                    : typingUsers.length === 2
+                      ? `${typingUsers[0].name} and ${typingUsers[1].name} are typing…`
+                      : "Several people are typing…"}
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Chat Input or Selection Action Bar */}
         {selectMode ? (
           <div className="mx-4 mb-4 mt-2 px-5 py-4 bg-private-soft border border-private-line rounded-card shadow-soft flex items-center justify-between">
@@ -1160,6 +1195,7 @@ export function ThreadView({
             canAskAboutThread={lastRealMessage?.sender_type === "user"}
             replyingTo={replyTarget}
             onCancelReply={handleCancelReply}
+            onTypingChange={setTyping}
           />
         )}
       </div>
