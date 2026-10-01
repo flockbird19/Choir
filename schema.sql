@@ -26,6 +26,10 @@
 -- Pending re-run (2026-09-30, file uploads, branch file-uploads): messages.attachments, the
 -- attachment helpers, the private "attachments" storage bucket and its rules (§7), withdraw
 -- also clearing a post's attachments.
+-- Pending re-run (2026-10-01, team page, branch team-page): teams.description and icon columns,
+-- members seeing their teammates' memberships, owners (not only the creator) deleting a team,
+-- leave_team / remove_member / make_owner, private threads needing team membership too, and
+-- the public "team-icons" storage bucket (§7).
 -- ============================================================================
 
 begin;
@@ -237,6 +241,30 @@ alter table public.messages add column if not exists sources jsonb;
 -- rule below only accepts paths inside the message's own thread folder.
 alter table public.messages add column if not exists attachments jsonb;
 
+-- Team page (2026-10-01): a short description, and the team's icon in the rail: initials, a
+-- Lucide icon (by name) or an uploaded image (a path in the "team-icons" bucket, inside the
+-- team's own folder), on one of a fixed set of colours (DESIGN.md 3.7).
+alter table public.teams add column if not exists description text;
+alter table public.teams add column if not exists icon_kind text not null default 'initials';
+alter table public.teams add column if not exists icon_name text;
+alter table public.teams add column if not exists icon_color text not null default 'default';
+alter table public.teams add column if not exists icon_path text;
+alter table public.teams drop constraint if exists teams_description_check;
+alter table public.teams add constraint teams_description_check
+  check (description is null or char_length(description) <= 280);
+alter table public.teams drop constraint if exists teams_icon_check;
+alter table public.teams add constraint teams_icon_check check (
+  icon_kind in ('initials', 'icon', 'image')
+  and icon_color in ('default', 'slate', 'teal', 'olive', 'rust', 'rose', 'cocoa')
+  and (icon_name is null or icon_name ~ '^[a-z0-9-]{1,40}$')
+  and (icon_kind <> 'icon' or icon_name is not null)
+  and (icon_kind <> 'image' or icon_path is not null)
+  and (icon_path is null or (
+    split_part(icon_path, '/', 1) = id::text
+    and icon_path ~ '^[0-9a-f-]{36}/[A-Za-z0-9_-]{1,64}\.(png|jpg|jpeg|webp)$'
+  ))
+);
+
 -- L5: invite links expire after 7 days and can be revoked.
 -- (Existing links get 7 days from the first run of this line.)
 alter table public.team_invitations add column if not exists expires_at timestamptz not null
@@ -386,6 +414,9 @@ as $$
   );
 $$;
 
+-- Shared = any team member; private = its owner, while they're still on the team (2026-10-01:
+-- someone who left kept their private threads, whose AI reads Team Space; they come back if
+-- the person is invited again).
 create or replace function public.can_access_thread(p_thread_id uuid)
 returns boolean
 language sql stable security definer set search_path = public
@@ -394,14 +425,20 @@ as $$
     select 1
     from threads t
     join projects p on p.id = t.project_id
+    join team_members tm on tm.team_id = p.team_id and tm.user_id = auth.uid()
     where t.id = p_thread_id
-      and (
-        (t.type = 'private' and t.owner_id = auth.uid())
-        or (t.type = 'shared' and exists (
-          select 1 from team_members tm
-          where tm.team_id = p.team_id and tm.user_id = auth.uid()
-        ))
-      )
+      and (t.type = 'shared' or (t.type = 'private' and t.owner_id = auth.uid()))
+  );
+$$;
+
+-- Team page: owners can remove people, make others owner and delete the team.
+create or replace function public.is_team_owner(p_team_id uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from team_members
+    where team_id = p_team_id and user_id = auth.uid() and role = 'owner'
   );
 $$;
 
@@ -497,17 +534,18 @@ as $$
 $$;
 
 -- Upload limits per person, so one account (anyone can sign up) can't fill the project's
--- storage for everyone: at most 300 MB stored in all, and 60 uploads in any hour.
+-- storage for everyone: at most 300 MB stored in all, and 60 uploads in any hour. Team icons
+-- (2026-10-01) count towards the same limits.
 create or replace function public.attachment_quota_ok()
 returns boolean
 language sql stable security definer set search_path = public, storage
 as $$
   select
     (select coalesce(sum((o.metadata ->> 'size')::bigint), 0) from storage.objects o
-      where o.bucket_id = 'attachments' and o.owner_id = (select auth.uid())::text) < 300 * 1024 * 1024
+      where o.bucket_id in ('attachments', 'team-icons') and o.owner_id = (select auth.uid())::text) < 300 * 1024 * 1024
     and
     (select count(*) from storage.objects o
-      where o.bucket_id = 'attachments' and o.owner_id = (select auth.uid())::text
+      where o.bucket_id in ('attachments', 'team-icons') and o.owner_id = (select auth.uid())::text
         and o.created_at > now() - interval '1 hour') < 60;
 $$;
 
@@ -577,32 +615,29 @@ begin
   end loop;
 end $$;
 
--- Teams: members can see their teams; any member can rename it (same as Team Space
--- threads: nobody "owns" the workspace more than anyone else); only the creator can delete.
+-- Teams: members can see their teams; any member can rename it and change its description
+-- and icon (same as Team Space threads: nobody "owns" the workspace more than anyone else);
+-- owners delete it (2026-10-01: was the creator only, who may since have left).
 create policy "Members can view their teams" on public.teams
   for select using (public.is_team_member(id));
 create policy "Team members can rename their teams" on public.teams
-  for update using (public.is_team_member(id));
-create policy "Creator can delete team" on public.teams
-  for delete using (created_by = auth.uid());
+  for update using (public.is_team_member(id)) with check (public.is_team_member(id));
+create policy "Owners can delete their team" on public.teams
+  for delete using (public.is_team_owner(id));
 
--- Team members: users see their own memberships
-create policy "Users can view own memberships" on public.team_members
-  for select using (user_id = auth.uid());
+-- Team members: you see your own memberships and your teammates' (the team page lists them
+-- with their roles). Nobody inserts, changes or deletes rows directly: joining goes through an
+-- invite on the server, leaving and removing through the functions below.
+create policy "Members view their teams' memberships" on public.team_members
+  for select using (user_id = auth.uid() or public.is_team_member(team_id));
 
 -- Projects: team members can see them
 create policy "Members can view projects" on public.projects
   for select using (public.is_team_member(team_id));
 
--- Threads: shared = team members, private = owner only
+-- Threads: shared = team members, private = owner only (while they're on the team)
 create policy "View accessible threads" on public.threads
-  for select using (
-    (type = 'private' and owner_id = auth.uid())
-    or (type = 'shared' and exists (
-      select 1 from public.projects p
-      where p.id = threads.project_id and public.is_team_member(p.team_id)
-    ))
-  );
+  for select using (public.can_access_thread(id));
 create policy "Members can create own private threads" on public.threads
   for insert with check (
     type = 'private'
@@ -736,6 +771,116 @@ end $$;
 revoke execute on function public.withdraw_publication(uuid) from public, anon;
 grant execute on function public.withdraw_publication(uuid) to authenticated;
 
+-- Team page (2026-10-01): taking someone off a team. Their keys stop being lent to its projects,
+-- coding agents they connected leave with them, and invite links they made stop working.
+-- Their messages stay (shown under their name); their private threads stay saved but closed
+-- (can_access_thread needs membership) until they're invited again. Internal: called only by
+-- leave_team and remove_member below.
+create or replace function public.drop_team_member(p_team_id uuid, p_user_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  delete from shared_keys
+   where user_id = p_user_id
+     and project_id in (select id from projects where team_id = p_team_id);
+  delete from agent_connections
+   where owner_id = p_user_id
+     and project_id in (select id from projects where team_id = p_team_id);
+  delete from team_members
+   where team_id = p_team_id
+     and user_id in (select id from profiles where kind = 'agent' and owner_id = p_user_id);
+  update team_invitations set revoked_at = now()
+   where team_id = p_team_id and created_by = p_user_id and revoked_at is null;
+  delete from team_members where team_id = p_team_id and user_id = p_user_id;
+end $$;
+revoke execute on function public.drop_team_member(uuid, uuid) from public, anon, authenticated;
+
+-- Anyone can leave. The last owner's leaving makes the longest-standing person owner; the last
+-- person's leaving deletes the team. Returns 'left', 'left_new_owner' or 'deleted'.
+create or replace function public.leave_team(p_team_id uuid)
+returns text
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_role text;
+  v_next uuid;
+begin
+  -- Locks the team's rows, so two people leaving at once can't both skip the hand-over.
+  perform 1 from team_members where team_id = p_team_id for update;
+  select role into v_role from team_members where team_id = p_team_id and user_id = auth.uid();
+  if v_role is null then
+    raise exception 'You are not in this team' using errcode = '42501';
+  end if;
+
+  -- People left besides you (agents don't count: they act for someone).
+  if not exists (
+    select 1 from team_members tm left join profiles pr on pr.id = tm.user_id
+     where tm.team_id = p_team_id and tm.user_id <> auth.uid() and coalesce(pr.kind, 'human') = 'human'
+  ) then
+    delete from teams where id = p_team_id;
+    return 'deleted';
+  end if;
+
+  perform drop_team_member(p_team_id, auth.uid());
+
+  if v_role = 'owner' and not exists (select 1 from team_members where team_id = p_team_id and role = 'owner') then
+    select tm.user_id into v_next
+      from team_members tm left join profiles pr on pr.id = tm.user_id
+     where tm.team_id = p_team_id and coalesce(pr.kind, 'human') = 'human'
+     order by tm.joined_at asc nulls last, tm.user_id
+     limit 1;
+    update team_members set role = 'owner' where team_id = p_team_id and user_id = v_next;
+    return 'left_new_owner';
+  end if;
+  return 'left';
+end $$;
+revoke execute on function public.leave_team(uuid) from public, anon;
+grant execute on function public.leave_team(uuid) to authenticated;
+
+-- Owners remove someone else (yourself: leave_team). p_revoke_invites also stops every active
+-- invite link, so the person can't rejoin with a link they were sent earlier.
+create or replace function public.remove_member(p_team_id uuid, p_user_id uuid, p_revoke_invites boolean)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_team_owner(p_team_id) then
+    raise exception 'Only owners can remove people' using errcode = '42501';
+  end if;
+  if p_user_id = auth.uid() then
+    raise exception 'Use leave_team to leave' using errcode = '22023';
+  end if;
+  if not exists (select 1 from team_members where team_id = p_team_id and user_id = p_user_id) then
+    raise exception 'That person is not in this team' using errcode = '22023';
+  end if;
+  perform drop_team_member(p_team_id, p_user_id);
+  if p_revoke_invites then
+    update team_invitations set revoked_at = now() where team_id = p_team_id and revoked_at is null;
+  end if;
+end $$;
+revoke execute on function public.remove_member(uuid, uuid, boolean) from public, anon;
+grant execute on function public.remove_member(uuid, uuid, boolean) to authenticated;
+
+-- Owners make another person (never an agent) an owner too.
+create or replace function public.make_owner(p_team_id uuid, p_user_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not public.is_team_owner(p_team_id) then
+    raise exception 'Only owners can make someone an owner' using errcode = '42501';
+  end if;
+  update team_members tm set role = 'owner'
+   where tm.team_id = p_team_id and tm.user_id = p_user_id
+     and not exists (select 1 from profiles pr where pr.id = p_user_id and pr.kind = 'agent');
+  if not found then
+    raise exception 'Only people in this team can become owners' using errcode = '22023';
+  end if;
+end $$;
+revoke execute on function public.make_owner(uuid, uuid) from public, anon;
+grant execute on function public.make_owner(uuid, uuid) to authenticated;
+
 -- API keys: only your own (the backend reads them with the service key)
 create policy "Manage own API keys" on public.user_api_keys
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
@@ -831,9 +976,10 @@ grant insert (id, thread_id, sender_type, sender_id, content, shared_by, source_
               source_message_ids, reply_to_message_id, publish_edited, attachments)
   on public.messages to authenticated;
 
--- Any team member may rename it (see "Team members can rename their teams" above).
+-- Any team member may rename it and change its description and icon (see "Team members can
+-- rename their teams" above); never its creator or creation time.
 revoke update on public.teams from anon, authenticated;
-grant update (name) on public.teams to authenticated;
+grant update (name, description, icon_kind, icon_name, icon_color, icon_path) on public.teams to authenticated;
 
 -- Signed-in users may change a thread's AI auto-reply setting (mute) or its name,
 -- never its type, owner or project. The two policies above decide who may touch
@@ -896,5 +1042,27 @@ create policy "Choir: add files to threads you can open" on storage.objects
 create policy "Choir: remove your own files" on storage.objects
   for delete to authenticated
   using (bucket_id = 'attachments' and owner_id = (select auth.uid())::text and public.can_access_attachment(name));
+
+-- Team icons (2026-10-01): a public bucket, because the rail shows icons on every page and a
+-- team icon isn't secret (its path is random). Only a team's members add or remove images in
+-- its folder ("<team id>/<random>.webp"; attachment_thread reads the first folder as a uuid);
+-- uploads count towards the per-person limits above. 2 MB, PNG/JPEG/WebP only.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('team-icons', 'team-icons', true, 2097152, array['image/png', 'image/jpeg', 'image/webp'])
+on conflict (id) do update
+  set public = true, file_size_limit = 2097152, allowed_mime_types = array['image/png', 'image/jpeg', 'image/webp'];
+
+drop policy if exists "Choir: members add their team's icon" on storage.objects;
+drop policy if exists "Choir: members remove their team's icon" on storage.objects;
+create policy "Choir: members add their team's icon" on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'team-icons'
+    and coalesce(public.is_team_member(public.attachment_thread(name)), false)
+    and public.attachment_quota_ok()
+  );
+create policy "Choir: members remove their team's icon" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'team-icons' and coalesce(public.is_team_member(public.attachment_thread(name)), false));
 
 commit;

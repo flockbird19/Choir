@@ -1,20 +1,21 @@
 import { createClient } from "@/utils/supabase/server";
-import type { Team } from "@/types/database";
+import { siteOrigin } from "@/utils/site-origin";
 import { InviteLinks, type ActiveInvite } from "./InviteLinks";
 
-export async function InviteSection({ teams }: { teams: Team[] }) {
-  if (teams.length === 0) return null;
-
-  // Access rules limit this to the user's own workspaces. Until schema.sql adds
-  // expires_at / revoked_at this query fails and the list is simply empty.
+// The team page's "Invite people" section (moved from Settings 2026-10-01). Access rules
+// limit this to the user's own teams.
+export async function InviteSection({ teamId }: { teamId: string }) {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("team_invitations")
-    .select("id, team_id, token, created_at, expires_at")
-    .in("team_id", teams.map((team) => team.id))
-    .is("revoked_at", null)
-    .gt("expires_at", new Date().toISOString())
-    .order("created_at", { ascending: false });
+  const [{ data }, origin] = await Promise.all([
+    supabase
+      .from("team_invitations")
+      .select("id, team_id, token, created_at, expires_at, created_by")
+      .eq("team_id", teamId)
+      .is("revoked_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false }),
+    siteOrigin(),
+  ]);
 
-  return <InviteLinks teams={teams} invites={(data ?? []) as ActiveInvite[]} />;
+  return <InviteLinks teamId={teamId} origin={origin} invites={(data ?? []) as ActiveInvite[]} />;
 }

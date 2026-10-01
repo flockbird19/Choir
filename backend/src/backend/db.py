@@ -79,25 +79,21 @@ def get_accessible_thread(user_id: str, thread_id: str) -> dict[str, Any] | None
 
     thread = data[0]
 
-    if thread["type"] == "private":
-        return thread if thread["owner_id"] == user_id else None
+    # Same rule as can_access_thread in schema.sql: shared = any team member, private = its
+    # owner while they're still on the team (someone who left can't reopen their private
+    # thread, whose AI reads Team Space).
+    if thread["type"] == "private" and thread["owner_id"] != user_id:
+        return None
+    if thread["type"] not in ("private", "shared"):
+        return None
 
-    elif thread["type"] == "shared":
-        # Check if the user is in the team that owns the project
-        project_id = thread["project_id"]
-        proj_response = db.table("projects").select("team_id").eq("id", project_id).execute()
-        proj_data = cast(list[dict[str, Any]], proj_response.data)
-        if not proj_data:
-            return None
-
-        team_id = proj_data[0]["team_id"]
-
-        # Check team_members
-        member_response = db.table("team_members").select("user_id").eq("team_id", team_id).eq("user_id", user_id).execute()
-        member_data = cast(list[dict[str, Any]], member_response.data)
-        return thread if member_data else None
-
-    return None
+    proj_response = db.table("projects").select("team_id").eq("id", thread["project_id"]).execute()
+    proj_data = cast(list[dict[str, Any]], proj_response.data)
+    if not proj_data:
+        return None
+    team_id = proj_data[0]["team_id"]
+    member_response = db.table("team_members").select("user_id").eq("team_id", team_id).eq("user_id", user_id).execute()
+    return thread if cast(list[dict[str, Any]], member_response.data) else None
 
 
 def verify_thread_access(user_id: str, thread_id: str) -> bool:

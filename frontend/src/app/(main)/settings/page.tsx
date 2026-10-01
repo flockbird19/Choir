@@ -1,24 +1,17 @@
 import { getSavedProviders } from "@/app/(main)/thread/[id]/actions";
 import { SettingsClient } from "./SettingsClient";
-import { InviteSection } from "./InviteSection";
-import { DangerZone } from "./DangerZone";
 import { KeyRound } from "lucide-react";
-import { getWorkspace } from "@/utils/supabase/queries";
-import { getCurrentUser } from "@/utils/supabase/access";
 import { ConnectAgentPanel } from "./ConnectAgentPanel";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Settings — Choir",
-  description: "Manage your API keys, integrations, and workspace settings.",
+  description: "Manage your API keys and integrations.",
 };
 
+// Invites and deleting a team moved to each team's own page (/team/<id>, 2026-10-01).
 export default async function SettingsPage() {
-  const user = await getCurrentUser();
-  const [savedProviders, teams] = await Promise.all([
-    getSavedProviders(),
-    user ? getWorkspace(user.id).then((workspace) => workspace.teams) : Promise.resolve([]),
-  ]);
+  const savedProviders = await getSavedProviders();
 
   return (
     <main className="h-full overflow-y-auto bg-bg">
@@ -52,12 +45,6 @@ export default async function SettingsPage() {
         <div className="mt-10">
           <ConnectAgentPanel />
         </div>
-
-        {/* Section: Invite Members */}
-        <InviteSection teams={teams} />
-
-        {/* Danger Zone */}
-        {user && <DangerZone teams={teams} currentUserId={user.id} />}
       </div>
     </main>
   );

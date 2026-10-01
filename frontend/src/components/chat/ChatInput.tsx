@@ -64,7 +64,7 @@ interface ChatInputProps {
   onTypingChange?: (typing: boolean) => void;
 }
 
-const AVAILABLE_MODELS = [
+export const AVAILABLE_MODELS = [
   { provider: "anthropic", id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
   { provider: "anthropic", id: "claude-sonnet-5", name: "Sonnet 5" },
   { provider: "anthropic", id: "claude-opus-5", name: "Opus 5" },
@@ -78,7 +78,7 @@ const AVAILABLE_MODELS = [
   { provider: "groq", id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
 ];
 
-const PROVIDER_LABELS: Record<string, string> = {
+export const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   google: "Google",

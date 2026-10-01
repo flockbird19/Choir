@@ -81,6 +81,15 @@
   --color-presence-dnd: var(--ds-presence-dnd);
   --color-presence-offline: var(--ds-presence-offline);
 
+  /* Team colours (DESIGN.md 3.7): a team's icon in the rail. Identity, its own meaning. */
+  --color-team-slate: var(--ds-team-slate);
+  --color-team-teal: var(--ds-team-teal);
+  --color-team-olive: var(--ds-team-olive);
+  --color-team-rust: var(--ds-team-rust);
+  --color-team-rose: var(--ds-team-rose);
+  --color-team-cocoa: var(--ds-team-cocoa);
+  --color-on-team-colour: var(--ds-on-team-colour);
+
   --shadow-raised: var(--ds-shadow-raised);
   --shadow-overlay: var(--ds-shadow-overlay);
 }
@@ -239,6 +248,13 @@
   --ds-presence-away:    #8F5405;
   --ds-presence-dnd:     #C2362B;
   --ds-presence-offline: #686C78;
+  --ds-team-slate: #4A5468;
+  --ds-team-teal:  #0E6B6B;
+  --ds-team-olive: #5A6420;
+  --ds-team-rust:  #A14420;
+  --ds-team-rose:  #A3335A;
+  --ds-team-cocoa: #77502F;
+  --ds-on-team-colour: #FFFFFF;
   /* Code syntax colours (DESIGN.md §7, code blocks): each ≥ 4.5:1 on sunken. */
   --ds-code-keyword:  #1F4E99;
   --ds-code-function: #0B6B70;
@@ -321,6 +337,13 @@
   --ds-presence-away:    #E9A94B;
   --ds-presence-dnd:     #F07167;
   --ds-presence-offline: #8D919E;
+  --ds-team-slate: #B7C0D1;
+  --ds-team-teal:  #5CC4BE;
+  --ds-team-olive: #B9C46E;
+  --ds-team-rust:  #F09A70;
+  --ds-team-rose:  #F294B5;
+  --ds-team-cocoa: #D6AC86;
+  --ds-on-team-colour: #0D0E12;
   --ds-code-keyword:  #7FA8E0;
   --ds-code-function: #5CC6C6;
   --ds-code-type:     #EE8FB4;

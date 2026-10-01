@@ -314,3 +314,13 @@ def test_people_who_left_the_team_lend_nothing():
     db = make_db([lend("pool-gone", "u-gone", "anthropic", "pool")])
     tried, _, _ = run(db)
     assert [key for key, _ in tried] == ["sk-owner"]
+
+
+def test_a_project_creator_who_left_the_team_no_longer_pays_for_team_space():
+    # Team page (2026-10-01): anyone can leave, the creator too. Team Space then runs on pooled
+    # keys, or the asker's own key, never the departed creator's.
+    db = make_db()
+    db._tables["team_members"] = [m for m in db._tables["team_members"] if m["user_id"] != "u-owner"]
+    tried, _, decrypted = run(db)
+    assert [key for key, _ in tried] == ["sk-ravi"]
+    assert ("u-owner", "anthropic") not in decrypted

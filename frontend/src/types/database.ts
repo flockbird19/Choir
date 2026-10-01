@@ -1,8 +1,16 @@
+export type TeamColour = 'default' | 'slate' | 'teal' | 'olive' | 'rust' | 'rose' | 'cocoa';
+
 export interface Team {
   id: string;
   name: string;
   created_by: string;
   created_at: string;
+  // Team page (2026-10-01). Missing until the schema.sql re-run adds them: treat as initials.
+  description?: string | null;
+  icon_kind?: 'initials' | 'icon' | 'image';
+  icon_name?: string | null;
+  icon_color?: TeamColour;
+  icon_path?: string | null;
 }
 
 export interface Project {

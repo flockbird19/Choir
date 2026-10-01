@@ -31,8 +31,11 @@ export function AppLayoutClient({
   const threadIdMatch = pathname.match(/\/thread\/([a-zA-Z0-9-]+)/);
   const currentThreadId = threadIdMatch ? threadIdMatch[1] : null;
 
+  const teamPageId = pathname.match(/^\/team\/([a-zA-Z0-9-]+)/)?.[1];
   let initialTeamId = teams[0]?.id || null;
-  if (currentThreadId) {
+  if (teamPageId && teams.some((t) => t.id === teamPageId)) {
+    initialTeamId = teamPageId;
+  } else if (currentThreadId) {
     const currentThread = threads.find((t) => t.id === currentThreadId);
     if (currentThread) {
       const currentProject = projects.find((p) => p.id === currentThread.project_id);

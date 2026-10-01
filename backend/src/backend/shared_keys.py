@@ -69,13 +69,10 @@ def plan_keys(
     shared_provider = project.get("shared_model_provider") or "anthropic"
     shared_model = project.get("shared_model_name")
 
-    rows = _lent_rows(db, project["id"])
-    if rows and project.get("team_id"):
-        # Someone who has left the team no longer lends anything.
-        members = _team_member_ids(db, project["team_id"])
-        rows = [row for row in rows if row["user_id"] in members]
-    else:
-        rows = []
+    # Someone who has left the team no longer lends anything, and that includes the project
+    # creator's own key (2026-10-01: anyone can leave, the creator too).
+    members = _team_member_ids(db, project["team_id"]) if project.get("team_id") else set()
+    rows = [row for row in _lent_rows(db, project["id"]) if row["user_id"] in members]
 
     def lent(mode: str) -> list[KeyCandidate]:
         return [
@@ -103,7 +100,7 @@ def plan_keys(
                 kept.append(candidate)
         return kept
 
-    first = keep(lent("pool") + [owner])
+    first = keep(lent("pool") + ([owner] if owner.user_id in members else []))
     return first, keep(lent("fallback"))
 
 

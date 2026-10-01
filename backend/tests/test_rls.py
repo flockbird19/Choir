@@ -59,6 +59,7 @@ FEATURES = {
     "withdraw": ("messages", "withdrawn_at,publish_edited"),
     "context": ("project_memory", "project_id"),
     "attachments": ("messages", "attachments"),
+    "team_page": ("teams", "icon_kind,description"),
 }
 
 
@@ -873,3 +874,173 @@ def test_verify_thread_access_agrees_with_rls(world, user_key, thread_key, expec
     thread_id = getattr(world, thread_key)
     assert verify_thread_access(user.id, thread_id) is expected
     assert rls_allows(user, "threads", thread_id) is expected
+
+
+# ── Team page (2026-10-01) ──────────────────────────────────────────────────
+
+
+def fresh_team(world, owner, *members) -> SimpleNamespace:
+    """A team made for one test (leaving and removing change membership); the test deletes it."""
+    admin = world.admin
+    team = ok(admin.insert("teams", {"name": f"e2e team page {secrets.token_hex(3)}", "created_by": owner.id}))[0]["id"]
+    ok(admin.insert("team_members", {"team_id": team, "user_id": owner.id, "role": "owner", "joined_at": "2026-01-01T00:00:00Z"}))
+    for i, member in enumerate(members, 2):
+        ok(admin.insert("team_members", {"team_id": team, "user_id": member.id, "role": "member", "joined_at": f"2026-01-0{i}T00:00:00Z"}))
+    project = ok(admin.insert("projects", {"team_id": team, "name": "P", "created_by": owner.id}))[0]["id"]
+    shared = ok(admin.insert("threads", {"project_id": project, "type": "shared", "name": "Team Space"}))[0]["id"]
+    return SimpleNamespace(id=team, project=project, shared=shared)
+
+
+def member_role(world, team: str, user) -> str | None:
+    rows = ok(world.admin.select("team_members", team_id=eq(team), user_id=eq(user.id)))
+    return rows[0]["role"] if rows else None
+
+
+def test_team_details_and_icon_are_member_only_and_checked(world):
+    needs(world, "team_page")
+    b, c, t1 = world.b, world.c, world.t1
+    # Control: any member (B isn't an owner) sets the description and icon.
+    ok(b.api.update("teams", {"description": "Building Choir", "icon_kind": "icon", "icon_name": "rocket", "icon_color": "teal"}, id=eq(t1)))
+    assert admin_row(world, "teams", t1)["icon_color"] == "teal"
+    # An outsider changes nothing.
+    assert_blocked(c.api.update("teams", {"description": "hijacked"}, id=eq(t1)))
+    assert admin_row(world, "teams", t1)["description"] == "Building Choir"
+    # Values outside the allowed sets, and an image path in another team's folder, are refused.
+    for bad in (
+        {"icon_color": "purple"},
+        {"icon_kind": "emoji"},
+        {"icon_name": "<script>"},
+        {"icon_kind": "image", "icon_path": f"{world.t2}/x.webp"},
+        {"icon_kind": "image", "icon_path": f"{t1}/../x.webp"},
+        {"description": "x" * 281},
+    ):
+        response = b.api.update("teams", bad, id=eq(t1))
+        assert response.status_code == 400, f"{bad}: {response.status_code} {response.text}"
+    # Control: an image in the team's own folder is accepted.
+    ok(b.api.update("teams", {"icon_kind": "image", "icon_path": f"{t1}/abc123.webp"}, id=eq(t1)))
+    # The creator can't be changed.
+    assert_denied(b.api.update("teams", {"created_by": b.id}, id=eq(t1)))
+
+
+def test_members_see_their_teammates_memberships_and_outsiders_dont(world):
+    needs(world, "team_page")
+    # Control: B sees A's membership (and role) in their shared team.
+    rows = ok(world.b.api.select("team_members", team_id=eq(world.t1), user_id=eq(world.a.id)))
+    assert rows and rows[0]["role"] == "owner"
+    assert ok(world.c.api.select("team_members", team_id=eq(world.t1))) == []
+    # Nobody adds or changes memberships directly.
+    assert_denied(world.c.api.insert("team_members", {"team_id": world.t1, "user_id": world.c.id}))
+    assert_blocked(world.b.api.update("team_members", {"role": "owner"}, team_id=eq(world.t1), user_id=eq(world.b.id)))
+    assert member_role(world, world.t1, world.b) == "member"
+
+
+def test_only_owners_delete_a_team(world):
+    needs(world, "team_page")
+    team = fresh_team(world, world.a, world.b)
+    try:
+        assert_blocked(world.b.api.delete("teams", id=eq(team.id)))
+        assert ok(world.admin.select("teams", id=eq(team.id)))
+        # Control: an owner who isn't the creator can delete it.
+        ok(world.admin.update("teams", {"created_by": world.c.id}, id=eq(team.id)))
+        ok(world.a.api.delete("teams", id=eq(team.id)))
+        assert ok(world.admin.select("teams", id=eq(team.id))) == []
+    finally:
+        world.admin.delete("teams", id=eq(team.id))
+
+
+def test_leaving_closes_the_team_and_your_private_threads(world):
+    needs(world, "team_page")
+    a, b = world.a, world.b
+    team = fresh_team(world, a, b)
+    try:
+        private = ok(world.admin.insert("threads", {"project_id": team.project, "type": "private", "owner_id": b.id, "name": "B notes"}))[0]["id"]
+        ok(world.admin.insert("shared_keys", {"project_id": team.project, "user_id": b.id, "key_id": world.key_b, "provider": "anthropic", "mode": "pool"}))
+        invite = ok(world.admin.insert("team_invitations", {"team_id": team.id, "created_by": b.id}))[0]["id"]
+        # Control: before leaving, B opens both threads (RLS and the backend agree).
+        assert rls_allows(b, "threads", private) and rls_allows(b, "threads", team.shared)
+        assert verify_thread_access(b.id, private) is True
+        # An outsider can't "leave" a team they aren't in.
+        assert_denied(world.c.api.rpc("leave_team", {"p_team_id": team.id}))
+
+        assert ok(b.api.rpc("leave_team", {"p_team_id": team.id})) == "left"
+        assert member_role(world, team.id, b) is None
+        assert not rls_allows(b, "threads", private) and not rls_allows(b, "threads", team.shared)
+        assert verify_thread_access(b.id, private) is False
+        assert ok(world.admin.select("threads", id=eq(private)))  # kept, for when they come back
+        assert ok(world.admin.select("shared_keys", project_id=eq(team.project), user_id=eq(b.id))) == []
+        assert admin_row(world, "team_invitations", invite)["revoked_at"] is not None
+        assert member_role(world, team.id, a) == "owner"
+    finally:
+        world.admin.delete("teams", id=eq(team.id))
+
+
+def test_the_last_owner_hands_over_and_the_last_person_deletes_the_team(world):
+    needs(world, "team_page")
+    a, b, c = world.a, world.b, world.c
+    team = fresh_team(world, a, b, c)
+    try:
+        assert ok(a.api.rpc("leave_team", {"p_team_id": team.id})) == "left_new_owner"
+        assert member_role(world, team.id, b) == "owner"  # joined before C
+        assert member_role(world, team.id, c) == "member"
+        # Control: a non-last owner leaving hands nothing over.
+        ok(b.api.rpc("make_owner", {"p_team_id": team.id, "p_user_id": c.id}))
+        assert ok(b.api.rpc("leave_team", {"p_team_id": team.id})) == "left"
+        assert ok(c.api.rpc("leave_team", {"p_team_id": team.id})) == "deleted"
+        assert ok(world.admin.select("teams", id=eq(team.id))) == []
+    finally:
+        world.admin.delete("teams", id=eq(team.id))
+
+
+def test_only_owners_remove_people_or_make_owners(world):
+    needs(world, "team_page")
+    a, b, c = world.a, world.b, world.c
+    team = fresh_team(world, a, b, c)
+    try:
+        invite = ok(world.admin.insert("team_invitations", {"team_id": team.id, "created_by": a.id}))[0]["id"]
+        assert_denied(b.api.rpc("remove_member", {"p_team_id": team.id, "p_user_id": c.id, "p_revoke_invites": False}))
+        assert_denied(b.api.rpc("make_owner", {"p_team_id": team.id, "p_user_id": b.id}))
+        assert member_role(world, team.id, c) == "member" and member_role(world, team.id, b) == "member"
+        # An owner can't remove themselves this way (that's leaving).
+        assert not a.api.rpc("remove_member", {"p_team_id": team.id, "p_user_id": a.id, "p_revoke_invites": False}).is_success
+        # Control: an owner makes B an owner and removes C, stopping every invite link.
+        ok(a.api.rpc("make_owner", {"p_team_id": team.id, "p_user_id": b.id}))
+        assert member_role(world, team.id, b) == "owner"
+        ok(a.api.rpc("remove_member", {"p_team_id": team.id, "p_user_id": c.id, "p_revoke_invites": True}))
+        assert member_role(world, team.id, c) is None
+        assert admin_row(world, "team_invitations", invite)["revoked_at"] is not None
+        # Someone outside the team can't be made owner.
+        assert not a.api.rpc("make_owner", {"p_team_id": team.id, "p_user_id": c.id}).is_success
+    finally:
+        world.admin.delete("teams", id=eq(team.id))
+
+
+def _icon(api, path: str, body: bytes = b"RIFF\x00\x00\x00\x00WEBP", content_type: str = "image/webp") -> httpx.Response:
+    return api.http.post(
+        f"/storage/v1/object/team-icons/{path}", content=body, headers={**api.headers, "Content-Type": content_type}
+    )
+
+
+def _remove_icon(api, path: str) -> httpx.Response:
+    return api.http.request("DELETE", "/storage/v1/object/team-icons", json={"prefixes": [path]}, headers=api.headers)
+
+
+def test_only_members_add_or_remove_their_teams_icon(world):
+    needs(world, "team_page")
+    b, c = world.b, world.c
+    path = f"{world.t1}/{secrets.token_hex(8)}.webp"
+    try:
+        assert not _icon(c.api, f"{world.t1}/{secrets.token_hex(8)}.webp").is_success
+        assert not _icon(b.api, f"{world.t2}/{secrets.token_hex(8)}.webp").is_success
+        assert not _icon(b.api, f"{world.t1}/{secrets.token_hex(8)}.svg", b"<svg/>", "image/svg+xml").is_success
+        assert not _icon(b.api, f"{world.t1}/{secrets.token_hex(8)}.webp", b"x" * (2 * 1024 * 1024 + 1)).is_success
+        # Control: a member uploads into their team's folder, and anyone can view it.
+        response = _icon(b.api, path)
+        assert response.is_success, f"{response.status_code}: {response.text}"
+        assert world.http.get(f"/storage/v1/object/public/team-icons/{path}").is_success
+        # An outsider removes nothing; a member can remove it.
+        outsider = _remove_icon(c.api, path)
+        assert not (outsider.is_success and outsider.json()), outsider.text
+        removed = _remove_icon(b.api, path)
+        assert removed.is_success and removed.json(), removed.text
+    finally:
+        _remove_icon(world.admin, path)

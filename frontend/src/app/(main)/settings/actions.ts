@@ -24,10 +24,10 @@ export async function generateInviteLink(teamId: string) {
     .single();
 
   if (error || !data) {
-    return { error: "Failed to generate invite link. Are you an owner?" };
+    return { error: "Couldn't create an invite link. Please try again." };
   }
 
-  revalidatePath("/settings");
+  revalidatePath("/team/[id]", "page");
 
   // Generate link
   const baseUrl = await siteOrigin();
@@ -54,7 +54,7 @@ export async function revokeInviteLink(inviteId: string) {
     return { error: "Couldn't revoke this link. Refresh the page and try again." };
   }
 
-  revalidatePath("/settings");
+  revalidatePath("/team/[id]", "page");
   return { success: true };
 }
 
@@ -65,19 +65,18 @@ export async function deleteTeam(teamId: string) {
     return { error: "Not authenticated" };
   }
 
+  // The database lets owners delete their team (schema.sql "Owners can delete their team");
+  // a refused delete removes nothing rather than erroring, so check a row actually went.
   const supabase = await createClient();
-  // Double check the user is the owner
-  const { data: team } = await supabase.from("teams").select("created_by").eq("id", teamId).single();
-  
-  if (!team || team.created_by !== user.id) {
-    return { error: "Only the team owner can delete this workspace." };
-  }
-
-  const { error } = await supabase.from("teams").delete().eq("id", teamId);
+  const { data, error } = await supabase.from("teams").delete().eq("id", teamId).select("id");
 
   if (error) {
-    return { error: error.message };
+    return { error: "Couldn't delete the team. Please try again." };
+  }
+  if (!data?.length) {
+    return { error: "Only owners can delete this team." };
   }
 
+  revalidatePath("/", "layout");
   return { success: true };
 }

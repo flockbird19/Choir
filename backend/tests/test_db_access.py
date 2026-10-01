@@ -18,9 +18,23 @@ from tests.fakes import FakeClient
 @patch("backend.db.get_db")
 def test_private_thread_owner_has_access(mock_get_db):
     mock_get_db.return_value = FakeClient(
-        threads=[{"id": "t1", "type": "private", "owner_id": "user-1"}]
+        threads=[{"id": "t1", "type": "private", "owner_id": "user-1", "project_id": "p1"}],
+        projects=[{"id": "p1", "team_id": "team-1"}],
+        team_members=[{"team_id": "team-1", "user_id": "user-1"}],
     )
     assert verify_thread_access("user-1", "t1") is True
+
+
+@patch("backend.db.get_db")
+def test_private_thread_owner_who_left_the_team_is_denied(mock_get_db):
+    # Team page (2026-10-01): someone who left keeps their private threads, but can't open them
+    # (their AI reads Team Space) until they're invited again.
+    mock_get_db.return_value = FakeClient(
+        threads=[{"id": "t1", "type": "private", "owner_id": "user-1", "project_id": "p1"}],
+        projects=[{"id": "p1", "team_id": "team-1"}],
+        team_members=[{"team_id": "team-1", "user_id": "someone-else"}],
+    )
+    assert verify_thread_access("user-1", "t1") is False
 
 
 @patch("backend.db.get_db")

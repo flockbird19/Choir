@@ -7,6 +7,7 @@ import { Plus } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { Logo } from "./Logo";
 import { NotificationBell } from "./NotificationBell";
+import { TeamIcon } from "./TeamIcon";
 import { Team } from "@/types/database";
 import { createWorkspace } from "@/app/onboarding/actions";
 import { useToast } from "./Toast";
@@ -74,8 +75,6 @@ export function PrimarySidebar({
       <div className="flex w-full flex-1 flex-col items-center gap-2 overflow-y-auto">
         {teams.map((team) => {
           const isActive = team.id === activeTeamId;
-          const initials = team.name.substring(0, 2).toUpperCase();
-
           return (
             <button
               key={team.id}
@@ -84,13 +83,9 @@ export function PrimarySidebar({
               data-tooltip-side="right"
               aria-label={team.name}
               aria-pressed={isActive}
-              className={`grid size-11 shrink-0 place-items-center font-mono text-[13px] font-medium transition-all duration-150 ${
-                isActive
-                  ? "rounded-[10px] bg-team text-white shadow-[0_0_0_2px_var(--color-team-line)]"
-                  : "rounded-[12px] bg-card text-fg-muted hover:text-fg"
-              }`}
+              className="shrink-0 rounded-[12px] hover:opacity-90"
             >
-              {initials}
+              <TeamIcon team={team} active={isActive} />
             </button>
           );
         })}

@@ -2,15 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Settings, Lock, Plus, MessagesSquare, Trash2, Pencil, Check, X } from "lucide-react";
+import { Settings, Lock, Plus, MessagesSquare, Trash2, Info } from "lucide-react";
 import type { SessionUser } from "@/utils/supabase/access";
 import { getDisplayName, getInitials } from "@/utils/display-name";
 import { Team, Project, Thread } from "@/types/database";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createThread, deleteThread } from "@/app/(main)/thread/[id]/actions";
-import { renameTeam } from "@/app/(main)/actions";
 import { useToast } from "@/components/Toast";
-import { Button, Dialog, IconButton, Input } from "@/components/ui";
+import { Button, Dialog, Input } from "@/components/ui";
 import type { StatusId } from "@/app/(main)/profile/actions";
 import { useTeammateStatuses, STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 
@@ -35,42 +34,6 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteName, setConfirmDeleteName] = useState<string>("");
-
-  // Any team member can rename it, same as the shared Team Space thread.
-  const canRenameTeam = !!(team && user);
-  const [localTeamName, setLocalTeamName] = useState(team?.name ?? "");
-  const [isEditingTeamName, setIsEditingTeamName] = useState(false);
-  const [teamNameInput, setTeamNameInput] = useState("");
-  const [isRenamingTeam, setIsRenamingTeam] = useState(false);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLocalTeamName(team?.name ?? "");
-    setIsEditingTeamName(false);
-  }, [team?.id, team?.name]);
-
-  const startEditingTeamName = () => {
-    setTeamNameInput(localTeamName);
-    setIsEditingTeamName(true);
-  };
-  const cancelEditingTeamName = () => setIsEditingTeamName(false);
-  const saveTeamName = async () => {
-    const next = teamNameInput.trim();
-    if (!team || !next || next === localTeamName || isRenamingTeam) {
-      setIsEditingTeamName(false);
-      return;
-    }
-    setIsRenamingTeam(true);
-    const res = await renameTeam(team.id, next);
-    setIsRenamingTeam(false);
-    if (res.error) {
-      toastError(res.error);
-      return;
-    }
-    setLocalTeamName(next);
-    setIsEditingTeamName(false);
-    router.refresh();
-  };
 
   const handleCreateThread = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,37 +82,22 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
 
   return (
     <div className="flex h-full w-full shrink-0 flex-col bg-bg">
-      <div className="flex h-14 items-center border-b border-line px-4">
-        {isEditingTeamName ? (
-          <div className="flex w-full items-center gap-1.5">
-            <Input
-              label="Team name"
-              hideLabel
-              autoFocus
-              value={teamNameInput}
-              onChange={(e) => setTeamNameInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void saveTeamName();
-                if (e.key === "Escape") cancelEditingTeamName();
-              }}
-              className="h-8 text-[15px]"
-            />
-            <IconButton label="Save name" icon={<Check size={14} />} size="sm" variant="primary" onClick={() => void saveTeamName()} disabled={isRenamingTeam} />
-            <IconButton label="Cancel renaming" icon={<X size={14} />} size="sm" onClick={cancelEditingTeamName} disabled={isRenamingTeam} />
-          </div>
+      <div className="flex h-14 items-center border-b border-line px-2">
+        {team ? (
+          // DESIGN.md 6, team page: the team name opens it (rename lives there now).
+          <Link
+            href={`/team/${team.id}`}
+            aria-current={pathname === `/team/${team.id}` ? "page" : undefined}
+            data-tooltip="Team info, members and invites"
+            className={`flex h-10 w-full min-w-0 items-center gap-2 rounded-[10px] px-2.5 transition-colors hover:bg-hover ${
+              pathname === `/team/${team.id}` ? "bg-selected" : ""
+            }`}
+          >
+            <h2 className="min-w-0 flex-1 truncate font-sans text-[15px] font-semibold text-fg">{team.name}</h2>
+            <Info size={15} className="shrink-0 text-fg-muted" aria-hidden="true" />
+          </Link>
         ) : (
-          <h2 className="group/name flex min-w-0 items-center gap-1.5 truncate font-sans text-[15px] font-semibold text-fg">
-            <span className="truncate">{localTeamName || "Select a team"}</span>
-            {canRenameTeam && (
-              <IconButton
-                label="Rename team"
-                icon={<Pencil size={12} />}
-                size="sm"
-                onClick={startEditingTeamName}
-                className="opacity-0 group-hover/name:opacity-100 group-focus-within/name:opacity-100 focus:opacity-100"
-              />
-            )}
-          </h2>
+          <h2 className="px-2.5 font-sans text-[15px] font-semibold text-fg">Select a team</h2>
         )}
       </div>
 
