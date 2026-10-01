@@ -70,15 +70,13 @@ export function TeamIconEditor({ team }: { team: Team }) {
 
   const save = () =>
     startSaving(async () => {
-      let path = team.icon_path ?? null;
       let uploaded: string | null = null;
       if (kind === "image" && picked) {
         uploaded = `${team.id}/${crypto.randomUUID()}.webp`;
         const { error } = await createClient().storage.from("team-icons").upload(uploaded, picked.blob, { contentType: "image/webp" });
         if (error) return toastError("Couldn't upload the image. Please try again.");
-        path = uploaded;
       }
-      const result = await saveTeamIcon(team.id, { kind, name: iconName, color: colour, path }, team.icon_path ?? null);
+      const result = await saveTeamIcon(team.id, { kind, name: iconName, color: colour, path: uploaded });
       if (result.error) {
         if (uploaded) await createClient().storage.from("team-icons").remove([uploaded]);
         return toastError(result.error);

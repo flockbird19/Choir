@@ -45,28 +45,36 @@ export interface TeamIconChoice {
   kind: NonNullable<Team["icon_kind"]>;
   name: string | null;
   color: TeamColour;
-  /** A file already uploaded to team-icons/<team id>/…, for kind "image". */
+  /** A file just uploaded to team-icons/<team id>/…; null keeps the current image for kind "image". */
   path: string | null;
 }
 
-export async function saveTeamIcon(teamId: string, choice: TeamIconChoice, previousPath: string | null): Promise<Result> {
+export async function saveTeamIcon(teamId: string, choice: TeamIconChoice): Promise<Result> {
   if (!(await getCurrentUser())) return { error: "Not logged in" };
   const supabase = await createClient();
+  // The current image comes from the database, not the page: right after a save the page can
+  // still show the one before, and its file would never be deleted.
+  const { data: current, error: readError } = await supabase.from("teams").select("icon_path").eq("id", teamId).maybeSingle();
+  if (readError?.code === "42703") return { error: PENDING };
+  if (readError || !current) return { error: "Couldn't save the icon. Please try again." };
+  const path = choice.kind === "image" ? choice.path ?? current.icon_path : null;
+  if (choice.kind === "image" && !path) return { error: "Choose an image first." };
+
   const { data, error } = await supabase
     .from("teams")
     .update({
       icon_kind: choice.kind,
       icon_name: choice.kind === "icon" ? choice.name : null,
       icon_color: choice.color,
-      icon_path: choice.kind === "image" ? choice.path : null,
+      icon_path: path,
     })
     .eq("id", teamId)
     .select("icon_kind");
   if (error?.code === "42703" || error?.code === "PGRST204") return { error: PENDING };
   if (error || data?.[0]?.icon_kind !== choice.kind) return { error: "Couldn't save the icon. Please try again." };
   // The old image is no longer used anywhere.
-  if (previousPath && previousPath !== choice.path) {
-    await supabase.storage.from("team-icons").remove([previousPath]);
+  if (current.icon_path && current.icon_path !== path) {
+    await supabase.storage.from("team-icons").remove([current.icon_path]);
   }
   return done();
 }
