@@ -23,7 +23,8 @@ const SECTIONS: { id: MemorySection; title: string; empty: string; placeholder: 
   { id: "goal", title: "What we're building", empty: "Not written down yet.", placeholder: "e.g. A plant monitor for the college garden" },
   { id: "facts", title: "Facts and constraints", empty: "No facts yet.", placeholder: "e.g. The demo is on 8 October" },
   { id: "open", title: "Open questions", empty: "Nothing open.", placeholder: "e.g. Which pump do we order?" },
-  { id: "owners", title: "Who's doing what", empty: "Nobody has taken anything on yet.", placeholder: "e.g. I'll order the sensors" },
+  // Feature D: the task list is the record of who's doing what; Choir AI no longer writes here.
+  { id: "owners", title: "Who's doing what", empty: "See Tasks for who has which task.", placeholder: "e.g. I'm away on Fridays" },
 ];
 
 interface MemoryRow {

@@ -38,11 +38,18 @@ interface Message {
   reply_to_message_id?: string | null;
   publish_edited?: boolean;
   withdrawn_at?: string | null;
-  kind?: "message" | "checkpoint";
+  kind?: "message" | "checkpoint" | "task_done";
+  task_id?: string | null;
   covers_through?: string | null;
   covers_count?: number | null;
   sources?: Source[] | null;
   attachments?: Attachment[] | null;
+}
+
+/** Feature D: what the "finished" card shows about its task (read live from the task list). */
+export interface DoneTaskInfo {
+  title: string;
+  result: string | null;
 }
 
 interface Source {
@@ -119,6 +126,68 @@ function ActivitySteps({ steps }: { steps: string[] }) {
 
 // Component #4: a compact checkpoint, shown where it happened. Choir AI reads its summary
 // instead of the messages it covers; the messages themselves stay in the thread.
+/**
+ * Feature D: the line complete_task posts in Team Space. Centred like the compact card, never a
+ * bubble. Title and result come from the live task when we have it; otherwise from the message
+ * text the database wrote ('Finished the task "X".\n\nResult: …'), which is also what the AI,
+ * search and exports read.
+ */
+function TaskDoneCard({
+  msg,
+  name,
+  task,
+  isPinned,
+  onTogglePin,
+}: {
+  msg: Message;
+  name: string;
+  task?: DoneTaskInfo;
+  isPinned: boolean;
+  onTogglePin?: (id: string, currentlyPinned: boolean) => void;
+}) {
+  const title = task?.title ?? msg.content.match(/^Finished the task "([\s\S]*)"\./)?.[1] ?? "a task";
+  const result = task ? task.result : msg.content.split("\n\nResult: ")[1] ?? null;
+  const time = new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div id={`message-${msg.id}`} className="group mx-auto w-full max-w-xl py-1">
+      <div className="rounded-card border border-line bg-card px-4 py-3">
+        <div className="flex items-start gap-2.5">
+          <span className="mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-fg text-bg">
+            <Check size={13} strokeWidth={3} aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-body-sm font-semibold text-fg">
+              {name} finished <span className="break-words">“{title}”</span>
+            </p>
+            {result && (
+              <div className="mt-1 break-words text-body-sm text-fg">
+                <ReactMarkdown remarkPlugins={AI_REMARK} rehypePlugins={markdownRehype} components={markdownComponents}>
+                  {result}
+                </ReactMarkdown>
+              </div>
+            )}
+            <p className="mt-1 font-mono text-[11px] text-fg-subtle">
+              {time}
+              {isPinned && " · pinned as a Decision"}
+            </p>
+          </div>
+          {onTogglePin && (
+            <button
+              type="button"
+              onClick={() => onTogglePin(msg.id, isPinned)}
+              aria-label={isPinned ? "Unpin" : "Pin as a Decision"}
+              data-tooltip={isPinned ? "Unpin" : "Pin as a Decision"}
+              className={`${buttonClasses({ variant: "ghost", size: "sm" })} opacity-0 focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100`}
+            >
+              {isPinned ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CheckpointCard({
   msg,
   by,
@@ -254,6 +323,8 @@ interface MessageListProps {
   streamSources?: Source[];
   /** Team Space only: withdraw your own post published from a private thread. */
   onWithdraw?: (msg: Message) => void;
+  /** Feature D: the project's tasks by id, so a "finished" card shows its task's current title and result. */
+  tasksById?: Record<string, DoneTaskInfo>;
 }
 
 const EMPTY_NAMES: Record<string, string> = {};
@@ -389,7 +460,9 @@ const MessageItem = memo(function MessageItem({
   onWithdraw,
   compactedBy,
   onUndoCheckpoint,
+  doneTask,
 }: {
+  doneTask?: DoneTaskInfo;
   msg: Message;
   isOwn: boolean;
   senderName: string;
@@ -415,6 +488,18 @@ const MessageItem = memo(function MessageItem({
 
   if (msg.kind === "checkpoint") {
     return <CheckpointCard msg={msg} by={compactedBy} onUndo={onUndoCheckpoint} />;
+  }
+
+  if (msg.kind === "task_done") {
+    return (
+      <TaskDoneCard
+        msg={msg}
+        name={isOwn ? "You" : senderName}
+        task={doneTask}
+        isPinned={isPinned}
+        onTogglePin={isSharedThread ? onTogglePin : undefined}
+      />
+    );
   }
 
   if (msg.withdrawn_at) {
@@ -646,6 +731,7 @@ export function MessageList({
   onUndoCheckpoint,
   streamSteps = EMPTY_STEPS,
   streamSources = EMPTY_SOURCES,
+  tasksById,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasNearBottom = useRef(true);
@@ -845,6 +931,7 @@ export function MessageList({
                       : null
                   }
                   onUndoCheckpoint={onUndoCheckpoint}
+                  doneTask={msg.kind === "task_done" && msg.task_id ? tasksById?.[msg.task_id] : undefined}
                 />
               </div>
             );

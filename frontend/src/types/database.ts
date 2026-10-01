@@ -66,13 +66,37 @@ export interface Message {
   withdrawn_at?: string | null;
   // Component #4: 'checkpoint' = a compact card (a summary the AI reads instead of the
   // messages up to covers_through). Written only by the backend.
-  kind?: "message" | "checkpoint";
+  // Feature D: 'task_done' = the "finished" line complete_task posts in Team Space.
+  kind?: "message" | "checkpoint" | "task_done";
+  task_id?: string | null;
   covers_through?: string | null;
   covers_count?: number | null;
   // Web pages an AI reply's search found, shown as its Sources. Written only by the backend.
   sources?: { url: string; title: string }[] | null;
   // Files attached to the message (private "attachments" storage bucket).
   attachments?: Attachment[] | null;
+}
+
+export type TaskStatus = "open" | "claimed" | "done";
+
+/** Feature D: a row of `tasks`. Changed only through the task functions in schema.sql. */
+export interface Task {
+  id: string;
+  project_id: string;
+  title: string;
+  details: string | null;
+  status: TaskStatus;
+  claimed_by: string | null;
+  claimed_at: string | null;
+  result: string | null;
+  done_at: string | null;
+  done_by: string | null;
+  source_message_ids: string[] | null;
+  source_decision_ids: string[] | null;
+  suggested_by_ai: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 /** A file on a message. `path` is "<thread id>/<random id>/<file name>" in the attachments bucket. */

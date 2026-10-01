@@ -2,20 +2,23 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Hash, Lock, MessageSquare, Loader2 } from "lucide-react";
-import { globalSearch, type GlobalSearchThread, type GlobalSearchMessage } from "@/app/(main)/actions";
+import { Search, Hash, Lock, MessageSquare, Loader2, ListChecks } from "lucide-react";
+import { globalSearch, type GlobalSearchThread, type GlobalSearchMessage, type GlobalSearchTask } from "@/app/(main)/actions";
 import { stripMarkdownSyntax } from "@/utils/markdown-preview";
 import { Kbd } from "@/components/ui/Badge";
 import { trapTabKey } from "@/components/ui/focusTrap";
 
 type ResultItem =
   | { kind: "thread"; id: string; navigateTo: string; data: GlobalSearchThread }
-  | { kind: "message"; id: string; navigateTo: string; data: GlobalSearchMessage };
+  | { kind: "message"; id: string; navigateTo: string; data: GlobalSearchMessage }
+  | { kind: "task"; id: string; navigateTo: string; data: GlobalSearchTask };
+
+const TASK_STATUS_LABEL: Record<GlobalSearchTask["status"], string> = { open: "Open", claimed: "Claimed", done: "Done" };
 
 export function CommandPalette() {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<{ threads: GlobalSearchThread[], messages: GlobalSearchMessage[] }>({ threads: [], messages: [] });
+  const [results, setResults] = useState<{ threads: GlobalSearchThread[], messages: GlobalSearchMessage[], tasks: GlobalSearchTask[] }>({ threads: [], messages: [], tasks: [] });
   const [isSearching, setIsSearching] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [searchFailed, setSearchFailed] = useState(false);
@@ -27,6 +30,7 @@ export function CommandPalette() {
   const items = useMemo<ResultItem[]>(
     () => [
       ...results.threads.map((t): ResultItem => ({ kind: "thread", id: `t-${t.id}`, navigateTo: t.id, data: t })),
+      ...results.tasks.map((t): ResultItem => ({ kind: "task", id: `k-${t.id}`, navigateTo: `${t.shared_thread_id}?tasks=open`, data: t })),
       ...results.messages.map((m): ResultItem => ({ kind: "message", id: `m-${m.id}`, navigateTo: m.threads.id, data: m })),
     ],
     [results]
@@ -70,7 +74,7 @@ export function CommandPalette() {
     if (!isOpen) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuery("");
-      setResults({ threads: [], messages: [] });
+      setResults({ threads: [], messages: [], tasks: [] });
     }
   }, [isOpen]);
 
@@ -81,7 +85,7 @@ export function CommandPalette() {
   useEffect(() => {
     if (query.trim().length < 2) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setResults({ threads: [], messages: [] });
+      setResults({ threads: [], messages: [], tasks: [] });
       setSearchFailed(false);
       return;
     }
@@ -96,14 +100,14 @@ export function CommandPalette() {
         if (cancelled) return;
         if (res === "timeout" || res.error) {
           setSearchFailed(true);
-          setResults({ threads: [], messages: [] });
+          setResults({ threads: [], messages: [], tasks: [] });
         } else {
-          setResults({ threads: res.threads, messages: res.messages });
+          setResults({ threads: res.threads, messages: res.messages, tasks: res.tasks ?? [] });
         }
       } catch {
         if (!cancelled) {
           setSearchFailed(true);
-          setResults({ threads: [], messages: [] });
+          setResults({ threads: [], messages: [], tasks: [] });
         }
       } finally {
         if (!cancelled) setIsSearching(false);
@@ -242,6 +246,39 @@ export function CommandPalette() {
                           <span className="text-base font-medium text-fg">
                             {thread.name || "Untitled Thread"}
                           </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Tasks (feature D) */}
+              {results.tasks.length > 0 && (
+                <div>
+                  <div className="px-4 py-2 text-[11px] font-medium font-mono uppercase tracking-[0.08em] text-fg-subtle mb-1">
+                    Tasks
+                  </div>
+                  <div className="space-y-1">
+                    {results.tasks.map((task) => {
+                      const index = items.findIndex((it) => it.kind === "task" && it.data.id === task.id);
+                      const active = index === activeIndex;
+                      return (
+                        <button
+                          key={task.id}
+                          id={`k-${task.id}`}
+                          data-index={index}
+                          role="option"
+                          aria-selected={active}
+                          onClick={() => handleNavigate(`${task.shared_thread_id}?tasks=open`)}
+                          onMouseEnter={() => setActiveIndex(index)}
+                          className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-control text-left transition-colors group ${active ? "bg-selected" : "hover:bg-hover"}`}
+                        >
+                          <div className="w-10 h-10 rounded-control bg-team-soft text-team flex items-center justify-center shrink-0">
+                            <ListChecks size={16} />
+                          </div>
+                          <span className="min-w-0 flex-1 truncate text-base font-medium text-fg">{task.title}</span>
+                          <span className="shrink-0 font-mono text-[11px] text-fg-subtle">{TASK_STATUS_LABEL[task.status]}</span>
                         </button>
                       );
                     })}

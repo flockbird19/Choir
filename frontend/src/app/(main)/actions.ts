@@ -25,17 +25,26 @@ export interface GlobalSearchMessage {
   threads: GlobalSearchThread;
 }
 
+/** Feature D: a task whose title matches; opening it shows its project's Team Space with Tasks open. */
+export interface GlobalSearchTask {
+  id: string;
+  title: string;
+  status: "open" | "claimed" | "done";
+  shared_thread_id: string;
+}
+
 export interface GlobalSearchResult {
   threads: GlobalSearchThread[];
   messages: GlobalSearchMessage[];
+  tasks: GlobalSearchTask[];
   error?: string;
 }
 
 export async function globalSearch(query: string): Promise<GlobalSearchResult> {
-  if (!query || query.trim().length < 2) return { threads: [], messages: [] };
+  if (!query || query.trim().length < 2) return { threads: [], messages: [], tasks: [] };
 
   const user = await getCurrentUser();
-  if (!user) return { threads: [], messages: [], error: "Unauthorized" };
+  if (!user) return { threads: [], messages: [], tasks: [], error: "Unauthorized" };
 
   const supabase = await createClient();
 
@@ -97,7 +106,24 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
   );
   names[user.id] = getDisplayName(user);
 
+  // Feature D: tasks by title (RLS: your teams' projects only), each opening its Team Space.
+  const { data: taskRows } = await supabase
+    .from("tasks")
+    .select("id, title, status, project_id")
+    .ilike("title", `%${query}%`)
+    .limit(5);
+  const taskProjects = [...new Set((taskRows ?? []).map((t) => t.project_id as string))];
+  const { data: taskShared } = taskProjects.length
+    ? await supabase.from("threads").select("id, project_id").eq("type", "shared").in("project_id", taskProjects)
+    : { data: [] as { id: string; project_id: string }[] };
+  const sharedOf = new Map((taskShared ?? []).map((t) => [t.project_id, t.id]));
+  const tasks = (taskRows ?? []).flatMap((t) => {
+    const shared = sharedOf.get(t.project_id as string);
+    return shared ? [{ id: t.id as string, title: t.title as string, status: t.status as GlobalSearchTask["status"], shared_thread_id: shared }] : [];
+  });
+
   return {
+    tasks,
     threads: (threads as GlobalSearchThread[] | null) || [],
     messages: rows.map(({ thread_id: _threadId, ...m }) => ({
       ...m,

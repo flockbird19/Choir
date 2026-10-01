@@ -27,9 +27,9 @@ export default async function ThreadPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ catchup?: string | string[]; tour?: string | string[] }>;
+  searchParams: Promise<{ catchup?: string | string[]; tour?: string | string[]; tasks?: string | string[] }>;
 }) {
-  const [{ id }, { catchup, tour }] = await Promise.all([params, searchParams]);
+  const [{ id }, { catchup, tour, tasks }] = await Promise.all([params, searchParams]);
 
   const user = await getCurrentUser();
   if (!user) redirect("/login");
@@ -51,11 +51,13 @@ export default async function ThreadPage({
     );
   }
 
-  // Same request-scoped workspace the layout and access check already loaded.
-  const workspace = thread.type === "private" ? await getWorkspace(user.id) : null;
+  // Same request-scoped workspace the layout and access check already loaded (no extra round trip).
+  const workspace = await getWorkspace(user.id);
   const sharedThread: Thread | null =
-    workspace?.threads.find((t) => t.project_id === thread.project_id && t.type === "shared") ?? null;
-  const teamId = workspace?.projects.find((p) => p.id === thread.project_id)?.team_id;
+    thread.type === "private"
+      ? workspace.threads.find((t) => t.project_id === thread.project_id && t.type === "shared") ?? null
+      : null;
+  const teamId = workspace.projects.find((p) => p.id === thread.project_id)?.team_id;
 
   const [sharedMessages, teamSpaceSeenSince]: [Message[], string | null] = sharedThread
     ? await Promise.all([
@@ -84,6 +86,9 @@ export default async function ThreadPage({
       // Set by onboarding's Ready screen (?tour=1), unless this account has
       // already clicked through the coach-mark tour before.
       startTour={wantsTour && !alreadySeenTour}
+      isTeamOwner={!!teamId && workspace.ownedTeamIds.includes(teamId)}
+      // Set by a task result in Cmd+K (?tasks=open): open the Tasks panel straight away.
+      openTasks={tasks === "open"}
     />
   );
 }

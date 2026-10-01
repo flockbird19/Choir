@@ -6,11 +6,13 @@ export interface Workspace {
   teams: Team[];
   projects: Project[];
   threads: Thread[];
+  /** Teams where this user is an owner (they can release, edit and reopen anyone's task). */
+  ownedTeamIds: string[];
 }
 
-const EMPTY_WORKSPACE: Workspace = { teams: [], projects: [], threads: [] };
+const EMPTY_WORKSPACE: Workspace = { teams: [], projects: [], threads: [], ownedTeamIds: [] };
 
-type WorkspaceRow = { teams: (Team & { projects: (Project & { threads: Thread[] })[] }) | null };
+type WorkspaceRow = { role: string; teams: (Team & { projects: (Project & { threads: Thread[] })[] }) | null };
 
 // One round trip: the user's memberships with their teams, projects and the threads
 // they may open (shared threads, plus their own private threads).
@@ -18,7 +20,7 @@ export const getWorkspace = cache(async (userId: string): Promise<Workspace> => 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("team_members")
-    .select("teams!inner(*, projects(*, threads(*)))")
+    .select("role, teams!inner(*, projects(*, threads(*)))")
     .eq("user_id", userId)
     .or(`type.eq.shared,owner_id.eq.${userId}`, { referencedTable: "teams.projects.threads" });
   if (error) {
@@ -35,6 +37,7 @@ export const getWorkspace = cache(async (userId: string): Promise<Workspace> => 
     teams: nestedTeams.map(({ projects: _projects, ...team }) => team),
     projects: nestedProjects.map(({ threads: _threads, ...project }) => project),
     threads: nestedProjects.flatMap((project) => project.threads ?? []).sort((a, b) => byCreated(b, a)),
+    ownedTeamIds: rows.flatMap((row) => (row.role === "owner" && row.teams ? [row.teams.id] : [])),
   };
 });
 

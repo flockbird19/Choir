@@ -7,9 +7,12 @@ import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
 import { ExportPromptDialog } from "./ExportPromptDialog";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X, Layers, NotebookText, Paperclip } from "lucide-react";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X, Layers, NotebookText, Paperclip, ListChecks } from "lucide-react";
 import { Button, Dialog, IconButton, Input, Menu, MenuItem, Textarea } from "@/components/ui";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
+import { TasksPanel } from "../tasks/TasksPanel";
+import { SuggestTasksDialog } from "../tasks/SuggestTasksDialog";
+import { useProjectTasks } from "@/hooks/useProjectTasks";
 import { useRouter } from "next/navigation";
 import { DecisionsSinceBanner } from "./DecisionsSinceBanner";
 import { usePublishFindings } from "../PublishFindingsDialog";
@@ -80,6 +83,8 @@ export function ThreadView({
   currentUserName,
   autoCatchUp = false,
   startTour = false,
+  isTeamOwner = false,
+  openTasks = false,
 }: {
   thread: Thread;
   messages: Message[];
@@ -91,6 +96,10 @@ export function ThreadView({
   currentUserName: string;
   autoCatchUp?: boolean;
   startTour?: boolean;
+  /** An owner of this thread's team: can release, edit and reopen anyone's task. */
+  isTeamOwner?: boolean;
+  /** Open the Tasks panel on arrival (a task picked in Cmd+K). */
+  openTasks?: boolean;
 }) {
   const { error: toastError, success: toastSuccess, warning: toastWarning } = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -414,6 +423,17 @@ export function ThreadView({
   const [compactFocus, setCompactFocus] = useState("");
   const [compacting, setCompacting] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
+  // Feature D: the project's task list (live), its panel and the Suggest tasks dialog.
+  const projectTasks = useProjectTasks(thread.project_id);
+  const [tasksOpen, setTasksOpen] = useState(openTasks);
+  // A Cmd+K task result while already on this thread changes only the URL, not the thread.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (openTasks) setTasksOpen(true);
+  }, [openTasks]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const openTaskCount = projectTasks.tasks.filter((t) => t.status !== "done").length;
+  const tasksById = useMemo(() => Object.fromEntries(projectTasks.tasks.map((t) => [t.id, t])), [projectTasks.tasks]);
   // null while checking; false when the check failed (the box hides, Compact stays usable).
   const [compactRoom, setCompactRoom] = useState<{ can_compact: boolean; percent: number } | null | false>(null);
 
@@ -1012,6 +1032,23 @@ export function ThreadView({
               <MenuItem onSelect={handleExportPrompt}>Export as prompt</MenuItem>
             </Menu>
 
+            {/* Feature D: who's doing what. */}
+            <Button
+              variant="secondary"
+              size="sm"
+              leadingIcon={<ListChecks size={15} aria-hidden="true" />}
+              aria-pressed={tasksOpen}
+              onClick={() => setTasksOpen(true)}
+              data-tooltip="Who's doing what"
+            >
+              Tasks
+              {openTaskCount > 0 && (
+                <span className="rounded-full border border-line bg-sunken px-1.5 font-mono text-[11px] text-fg-muted tabular-nums">
+                  {openTaskCount}
+                </span>
+              )}
+            </Button>
+
             {/* Component #4: what the AI reads — project memory, and compacting this thread. */}
             <IconButton
               label="Project memory"
@@ -1143,6 +1180,7 @@ export function ThreadView({
         {/* Messages */}
         <MessageList
           messages={shownMessages}
+          tasksById={tasksById}
           onUndoCheckpoint={handleUndoCheckpoint}
           streamSteps={streamSteps}
           streamSources={streamSources}
@@ -1380,6 +1418,29 @@ export function ThreadView({
           rows={3}
         />
       </Dialog>
+
+      <TasksPanel
+        open={tasksOpen}
+        onClose={() => setTasksOpen(false)}
+        projectId={thread.project_id}
+        sharedThreadId={isPrivate ? sharedThread?.id ?? null : thread.id}
+        inTeamSpace={!isPrivate}
+        tasks={projectTasks.tasks}
+        loaded={projectTasks.loaded}
+        names={isPrivate ? sharedNames.names : threadNames.names}
+        currentUserId={currentUserId}
+        isOwner={isTeamOwner}
+        onJumpToMessage={isPrivate ? undefined : handleJumpToMessage}
+        onSuggest={isPrivate ? undefined : () => setSuggestOpen(true)}
+      />
+      {!isPrivate && (
+        <SuggestTasksDialog
+          open={suggestOpen}
+          onClose={() => setSuggestOpen(false)}
+          threadId={thread.id}
+          projectId={thread.project_id}
+        />
+      )}
 
       <ProjectMemoryPanel
         open={memoryOpen}
