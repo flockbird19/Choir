@@ -983,7 +983,7 @@ def test_the_last_owner_hands_over_and_the_last_person_deletes_the_team(world):
         assert member_role(world, team.id, b) == "owner"  # joined before C
         assert member_role(world, team.id, c) == "member"
         # Control: a non-last owner leaving hands nothing over.
-        ok(b.api.rpc("make_owner", {"p_team_id": team.id, "p_user_id": c.id}))
+        assert b.api.rpc("make_owner", {"p_team_id": team.id, "p_user_id": c.id}).is_success
         assert ok(b.api.rpc("leave_team", {"p_team_id": team.id})) == "left"
         assert ok(c.api.rpc("leave_team", {"p_team_id": team.id})) == "deleted"
         assert ok(world.admin.select("teams", id=eq(team.id))) == []
@@ -1003,9 +1003,9 @@ def test_only_owners_remove_people_or_make_owners(world):
         # An owner can't remove themselves this way (that's leaving).
         assert not a.api.rpc("remove_member", {"p_team_id": team.id, "p_user_id": a.id, "p_revoke_invites": False}).is_success
         # Control: an owner makes B an owner and removes C, stopping every invite link.
-        ok(a.api.rpc("make_owner", {"p_team_id": team.id, "p_user_id": b.id}))
+        assert a.api.rpc("make_owner", {"p_team_id": team.id, "p_user_id": b.id}).is_success
         assert member_role(world, team.id, b) == "owner"
-        ok(a.api.rpc("remove_member", {"p_team_id": team.id, "p_user_id": c.id, "p_revoke_invites": True}))
+        assert a.api.rpc("remove_member", {"p_team_id": team.id, "p_user_id": c.id, "p_revoke_invites": True}).is_success
         assert member_role(world, team.id, c) is None
         assert admin_row(world, "team_invitations", invite)["revoked_at"] is not None
         # Someone outside the team can't be made owner.

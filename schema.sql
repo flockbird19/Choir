@@ -635,9 +635,17 @@ create policy "Members view their teams' memberships" on public.team_members
 create policy "Members can view projects" on public.projects
   for select using (public.is_team_member(team_id));
 
--- Threads: shared = team members, private = owner only (while they're on the team)
+-- Threads: shared = team members, private = owner only (while they're on the team). Same rule as
+-- can_access_thread, but written against the row itself: that function looks the thread up, and
+-- a thread being created isn't there yet, so using it here refused every new private thread.
 create policy "View accessible threads" on public.threads
-  for select using (public.can_access_thread(id));
+  for select using (
+    (type = 'shared' or owner_id = auth.uid())
+    and exists (
+      select 1 from public.projects p
+      where p.id = threads.project_id and public.is_team_member(p.team_id)
+    )
+  );
 create policy "Members can create own private threads" on public.threads
   for insert with check (
     type = 'private'
@@ -1054,6 +1062,12 @@ on conflict (id) do update
 
 drop policy if exists "Choir: members add their team's icon" on storage.objects;
 drop policy if exists "Choir: members remove their team's icon" on storage.objects;
+drop policy if exists "Choir: members look up their team's icon" on storage.objects;
+-- Viewing goes through the public link; this lookup is what lets a member remove an old icon
+-- (storage only deletes files the caller may look up).
+create policy "Choir: members look up their team's icon" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'team-icons' and coalesce(public.is_team_member(public.attachment_thread(name)), false));
 create policy "Choir: members add their team's icon" on storage.objects
   for insert to authenticated
   with check (

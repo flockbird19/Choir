@@ -150,7 +150,9 @@ export function TeamPageClient({
     .join(" · ");
 
   return (
-    <main className="h-full overflow-y-auto bg-bg" data-ds>
+    // `relative` keeps the visually hidden radio and file inputs inside this scroll box: without
+    // it they were placed against the app frame, and focusing one scrolled the whole window.
+    <main className="relative h-full overflow-y-auto bg-bg" data-ds>
       <div className="mx-auto flex max-w-[720px] flex-col gap-10 px-4 py-10 sm:px-8">
         <header className="grid grid-cols-[auto_1fr] items-start gap-5 sm:grid-cols-[auto_1fr_auto]">
           <TeamIcon team={team} size="page" />
