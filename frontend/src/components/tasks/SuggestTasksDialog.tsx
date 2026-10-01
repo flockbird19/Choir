@@ -129,7 +129,7 @@ export function SuggestTasksDialog({
             Cancel
           </Button>
           <Button variant="primary" loading={saving} disabled={kept.length === 0} onClick={() => void save()}>
-            {kept.length === 1 ? "Add 1 task" : `Add ${kept.length} tasks`}
+            {kept.length === 0 ? "Add tasks" : kept.length === 1 ? "Add 1 task" : `Add ${kept.length} tasks`}
           </Button>
         </div>
       }
