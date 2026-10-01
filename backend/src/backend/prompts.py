@@ -81,10 +81,14 @@ Summarize meaningful changes within the supplied catch-up interval. Earlier cont
 
 Use these headings when relevant:
 ## Decisions
+## What got done
+## Who's doing what
 ## Updates
 ## Open questions
 
 Decisions: new or changed formal Decisions confirmed by application metadata. Include the commitment and its important rationale. Do not report an unpinned agreement as a formal Decision.
+
+What got done and Who's doing what come only from the TASKS block (tasks done since the interval start, and current claims). Never infer either from chat; leave a heading out when the block has nothing for it.
 
 Updates: important progress, discoveries, changed constraints, blockers, proposals and explicit personal commitments. Distinguish completed work from planned work. Attribute ownership only when accepted.
 
@@ -98,6 +102,18 @@ Omit repetitive discussion and incidental chatter unless it affects understandin
 
 Short, specific bullets. No preamble or emojis."""
 
+# ── Feature D: Suggest tasks ──────────────────────────────────────────────────
+
+SUGGEST_TASKS_JOB = """You draft a team's task list from its shared conversation. People review every draft; nothing is added until they confirm.
+
+Return only a JSON array. Each item has exactly: title, details, sources.
+title: one concrete piece of work, starting with a verb, under 120 characters.
+details: one or two sentences on what done looks like, or null.
+sources: the [msg:<id>] identifiers of the messages or Decisions showing this work is needed.
+
+Propose only work the team has actually discussed or committed to. Do not invent goals, deadlines or owners, and never assign a person. Do not propose anything already on the CURRENT TASKS list, reworded or not. At most 8 items; fewer is fine. If nothing new is needed, return []."""
+
+
 # ── C. Project memory ─────────────────────────────────────────────────────────
 
 MEMORY_JOB = """You maintain durable project memory from Team Space only.
@@ -105,7 +121,7 @@ MEMORY_JOB = """You maintain durable project memory from Team Space only.
 Return only a JSON array containing the complete updated set of AI-owned notes. Each item has exactly: id, section, text, sources.
 
 id: preserve an existing AI note's id when keeping or updating it; use "new" for a new note.
-section: one of goal, facts, open, owners.
+section: one of goal, facts, open.
 text: a concise, self-contained statement.
 sources: supplied message identifiers supporting that statement.
 
@@ -113,7 +129,7 @@ Sections:
 goal: the project's purpose, audience and current objective.
 facts: supported constraints, specifications and reported facts.
 open: unresolved questions, proposals and disagreements.
-owners: work someone explicitly accepted, including conditions.
+Do not write notes about who is doing what: the application's task list records that.
 
 Keep unaffected AI notes exactly unchanged, including their sources. Do not output, edit or duplicate locked human-written notes. If evidence conflicts with a locked note, add an attributed open note describing the conflict rather than silently accepting either version.
 

@@ -18,6 +18,7 @@ Tests for Batch 1 columns and tables skip until schema.sql has been run.
 
 import os
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -60,6 +61,7 @@ FEATURES = {
     "context": ("project_memory", "project_id"),
     "attachments": ("messages", "attachments"),
     "team_page": ("teams", "icon_kind,description"),
+    "tasks": ("tasks", "id,status,claimed_by"),
 }
 
 
@@ -1044,3 +1046,139 @@ def test_only_members_add_or_remove_their_teams_icon(world):
         assert removed.is_success and removed.json(), removed.text
     finally:
         _remove_icon(world.admin, path)
+
+
+# ── Tasks (feature D, stage 1) ────────────────────────────────────────────────
+
+
+def new_task(world, creator, title="Write the ETA story", project=None) -> str:
+    row = {"project_id": project or world.p1, "title": title, "created_by": creator.id}
+    return ok(creator.api.insert("tasks", row))[0]["id"]
+
+
+def task_row(world, task_id: str) -> dict:
+    return admin_row(world, "tasks", task_id)
+
+
+def test_tasks_are_team_only_and_added_in_your_own_name(world):
+    needs(world, "tasks")
+    a, b, c = world.a, world.b, world.c
+    t = new_task(world, a)  # Control: a member adds a task.
+    assert [r["id"] for r in ok(b.api.select("tasks", id=eq(t)))] == [t]  # Control: teammates see it.
+    assert_blocked(c.api.select("tasks", id=eq(t)))
+    assert_denied(c.api.insert("tasks", {"project_id": world.p1, "title": "x", "created_by": c.id}))
+    assert_denied(b.api.insert("tasks", {"project_id": world.p1, "title": "x", "created_by": a.id}))
+    # Can't arrive claimed or done, or point at a message you can't see.
+    assert_denied(b.api.insert("tasks", {"project_id": world.p1, "title": "x", "created_by": b.id, "status": "done"}))
+    assert_denied(b.api.insert("tasks", {"project_id": world.p1, "title": "x", "created_by": b.id, "claimed_by": b.id}))
+    assert_denied(
+        b.api.insert("tasks", {"project_id": world.p1, "title": "x", "created_by": b.id, "source_message_ids": [world.m_pa]})
+    )
+    # Control: pointing at a Team Space message is fine.
+    assert ok(b.api.insert("tasks", {"project_id": world.p1, "title": "y", "created_by": b.id, "source_message_ids": [world.m_s1_a]}))
+    assert not b.api.insert("tasks", {"project_id": world.p1, "title": "  ", "created_by": b.id}).is_success
+    assert not b.api.insert("tasks", {"project_id": world.p1, "title": "x" * 201, "created_by": b.id}).is_success
+
+
+def test_tasks_change_only_through_the_functions(world):
+    needs(world, "tasks")
+    t = new_task(world, world.a)
+    assert_blocked(world.a.api.update("tasks", {"title": "changed"}, id=eq(t)))
+    assert_blocked(world.a.api.delete("tasks", id=eq(t)))
+    assert task_row(world, t)["title"] == "Write the ETA story"
+
+
+def test_exactly_one_claim_wins(world):
+    needs(world, "tasks")
+    a, b = world.a, world.b
+    for _ in range(3):  # a race can go either way; run it a few times
+        t = new_task(world, a)
+        with ThreadPoolExecutor(2) as pool:
+            results = list(pool.map(lambda u: ok(u.api.rpc("claim_task", {"p_task_id": t})), [a, b]))
+        winner = task_row(world, t)["claimed_by"]
+        assert winner in (a.id, b.id)
+        assert results == [winner, winner]  # both are told who has it
+        assert task_row(world, t)["status"] == "claimed"
+    assert_denied(world.c.api.rpc("claim_task", {"p_task_id": t}))
+
+
+def test_release_by_claimer_or_owner_only(world):
+    needs(world, "tasks")
+    a, b = world.a, world.b  # A owns team 1
+    t = new_task(world, a)
+    assert ok(b.api.rpc("claim_task", {"p_task_id": t})) == b.id
+    t2 = new_task(world, a, "second")
+    assert ok(b.api.rpc("claim_task", {"p_task_id": t2})) == b.id
+    assert_denied(world.c.api.rpc("release_task", {"p_task_id": t}))
+    assert b.api.rpc("release_task", {"p_task_id": t}).is_success  # Control: the claimer
+    assert task_row(world, t)["status"] == "open" and task_row(world, t)["claimed_by"] is None
+    assert a.api.rpc("release_task", {"p_task_id": t2}).is_success  # Control: a team owner
+    t3 = new_task(world, b, "third")
+    assert ok(a.api.rpc("claim_task", {"p_task_id": t3})) == a.id
+    assert_denied(b.api.rpc("release_task", {"p_task_id": t3}))  # a plain member can't release someone's task
+
+
+def test_only_the_claimer_marks_done_and_it_posts_the_finished_line(world):
+    needs(world, "tasks")
+    a, b = world.a, world.b
+    t = new_task(world, a)
+    assert not b.api.rpc("complete_task", {"p_task_id": t, "p_result": "x"}).is_success  # open: nobody has it
+    assert ok(b.api.rpc("claim_task", {"p_task_id": t})) == b.id
+    assert_denied(a.api.rpc("complete_task", {"p_task_id": t, "p_result": "x"}))  # not the claimer, even as owner
+    message_id = ok(b.api.rpc("complete_task", {"p_task_id": t, "p_result": "Script agreed in chat"}))
+    done = task_row(world, t)
+    assert done["status"] == "done" and done["done_by"] == b.id and done["result"] == "Script agreed in chat"
+    line = admin_row(world, "messages", message_id)
+    assert line["kind"] == "task_done" and line["task_id"] == t and line["thread_id"] == world.s1
+    assert line["sender_id"] == b.id and "Write the ETA story" in line["content"]
+    # Control: the finished line can be pinned like any Team Space message.
+    assert ok(a.api.update("messages", {"is_decision": True, "pinned_by": a.id, "pinned_at": "2026-10-02T00:00:00Z"}, id=eq(message_id)))
+    assert not b.api.rpc("complete_task", {"p_task_id": t, "p_result": "again"}).is_success  # already done
+
+
+def test_reopen_by_claimer_or_owner_only(world):
+    needs(world, "tasks")
+    a, b = world.a, world.b
+    t = new_task(world, a)
+    ok(b.api.rpc("claim_task", {"p_task_id": t}))
+    ok(b.api.rpc("complete_task", {"p_task_id": t, "p_result": ""}))
+    assert_denied(world.c.api.rpc("reopen_task", {"p_task_id": t}))
+    assert b.api.rpc("reopen_task", {"p_task_id": t}).is_success  # Control: the person who did it
+    again = task_row(world, t)
+    assert again["status"] == "claimed" and again["claimed_by"] == b.id and again["result"] is None
+    ok(b.api.rpc("complete_task", {"p_task_id": t, "p_result": ""}))
+    assert a.api.rpc("reopen_task", {"p_task_id": t}).is_success  # Control: a team owner
+    t2 = new_task(world, b, "A's own")
+    ok(a.api.rpc("claim_task", {"p_task_id": t2}))
+    ok(a.api.rpc("complete_task", {"p_task_id": t2, "p_result": ""}))
+    assert_denied(b.api.rpc("reopen_task", {"p_task_id": t2}))  # a plain member can't reopen someone's task
+
+
+def test_edit_and_delete_rules(world):
+    needs(world, "tasks")
+    a, b = world.a, world.b
+    t = new_task(world, a)
+    assert b.api.rpc("edit_task", {"p_task_id": t, "p_title": "Open: anyone edits", "p_details": None}).is_success  # Control
+    assert task_row(world, t)["title"] == "Open: anyone edits"
+    ok(a.api.rpc("claim_task", {"p_task_id": t}))
+    assert_denied(b.api.rpc("edit_task", {"p_task_id": t, "p_title": "nope", "p_details": None}))
+    assert not b.api.rpc("delete_task", {"p_task_id": t}).is_success  # claimed: no delete, by anyone
+    assert not a.api.rpc("delete_task", {"p_task_id": t}).is_success
+    t2 = new_task(world, a, "open one")
+    assert_denied(world.c.api.rpc("delete_task", {"p_task_id": t2}))
+    assert b.api.rpc("delete_task", {"p_task_id": t2}).is_success  # Control: open, any member
+    assert ok(world.admin.select("tasks", id=eq(t2))) == []
+
+
+def test_leaving_the_team_releases_your_claims(world):
+    needs(world, "tasks")
+    needs(world, "team_page")
+    a, b = world.a, world.b
+    team = fresh_team(world, a, b)
+    try:
+        t = new_task(world, a, project=team.project)
+        ok(b.api.rpc("claim_task", {"p_task_id": t}))
+        assert ok(b.api.rpc("leave_team", {"p_team_id": team.id})) == "left"
+        assert task_row(world, t)["status"] == "open" and task_row(world, t)["claimed_by"] is None
+    finally:
+        world.admin.delete("teams", id=eq(team.id))

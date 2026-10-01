@@ -30,6 +30,8 @@
 -- members seeing their teammates' memberships, owners (not only the creator) deleting a team,
 -- leave_team / remove_member / make_owner, private threads needing team membership too, and
 -- the public "team-icons" storage bucket (§7).
+-- Pending re-run (2026-10-02, tasks stage 1, branch tasks): the tasks table and its functions,
+-- messages.kind 'task_done' + messages.task_id (the "finished" line), leaving releases your tasks.
 -- ============================================================================
 
 begin;
@@ -46,7 +48,7 @@ begin
   foreach t in array array['messages', 'threads', 'projects', 'team_members', 'teams',
                            'team_invitations', 'user_api_keys', 'thread_reads', 'ai_request_log',
                            'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections',
-                           'project_memory']
+                           'project_memory', 'tasks']
   loop
     if to_regclass('public.' || t) is not null then
       execute format('lock table public.%I in access exclusive mode', t);
@@ -337,6 +339,35 @@ create table if not exists public.project_memory (
   updated_at timestamptz not null default now()
 );
 
+-- Feature D (2026-10-02): a project's shared task list. People claim open tasks; exactly one
+-- claim wins. Every change goes through the functions in §5 (no direct update or delete).
+create table if not exists public.tasks (
+  id uuid primary key default gen_random_uuid(),
+  project_id uuid not null references public.projects(id) on delete cascade,
+  title text not null check (char_length(btrim(title)) between 1 and 200),
+  details text check (details is null or char_length(details) <= 2000),
+  status text not null default 'open' check (status in ('open', 'claimed', 'done')),
+  claimed_by uuid references auth.users(id) on delete set null,
+  claimed_at timestamptz,
+  result text check (result is null or char_length(result) <= 1000),
+  done_at timestamptz,
+  done_by uuid references auth.users(id) on delete set null,
+  source_message_ids uuid[],
+  source_decision_ids uuid[],
+  suggested_by_ai boolean not null default false,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint tasks_open_has_no_claimer check (status <> 'open' or claimed_by is null)
+);
+create index if not exists tasks_project_status_idx on public.tasks (project_id, status);
+
+-- The "finished" line a completed task posts in Team Space (kind 'task_done', written only by
+-- complete_task). Re-adding the kind check keeps this script re-runnable.
+alter table public.messages add column if not exists task_id uuid references public.tasks(id) on delete set null;
+alter table public.messages drop constraint if exists messages_kind_check;
+alter table public.messages add constraint messages_kind_check check (kind in ('message', 'checkpoint', 'task_done'));
+
 -- ── 1b. Indexes on the columns the app filters by ────────────────────────────
 -- Postgres indexes primary keys and unique constraints, but never foreign keys.
 -- Without these, opening a thread scans every message and loading the sidebar scans
@@ -382,6 +413,13 @@ begin
   ) then
     alter publication supabase_realtime add table public.project_memory;
   end if;
+  -- Feature D: the task list updates live for the whole team
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'tasks'
+  ) then
+    alter publication supabase_realtime add table public.tasks;
+  end if;
 end $$;
 
 -- ── 3. Row Level Security: ON for every table ────────────────────────────────
@@ -401,6 +439,7 @@ alter table public.profiles         enable row level security;
 alter table public.thread_summaries enable row level security;
 alter table public.agent_connections enable row level security;
 alter table public.project_memory   enable row level security;
+alter table public.tasks            enable row level security;
 
 -- ── 4. Access helpers (same rules as the app and backend access checks) ──────
 
@@ -609,7 +648,7 @@ begin
       and tablename in ('teams', 'team_members', 'projects', 'threads', 'messages',
                         'user_api_keys', 'team_invitations', 'thread_reads', 'ai_request_log',
                         'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections',
-                        'project_memory')
+                        'project_memory', 'tasks')
   loop
     execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
   end loop;
@@ -732,8 +771,9 @@ create policy "Pin messages in accessible shared threads" on public.messages
     and (pinned_by is null or pinned_by = auth.uid())
     -- A withdrawn post can't be pinned again.
     and (withdrawn_at is null or not is_decision)
-    -- A compact checkpoint is a context summary, never a team Decision.
-    and (kind = 'message' or not is_decision)
+    -- A compact checkpoint is a context summary, never a team Decision. A task's "finished"
+    -- line may be pinned like any message.
+    and (kind <> 'checkpoint' or not is_decision)
   );
 
 -- Withdraw your own publication (a post made from a private thread). Clears its text
@@ -800,6 +840,10 @@ begin
      and user_id in (select id from profiles where kind = 'agent' and owner_id = p_user_id);
   update team_invitations set revoked_at = now()
    where team_id = p_team_id and created_by = p_user_id and revoked_at is null;
+  -- Feature D: tasks they had claimed go back to the team.
+  update tasks set status = 'open', claimed_by = null, claimed_at = null, updated_at = now()
+   where claimed_by = p_user_id and status = 'claimed'
+     and project_id in (select id from projects where team_id = p_team_id);
   delete from team_members where team_id = p_team_id and user_id = p_user_id;
 end $$;
 revoke execute on function public.drop_team_member(uuid, uuid) from public, anon, authenticated;
@@ -970,6 +1014,163 @@ create policy "Members edit project memory as themselves" on public.project_memo
   for update using (public.is_project_member(project_id))
   with check (public.is_project_member(project_id) and updated_by = auth.uid());
 
+-- Tasks (feature D): the team reads its project's list; anyone on the team adds open tasks in
+-- their own name, pointing only at messages they can see. Every other change goes through the
+-- functions below, which decide who may do what (column grants in §6 block direct writes).
+create policy "Members view their project's tasks" on public.tasks
+  for select using (public.is_project_member(project_id));
+create policy "Members add open tasks as themselves" on public.tasks
+  for insert with check (
+    public.is_project_member(project_id)
+    and created_by = auth.uid()
+    and (source_message_ids is null or public.all_messages_accessible(source_message_ids))
+    and (source_decision_ids is null or public.all_messages_accessible(source_decision_ids))
+  );
+
+-- Is the caller an owner of the team this task belongs to? Owners can release, edit and reopen
+-- anyone's task (someone went quiet, or left a task half done).
+create or replace function public.task_team_owner(p_task_id uuid)
+returns boolean
+language sql security definer stable set search_path = public
+as $$
+  select exists (
+    select 1 from tasks t join projects p on p.id = t.project_id
+     where t.id = p_task_id and public.is_team_owner(p.team_id)
+  )
+$$;
+revoke execute on function public.task_team_owner(uuid) from public, anon, authenticated;
+
+-- Claim an open task. One conditional update: a second, simultaneous claim waits for the first
+-- and then finds the task no longer open, so exactly one wins. Returns who has the task now
+-- (you if you won), so the loser can be told who got it.
+create or replace function public.claim_task(p_task_id uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_project uuid;
+  v_claimer uuid;
+begin
+  select project_id into v_project from tasks where id = p_task_id;
+  if v_project is null or not public.is_project_member(v_project) then
+    raise exception 'You can only claim tasks in your own team' using errcode = '42501';
+  end if;
+  update tasks set status = 'claimed', claimed_by = auth.uid(), claimed_at = now(), updated_at = now()
+   where id = p_task_id and status = 'open' and claimed_by is null;
+  select claimed_by into v_claimer from tasks where id = p_task_id;
+  return v_claimer;
+end $$;
+
+create or replace function public.release_task(p_task_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  update tasks set status = 'open', claimed_by = null, claimed_at = null, updated_at = now()
+   where id = p_task_id and status = 'claimed'
+     and (claimed_by = auth.uid() or public.task_team_owner(p_task_id));
+  if not found then
+    raise exception 'Only the person who claimed it, or a team owner, can release it' using errcode = '42501';
+  end if;
+end $$;
+
+-- Mark your claimed task done, with an optional result. Posts the "finished" line in Team Space
+-- in the same transaction, so the list and the chat never disagree.
+create or replace function public.complete_task(p_task_id uuid, p_result text)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_task tasks%rowtype;
+  v_shared uuid;
+  v_result text := nullif(btrim(coalesce(p_result, '')), '');
+  v_message uuid;
+begin
+  select * into v_task from tasks where id = p_task_id;
+  if v_task.id is null or not public.is_project_member(v_task.project_id) then
+    raise exception 'Task not found' using errcode = '42501';
+  end if;
+  if v_task.status = 'done' then
+    raise exception 'This task is already done';
+  end if;
+  if v_task.status <> 'claimed' or v_task.claimed_by is distinct from auth.uid() then
+    raise exception 'Only the person who claimed it can mark it done' using errcode = '42501';
+  end if;
+  if char_length(coalesce(v_result, '')) > 1000 then
+    raise exception 'Keep the result under 1000 characters';
+  end if;
+
+  update tasks set status = 'done', result = v_result, done_at = now(), done_by = auth.uid(), updated_at = now()
+   where id = p_task_id;
+  select id into v_shared from threads where project_id = v_task.project_id and type = 'shared' limit 1;
+  insert into messages (thread_id, sender_type, sender_id, content, kind, task_id)
+  values (
+    v_shared, 'user', auth.uid(),
+    'Finished the task "' || v_task.title || '".' || coalesce(E'\n\nResult: ' || v_result, ''),
+    'task_done', p_task_id
+  )
+  returning id into v_message;
+  return v_message;
+end $$;
+
+create or replace function public.reopen_task(p_task_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  update tasks set status = 'claimed', result = null, done_at = null, done_by = null, updated_at = now()
+   where id = p_task_id and status = 'done' and claimed_by is not null
+     and (claimed_by = auth.uid() or public.task_team_owner(p_task_id));
+  if not found then
+    raise exception 'Only the person who did it, or a team owner, can reopen it' using errcode = '42501';
+  end if;
+end $$;
+
+-- Open tasks: anyone on the team edits them. Claimed or done: the claimer or a team owner.
+create or replace function public.edit_task(p_task_id uuid, p_title text, p_details text)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+begin
+  update tasks set title = btrim(p_title), details = nullif(btrim(coalesce(p_details, '')), ''), updated_at = now()
+   where id = p_task_id
+     and public.is_project_member(project_id)
+     and (status = 'open' or claimed_by = auth.uid() or public.task_team_owner(p_task_id));
+  if not found then
+    raise exception 'Only the person who claimed it, or a team owner, can edit it' using errcode = '42501';
+  end if;
+end $$;
+
+-- Only open tasks are deleted: a task someone promised to do never silently disappears.
+create or replace function public.delete_task(p_task_id uuid)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_status text;
+begin
+  select status into v_status from tasks where id = p_task_id and public.is_project_member(project_id);
+  if v_status is null then
+    raise exception 'Task not found' using errcode = '42501';
+  end if;
+  if v_status <> 'open' then
+    raise exception 'Release or reopen it before deleting: someone has taken it on';
+  end if;
+  delete from tasks where id = p_task_id;
+end $$;
+
+do $$
+declare
+  f text;
+begin
+  foreach f in array array['claim_task(uuid)', 'release_task(uuid)', 'complete_task(uuid, text)',
+                           'reopen_task(uuid)', 'edit_task(uuid, text, text)', 'delete_task(uuid)']
+  loop
+    execute format('revoke execute on function public.%s from public, anon', f);
+    execute format('grant execute on function public.%s to authenticated', f);
+  end loop;
+end $$;
+
 -- ── 6. Column permissions ────────────────────────────────────────────────────
 
 -- Signed-in users may only change a message's pin fields, never its content or
@@ -1028,6 +1229,12 @@ grant update (last_seen_at, last_read_at) on public.thread_reads to authenticate
 revoke insert, update, delete on public.project_memory from anon, authenticated;
 grant insert (project_id, items, version, updated_by) on public.project_memory to authenticated;
 grant update (items, version, updated_by, updated_at) on public.project_memory to authenticated;
+
+-- Feature D: tasks are added with these columns only; status, claimer and result change only
+-- through the task functions (§5).
+revoke insert, update, delete on public.tasks from anon, authenticated;
+grant insert (project_id, title, details, source_message_ids, source_decision_ids, suggested_by_ai, created_by)
+  on public.tasks to authenticated;
 
 -- ── 7. File storage (2026-09-30) ─────────────────────────────────────────────
 -- One private bucket; files are only ever reached through short-lived signed links, which

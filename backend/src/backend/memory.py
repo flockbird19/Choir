@@ -91,7 +91,8 @@ def _validate(proposed: list[Any], known_ids: set[str], ai_ids: set[str]) -> lis
     notes: list[dict[str, Any]] = []
     used_ids: set[str] = set()
     for item in proposed:
-        if not isinstance(item, dict) or item.get("section") not in SECTIONS:
+        # Feature D: the task list is the record of who's doing what; only people write owners notes.
+        if not isinstance(item, dict) or item.get("section") not in SECTIONS or item.get("section") == "owners":
             continue
         text = str(item.get("text") or "").strip()
         sources = [str(s) for s in item.get("sources") or [] if str(s) in known_ids]

@@ -26,6 +26,7 @@ from backend.keys import (
     store_api_key,
 )
 from backend import memory
+from backend import tasks as task_list
 from backend.llm import (
     NoApiKeyError,
     compact_now,
@@ -313,6 +314,24 @@ def get_findings_draft(thread_id: str, user_id: str = Depends(get_current_user))
         raise HTTPException(status_code=502, detail=str(exc))
 
 
+@app.post("/api/tasks/suggest/{thread_id}")
+def suggest_tasks(thread_id: str, user_id: str = Depends(get_current_user)):
+    """Feature D: AI draft of new tasks from Team Space. Nothing is saved; people confirm in the dialog."""
+    _check_and_record_rate_limit(user_id)
+
+    if not verify_thread_access(user_id, thread_id):
+        raise HTTPException(status_code=403, detail="You do not have access to this thread.")
+
+    try:
+        return task_list.suggest(thread_id, user_id)
+    except NoApiKeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
 @app.post("/api/export-prompt/{thread_id}")
 def get_export_prompt(thread_id: str, user_id: str = Depends(get_current_user)):
     """AI-written prompt for carrying the thread into another AI chat. Nothing is saved."""
@@ -473,10 +492,13 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
     )
     messages = cast(list[dict[str, Any]], msg_resp.data)
     names = team_names_for_thread(thread)
+    # Feature D: a Team Space export carries the task list too.
+    project_tasks = task_list.fetch(thread["project_id"]) if thread.get("type") == "shared" else []
 
     if format == "json":
         export_data = {
             "thread": thread,
+            "tasks": project_tasks,
             "messages": [
                 {**msg, "sender_name": sender_label(msg, names), "published_from": _published_from(msg, names)}
                 for msg in messages
@@ -501,6 +523,8 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
     md_lines.append("")
     md_lines.append("---")
     md_lines.append("")
+    if project_tasks:
+        md_lines += [task_list.markdown(project_tasks, names, timezone.utc), "---", ""]
 
     for msg in messages:
         sender = sender_label(msg, names)

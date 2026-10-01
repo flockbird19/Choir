@@ -59,6 +59,7 @@ def draft_handoff_prompt(thread_id: str, user_id: str) -> dict[str, str]:
     for block in (
         memory.render(thread["project_id"], 4_000),
         llm.decisions_block(llm._team_decisions(thread["project_id"]), names, tz, 6_000),
+        llm.tasks_text(thread["project_id"], names, tz, 2_000),
         llm.checkpoint_block(view["checkpoint"], "EARLIER IN THE THREAD", tz),
     ):
         if block:

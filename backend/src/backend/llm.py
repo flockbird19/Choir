@@ -649,6 +649,13 @@ def decisions_block(decisions: list[dict[str, Any]], names: dict[str, str], tz: 
     )
 
 
+def tasks_text(project_id: str, names: dict[str, str], tz: timezone, budget_chars: int, *, done_since: str | None = None) -> str:
+    """Feature D: the TASKS block, read fresh (imported here lazily: tasks imports this module)."""
+    from backend import tasks
+
+    return tasks.block(tasks.fetch(project_id), names, tz, budget_chars, done_since=done_since)
+
+
 def checkpoint_block(checkpoint: dict[str, Any] | None, label: str, tz: timezone) -> str:
     if not checkpoint:
         return ""
@@ -1069,6 +1076,8 @@ def stream_ai_response(
     # Decisions go last in the instructions (system_volatile), read fresh every time: a pin made a
     # second ago must outweigh the AI's own earlier "nothing is pinned" and stale memory notes.
     decisions_text = decisions_block(_team_decisions(thread["project_id"]), names, tz, budget // 7)
+    # Feature D: who's doing what, read fresh like the Decisions, so ownership never comes from memory.
+    tasks_now = tasks_text(thread["project_id"], names, tz, budget // 14)
     # A reply quotes its target inside the person's own message: in the instructions alone, the
     # model followed the message just above instead (it explained IoTDB when asked about VS Code).
     reply_quote = ""
@@ -1192,7 +1201,7 @@ def stream_ai_response(
         f"[Note from the Choir app, not part of the message above. {today_line(tz)} The last message is "
         f"the one to answer (from {user_name_ctx}, {role_ctx.removeprefix('a ')}{asked_at}). Answer only it; "
         f"leave other people's earlier questions to their own replies unless it asks about them. Never "
-        f"mention these notes or say whose message you are answering.]\n\n" + decisions_text
+        f"mention these notes or say whose message you are answering.]\n\n" + decisions_text + "\n\n" + tasks_now
     )
 
     # ── Stream from LLM ───────────────────────────────────────────────────────
@@ -1390,7 +1399,9 @@ def generate_digest(thread_id: str, user_id: str, tz_offset: int | None = None) 
     def render(m: dict[str, Any]) -> str:
         return (new_heading if seen and m is recent[0] else "") + transcript([m], names, tz)
 
-    user_prompt = with_files(head if seen else head + new_heading, seen + recent, render, provider)
+    # Feature D: What got done / Who's doing what come from the task list, never from chat.
+    tasks_part = tasks_text(thread["project_id"], names, tz, budget // 10, done_since=last_seen) + "\n\n"
+    user_prompt = with_files(tasks_part + (head if seen else head + new_heading), seen + recent, render, provider)
 
     summary = complete_once(provider, model, api_key, DIGEST_SYSTEM_PROMPT, user_prompt, max_tokens=700)
 
