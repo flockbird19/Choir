@@ -1,10 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 
+// A small card in the bottom-left corner, clear of the composer and of toasts (bottom centre).
+// Choir only stores what it needs (sign-in session, theme, this flag), so there is nothing to opt out of:
+// closing the card is the same as "Got it".
 export function CookieBanner() {
   const [isVisible, setIsVisible] = useState(false);
+  // The landing page is light-only (DESIGN.md 2), so the card stays light there too.
+  const lightOnly = usePathname() === "/";
 
   useEffect(() => {
     const hasAccepted = localStorage.getItem("choir_cookies_accepted");
@@ -14,7 +21,7 @@ export function CookieBanner() {
     }
   }, []);
 
-  const acceptCookies = () => {
+  const dismiss = () => {
     localStorage.setItem("choir_cookies_accepted", "true");
     setIsVisible(false);
   };
@@ -25,27 +32,25 @@ export function CookieBanner() {
     <div
       role="region"
       aria-label="Cookie notice"
-      className="fixed bottom-0 left-0 w-full bg-surface border-t border-border p-4 z-[9999] shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)] flex items-center justify-between gap-4"
+      className={`${lightOnly ? "theme-light " : ""}fixed inset-x-4 bottom-4 z-[9998] animate-enter rounded-card border border-line bg-card p-4 shadow-raised sm:right-auto sm:w-[22.5rem]`}
     >
-      <div className="max-w-7xl mx-auto w-full flex flex-col sm:flex-row items-center justify-between gap-4">
-        <p className="text-sm text-graphite leading-relaxed text-center sm:text-left">
-          We use cookies to ensure you get the best experience on Choir. By continuing to use the app, you agree to our use of cookies.
+      <div className="flex items-start gap-2">
+        <p className="flex-1 pt-1 text-body-sm leading-relaxed text-fg-muted">
+          Choir only uses the cookies it needs to keep you signed in and remember your settings.
         </p>
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            onClick={acceptCookies}
-            className="px-5 py-2 bg-accent text-white text-sm font-semibold rounded-xl hover:bg-accent/90 transition-colors active:scale-95"
-          >
-            Accept & Continue
-          </button>
-          <button
-            onClick={() => setIsVisible(false)}
-            className="p-2 text-graphite hover:text-ink transition-colors rounded-lg hover:bg-surface-hover"
-            aria-label="Close"
-          >
-            <X size={18} />
-          </button>
-        </div>
+        <button
+          onClick={dismiss}
+          className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-pill text-fg-muted hover:bg-hover hover:text-fg"
+          aria-label="Close cookie notice"
+          data-tooltip="Close"
+        >
+          <X size={16} aria-hidden="true" />
+        </button>
+      </div>
+      <div className="mt-3 flex justify-end">
+        <Button variant="secondary" size="sm" onClick={dismiss}>
+          Got it
+        </Button>
       </div>
     </div>
   );
