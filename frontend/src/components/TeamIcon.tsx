@@ -69,7 +69,6 @@ export function TeamIcon({
         showImage ? "bg-card" : colour ? cn(colour.fill, "text-on-team-colour") : "bg-card text-fg-muted",
         // Off the rail the default card sits on `bg`, so it needs an edge to be seen.
         size !== "rail" && !colour && "border border-line",
-        active && "shadow-[0_0_0_2px_var(--color-sunken),0_0_0_4px_var(--color-fg)]",
         className
       )}
     >

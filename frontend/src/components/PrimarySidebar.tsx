@@ -83,8 +83,12 @@ export function PrimarySidebar({
               data-tooltip-side="right"
               aria-label={team.name}
               aria-pressed={isActive}
-              className="shrink-0 rounded-[12px] hover:opacity-90"
+              className="relative shrink-0 rounded-[12px] hover:opacity-90"
             >
+              {/* DESIGN.md 5.2: the active team gets a pill on the rail's edge, not a ring around its icon. */}
+              {isActive && (
+                <span aria-hidden="true" className="absolute left-[-9px] top-1/2 h-[32px] w-[4px] -translate-y-1/2 rounded-r-full bg-fg" />
+              )}
               <TeamIcon team={team} active={isActive} />
             </button>
           );
