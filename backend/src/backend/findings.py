@@ -60,10 +60,15 @@ def draft_findings(thread_id: str, user_id: str) -> dict[str, Any]:
         llm.decisions_block(llm._team_decisions(thread["project_id"]), names, tz, 4_000),
         llm.checkpoint_block(view["checkpoint"], "EARLIER IN MY PRIVATE THREAD", tz),
         coverage_line(view),
-        "Here is my private thread:\n\n"
-        + "\n\n".join(f"{'Choir AI' if m['sender_type'] == 'assistant' else 'Me'}: {m['content']}" for m in messages),
+        "Here is my private thread:\n\n",
     ]
-    user_prompt = "\n\n".join(part for part in parts if part)
+    # Each message carries its opened files, as in the chat.
+    user_prompt = llm.with_files(
+        "\n\n".join(part for part in parts if part),
+        messages,
+        lambda m: f"{'Choir AI' if m['sender_type'] == 'assistant' else 'Me'}: {m['content']}",
+        provider,
+    )
 
     draft = complete_once(provider, model, api_key, FINDINGS_SYSTEM_PROMPT, user_prompt, max_tokens=700)
     return {"draft": draft.strip(), "source_message_ids": [m["id"] for m in messages]}

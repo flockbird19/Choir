@@ -20,14 +20,11 @@ from backend.llm import (
 
 HANDOFF_SYSTEM_PROMPT = prompts.system(prompts.HANDOFF_JOB)
 
-def _transcript(messages: list[dict[str, Any]], names: dict[str, str], user_id: str) -> str:
-    lines = []
-    for msg in messages:
-        label = sender_label(msg, names)
-        if msg["sender_type"] != "assistant" and msg.get("sender_id") == user_id:
-            label += " (me)"
-        lines.append(f"{label}: {msg['content']}")
-    return "\n\n".join(lines)
+def _line(msg: dict[str, Any], names: dict[str, str], user_id: str) -> str:
+    label = sender_label(msg, names)
+    if msg["sender_type"] != "assistant" and msg.get("sender_id") == user_id:
+        label += " (me)"
+    return f"{label}: {msg['content']}"
 
 
 def draft_handoff_prompt(thread_id: str, user_id: str) -> dict[str, str]:
@@ -67,7 +64,10 @@ def draft_handoff_prompt(thread_id: str, user_id: str) -> dict[str, str]:
         if block:
             parts.append(block)
     parts.append(coverage_line(view))
-    parts.append("THREAD:\n" + _transcript(view["messages"], names, user_id))
-
-    prompt = complete_once(provider, model, api_key, HANDOFF_SYSTEM_PROMPT, "\n\n".join(parts), max_tokens=1200)
+    parts.append("THREAD:\n")
+    # Each message carries its opened files, as in the chat.
+    user_prompt = llm.with_files(
+        "\n\n".join(parts), view["messages"], lambda m: _line(m, names, user_id), provider
+    )
+    prompt = complete_once(provider, model, api_key, HANDOFF_SYSTEM_PROMPT, user_prompt, max_tokens=1200)
     return {"prompt": prompt.strip()}

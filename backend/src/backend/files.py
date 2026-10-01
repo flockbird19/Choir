@@ -3,10 +3,9 @@ Files attached to messages (2026-09-30).
 
 A message's `attachments` is a list of {path, name, size, type}; `path` points into the
 private "attachments" storage bucket. Everything that reads a thread for the AI sees each file
-as a one-line note. The files a question is about (its own and the replied-to message's, else the
-latest shared file) are also opened and labelled with where they came from: images and PDFs go to
-Anthropic natively, and every provider gets the text of text, Word and PowerPoint files (and of
-PDFs it can't take natively). See stream_ai_response in llm.py for the choice.
+as a one-line note. Files are also opened inside the message they came with (read_for_ai), newest
+first within shared caps: images for providers that see them, PDFs natively for Anthropic, and
+the text of text, Word, PowerPoint (and other providers' PDF) files for everyone.
 """
 
 import base64
@@ -38,8 +37,6 @@ MEDIA_BYTES = 20 * 1024 * 1024
 # Word and PowerPoint files are zips: at most this many parts, and this much unpacked XML.
 OFFICE_PARTS = 500
 OFFICE_UNPACKED_BYTES = 40 * 1024 * 1024
-# How far back the AI looks for shared files when a question has none of its own (and isn't a reply).
-RECENT_FILE_MESSAGES = 20
 # Text files are read in full up to this size, and all of them together up to TEXT_TOTAL chars.
 TEXT_BYTES = 50 * 1024
 TEXT_TOTAL = 60_000
@@ -160,42 +157,51 @@ def _office_text(data: bytes, kind: str) -> str:
         return ""
 
 
-def read_for_ai(
-    messages: list[dict[str, Any]], native: bool, where: list[str] | None = None
-) -> tuple[list[dict[str, Any]], str]:
-    """
-    What the AI gets from these messages' files, most relevant message first so the caps keep
-    the right ones: (blocks, text). `where` says, per message, where its files come from ("attached
-    to the message you're answering"); every file is labelled with it, so the AI never mistakes an
-    earlier file for the one being asked about.
+def sees_images(provider: str) -> bool:
+    """Claude, GPT-4o and Gemini look at images; Choir's Groq model (Llama 3.3) reads text only."""
+    return provider != "groq"
 
-    - `blocks` are Anthropic content blocks, only when `native`: images, and PDFs as documents
-      (it reads their pages, pictures included).
-    - `text` is for every provider: text and code files, the words of Word and PowerPoint
-      files, and a PDF's text when it can't go natively (another provider, too many pages).
+
+def read_for_ai(
+    messages: list[dict[str, Any]], provider: str, text_total: int = TEXT_TOTAL
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    The files the AI opens, per message id, as content blocks that go *inside that message*,
+    the way ChatGPT and Claude.ai keep a file where it was sent (no guessing which file a
+    question means). `messages` come most important first (the asked and replied-to messages,
+    then newest to oldest), so the caps, shared by the whole conversation, keep the right files;
+    the rest stay as their note line.
+
+    Blocks are Anthropic-shaped; llm.py turns them into OpenAI's for the other providers.
+    - images: for providers that see images;
+    - PDFs: as documents for Anthropic (it reads their pages, pictures included), else their text;
+    - text and code files, and the words of Word and PowerPoint files: as text, for everyone.
 
     Anything too big, locked, unreadable or of another type stays as its note only.
     """
-    blocks: list[dict[str, Any]] = []
-    texts: list[str] = []
+    native, images_ok = provider == "anthropic", sees_images(provider)
+    opened: dict[str, list[dict[str, Any]]] = {}
     used = media = images = docs = 0
 
-    def add_text(label: str, body: str) -> None:
-        nonlocal used
-        body = body[: max(TEXT_TOTAL - used, 0)]
-        if body.strip():
-            used += len(body)
-            texts.append(f"{label}:\n```\n{body}\n```")
+    for msg in messages:
+        if msg.get("sender_type") != "user" or msg.get("id") in opened:
+            continue
+        blocks: list[dict[str, Any]] = []
 
-    for index, msg in enumerate(messages):
-        place = where[index] if where and index < len(where) else "attached in this thread"
+        def add_text(label: str, body: str) -> None:
+            nonlocal used
+            body = body[: max(text_total - used, 0)]
+            if body.strip():
+                used += len(body)
+                blocks.append({"type": "text", "text": f"{label}:\n```\n{body}\n```"})
+
         for file in attachments_of(msg):
             path, name = str(file.get("path") or ""), str(file.get("name") or "file")
             # Only files in the message's own thread folder (the database already insists; this
             # reads with the service key, so it checks again rather than trust the row).
             if msg.get("thread_id") and not path.startswith(f"{msg['thread_id']}/"):
                 continue
-            label = {"type": "text", "text": f"[File: {name}, {place}]"}
+            label = {"type": "text", "text": f"[File: {name}]"}
             try:
                 size = int(file.get("size"))  # type: ignore[arg-type]
             except (TypeError, ValueError):
@@ -203,7 +209,7 @@ def read_for_ai(
             if not path:
                 continue
             if file.get("type") in AI_IMAGE_TYPES:
-                if native and size <= AI_IMAGE_BYTES and images < AI_IMAGES and media + size <= MEDIA_BYTES:
+                if images_ok and size <= AI_IMAGE_BYTES and images < AI_IMAGES and media + size <= MEDIA_BYTES:
                     data = _download(path)
                     if data:
                         blocks.append(label)
@@ -225,21 +231,23 @@ def read_for_ai(
                         "source": {"type": "base64", "media_type": "application/pdf", "data": base64.b64encode(data).decode()},
                     })  # fmt: skip
                     media += len(data)
-                elif used < TEXT_TOTAL:
-                    add_text(f"Text of the attached PDF {name} ({place})", text or "(no readable text: it may be scanned images only)")
+                elif used < text_total:
+                    add_text(f"Text of the attached PDF {name}", text or "(no readable text: it may be scanned images only)")
             elif office_kind(file):
-                if docs >= AI_DOCS or used >= TEXT_TOTAL:
+                if docs >= AI_DOCS or used >= text_total:
                     continue
                 data = _download(path)
                 if data:
                     docs += 1
-                    add_text(f"Text of the attached file {name} ({place})", _office_text(data, office_kind(file) or ""))
-            elif is_text(file) and size <= TEXT_BYTES and used < TEXT_TOTAL:
+                    add_text(f"Text of the attached file {name}", _office_text(data, office_kind(file) or ""))
+            elif is_text(file) and size <= TEXT_BYTES and used < text_total:
                 data = _download(path)
                 try:
                     text = data.decode("utf-8") if data else None
                 except UnicodeDecodeError:
                     text = None
                 if text is not None:
-                    add_text(f"Contents of the attached file {name} ({place})", text)
-    return blocks, "\n\n".join(texts)
+                    add_text(f"Contents of the attached file {name}", text)
+        if blocks:
+            opened[msg["id"]] = blocks
+    return opened

@@ -1,10 +1,12 @@
 """
 Files attached to messages (2026-09-30), with fakes only (no model, no storage, no credits):
 - every AI reader sees a note per file, including attachment-only messages;
-- files on the latest messages up to the asking one (and on the replied-to one) are opened:
-  Anthropic gets images and PDFs natively, every provider gets text, Word and PowerPoint text
-  (and a PDF's text when it can't go natively); older files stay notes, so they aren't paid again;
-- oversized, locked, binary or unreadable files stay as their note; caps hold;
+- files are opened inside the message they came with (chat, Catch me up, findings, Export as
+  prompt), the asked and replied-to messages' first, then newest to oldest within shared caps;
+  Anthropic gets images and PDFs natively, OpenAI and Gemini images, everyone text, Word,
+  PowerPoint (and other providers' PDF) text; files past the caps stay notes;
+- the conversation is cached up to the app's note, which ends the last turn;
+- oversized, locked, binary or unreadable files stay as their note;
 - the Markdown export lists files.
 """
 
@@ -16,10 +18,11 @@ from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 
 import main
-from backend import files, llm
+from backend import files, findings, handoff, llm
 from backend.auth import get_current_user
-from tests.fakes import FakeClient
+from tests.fakes import FakeClient, turn_text
 from tests.test_context import captured, msg, world  # noqa: F401  (captured is a fixture)
+from tests.test_prompts import chat
 
 
 def pdf_with_text(text: str) -> bytes:
@@ -122,124 +125,105 @@ def test_attachment_only_messages_reach_ai_readers_but_withdrawn_ones_dont():
     assert "poster.pdf (PDF" in view[0]["content"]
 
 
-def test_asking_message_hands_anthropic_images_and_pdfs_and_text_to_everyone(captured):  # noqa: F811
-    calls: list[str] = []
-    old = {**PNG, "path": "t/9/old.png", "name": "old.png"}
-    db = world([
-        msg(1, sender="u-b", text="old screenshot", attachments=[old]),
-        *[msg(i, text=f"chat {i}") for i in range(2, 13)],
-        msg(13, sender="u-a", text="what's wrong here?", attachments=[PNG, NOTES, PDF]),
-    ])
-    with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download", fake_storage(calls)):
-        frames = list(llm.stream_ai_response("t", "u-a", message_id="m13", tz_offset=0))
-    last = captured["messages"][-1]["content"]
-    assert [block["type"] for block in last] == ["text", "image", "text", "document", "text"]
-    assert last[0]["text"] == "[File: shot.png, attached to the message you're answering]"
-    assert last[1]["source"]["media_type"] == "image/png"
-    assert last[3]["source"]["media_type"] == "application/pdf" and last[3]["title"] == "poster.pdf"
-    text = last[-1]["text"]
-    assert "what's wrong here?" in text and "print('hi')" in text
-    assert "Contents of the attached file notes.py (attached to the message you're answering)" in text
-    assert "[Attached file: poster.pdf (PDF" in text
-    # A file more than 10 messages back is a note in history, never downloaded again.
-    assert "[Attached file: old.png (image" in captured["messages"][0]["content"]
-    assert calls == [PNG["path"], NOTES["path"], PDF["path"]]
-    assert any("Opening the attached files" in f for f in frames)
+def kinds(content) -> list[str]:
+    return [block["type"] for block in content] if isinstance(content, list) else ["str"]
 
 
-def test_a_file_uploaded_earlier_is_read_when_asked_about_later(captured):  # noqa: F811
-    db = world([
-        msg(1, sender="u-a", text="", attachments=[PDF]),
-        msg(2, sender="u-b", text="nice"),
-        msg(3, sender="u-a", text="what do you think of this poster?"),
-    ])
-    with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download", fake_storage([])):
-        list(llm.stream_ai_response("t", "u-a", message_id="m3", tz_offset=0))
-    last = captured["messages"][-1]["content"]
-    assert last[0]["text"].startswith("[File: poster.pdf, attached earlier by Priya")
-    assert last[1]["type"] == "document" and last[1]["title"] == "poster.pdf"
-    assert last[-1]["text"].endswith("what do you think of this poster?")
-
-
-def test_reply_target_files_are_opened_too(captured):  # noqa: F811
-    calls: list[str] = []
-    db = world([
-        msg(1, sender="u-b", text="here's the error", attachments=[PNG]),
-        *[msg(i, text=f"chat {i}") for i in range(2, 13)],
-        msg(13, sender="u-a", text="what does it say?", reply_to_message_id="m1"),
-    ])
-    with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download", fake_storage(calls)):
-        list(llm.stream_ai_response("t", "u-a", message_id="m13", tz_offset=0))
-    last = captured["messages"][-1]["content"]
-    assert last[0]["text"].startswith("[File: shot.png, attached to the message being replied to (attached earlier by Arjun")
-    assert last[1]["type"] == "image"
-    assert "[Attached file: shot.png (image, 2 KB)]" in last[-1]["text"]  # inside the reply quote
-    assert calls == [PNG["path"]]
-
-
-def test_asking_about_a_new_image_never_brings_in_an_earlier_pdf(captured):  # noqa: F811
-    # Live failure: a PDF, then a screenshot with "what do you see?", got an answer about both.
-    calls: list[str] = []
-    db = world([
-        msg(1, sender="u-a", text="what do you think of this poster?", attachments=[PDF]),
-        msg(2, sender=None, text="It's bold and clear."),
-        msg(3, sender="u-a", text="what do you see?", attachments=[PNG]),
-    ])
-    with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download", fake_storage(calls)):
-        list(llm.stream_ai_response("t", "u-a", message_id="m3", tz_offset=0))
-    last = captured["messages"][-1]["content"]
-    assert [block["type"] for block in last] == ["text", "image", "text"]
-    assert last[0]["text"] == "[File: shot.png, attached to the message you're answering]"
-    assert calls == [PNG["path"]]
-
-
-def test_replying_to_the_image_opens_only_the_image(captured):  # noqa: F811
-    calls: list[str] = []
-    db = world([
-        msg(1, sender="u-a", text="", attachments=[PDF]),
-        msg(2, sender="u-a", text="", attachments=[PNG]),
-        msg(3, sender="u-a", text="I'm talking about this", reply_to_message_id="m2"),
-    ])
-    with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download", fake_storage(calls)):
-        list(llm.stream_ai_response("t", "u-a", message_id="m3", tz_offset=0))
-    assert calls == [PNG["path"]]
-    assert "being replied to" in captured["messages"][-1]["content"][0]["text"]
-
-
-def test_without_files_or_a_reply_every_recent_file_is_opened_newest_first(captured):  # noqa: F811
-    # Live failure: a PDF, then a screenshot, then "who's building it according to the pdf?"
-    # opened only the screenshot, so the AI never saw the PDF.
+def test_files_stay_inside_the_message_they_came_with(captured):  # noqa: F811
+    # Live failure (three guessing rules): a PDF, then a screenshot, then "who's building it
+    # according to the pdf?". Now every file sits in its own message, as in ChatGPT and Claude.ai.
     calls: list[str] = []
     db = world([
         msg(1, sender="u-a", text="what do you think of the abstract?", attachments=[PDF]),
-        msg(2, sender="u-b", text="what do you see?", attachments=[PNG]),
-        msg(3, sender="u-a", text="who's building it according to the pdf?"),
+        msg(2, sender=None, text="It's clear."),
+        msg(3, sender="u-b", text="what do you see?", attachments=[PNG]),
+        msg(4, sender="u-a", text="who's building it according to the pdf?"),
     ])
     with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download", fake_storage(calls)):
-        list(llm.stream_ai_response("t", "u-a", message_id="m3", tz_offset=0))
-    assert calls == [PNG["path"], PDF["path"]]
+        frames = list(llm.stream_ai_response("t", "u-a", message_id="m4", tz_offset=0))
+    turns = captured["messages"]
+    assert kinds(turns[0]["content"]) == ["text", "text", "document"]
+    assert turns[0]["content"][0]["text"].startswith("[Priya · ") and turns[0]["content"][1]["text"] == "[File: poster.pdf]"
+    assert turns[0]["content"][2]["title"] == "poster.pdf"
+    assert turns[1] == {"role": "assistant", "content": "It's clear."}
+    assert kinds(turns[2]["content"]) == ["text", "text", "image"] and "[Arjun · " in turns[2]["content"][0]["text"]
+    assert turn_text(turns[3]["content"]).endswith("who's building it according to the pdf?")
+    assert calls == [PNG["path"], PDF["path"]]  # newest first, so the caps keep the latest files
+    assert any("Opening the attached files" in f for f in frames)
+
+
+def test_the_asking_messages_own_files_come_with_it_and_the_cache_ends_before_the_note(captured):  # noqa: F811
+    db = world([msg(1, sender="u-a", text="what's wrong here?", attachments=[PNG, NOTES, PDF])])
+    with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download", fake_storage([])):
+        list(llm.stream_ai_response("t", "u-a", message_id="m1", tz_offset=0))
     last = captured["messages"][-1]["content"]
-    assert [block["type"] for block in last] == ["text", "image", "text", "document", "text"]
-    assert last[0]["text"].startswith("[File: shot.png, attached earlier by Arjun")
-    assert last[2]["text"].startswith("[File: poster.pdf, attached earlier by Priya")
+    assert kinds(last) == ["text", "text", "image", "text", "text", "document", "text"]
+    assert last[1]["text"] == "[File: shot.png]"
+    assert last[3]["text"].startswith("Contents of the attached file notes.py:") and "print('hi')" in last[3]["text"]
+    assert last[5]["cache_control"] == {"type": "ephemeral"}  # the conversation and its files are cached
+    assert last[6]["text"].startswith("[Note from the Choir app") and "cache_control" not in last[6]
 
 
-def test_no_files_means_a_plain_text_turn(captured):  # noqa: F811
+def test_caps_keep_the_newest_files_and_older_ones_stay_notes(captured):  # noqa: F811
+    calls: list[str] = []
+    shots = [{**PNG, "path": f"t/{i}/s.png", "name": f"s{i}.png"} for i in range(1, 8)]
+    db = world([*[msg(i, sender="u-a", text="", attachments=[shots[i - 1]]) for i in range(1, 8)], msg(8, text="compare them")])
+    contents = {s["path"]: b"img" for s in shots}
+    with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download", fake_storage(calls, contents)):
+        list(llm.stream_ai_response("t", "u-a", message_id="m8", tz_offset=0))
+    assert calls == [s["path"] for s in reversed(shots)][: files.AI_IMAGES]
+    oldest = captured["messages"][0]["content"]
+    assert isinstance(oldest, str) and "[Attached file: s1.png (image" in oldest
+
+
+def test_a_replied_to_message_opens_its_files_first(captured):  # noqa: F811
+    calls: list[str] = []
+    shots = [{**PNG, "path": f"t/{i}/s.png", "name": f"s{i}.png"} for i in range(1, 8)]
+    db = world([
+        *[msg(i, sender="u-a", text="", attachments=[shots[i - 1]]) for i in range(1, 8)],
+        msg(8, sender="u-a", text="what does this one say?", reply_to_message_id="m1"),
+    ])
+    contents = {s["path"]: b"img" for s in shots}
+    with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download", fake_storage(calls, contents)):
+        list(llm.stream_ai_response("t", "u-a", message_id="m8", tz_offset=0))
+    assert calls[0] == shots[0]["path"] and len(calls) == files.AI_IMAGES
+    assert kinds(captured["messages"][0]["content"]) == ["text", "text", "image"]
+
+
+def test_no_files_means_no_downloads(captured):  # noqa: F811
     db = world([msg(1, sender="u-a", text="hello")])
     with patch.object(llm, "get_db", return_value=db), patch.object(files, "_download") as download:
         list(llm.stream_ai_response("t", "u-a", message_id="m1", tz_offset=0))
-    assert isinstance(captured["messages"][-1]["content"], str)
+    assert turn_text(captured["messages"][-1]["content"]).endswith("hello")
     download.assert_not_called()
 
 
-def test_other_providers_read_pdf_word_and_powerpoint_text_but_get_no_images():
+def test_openai_gets_images_as_data_urls_in_their_message():
+    db = world([msg(1, sender="u-a", text="", attachments=[PNG, PDF]), msg(2, sender="u-a", text="thoughts?")])
+    with chat(db, provider="openai") as seen, patch.object(files, "_download", fake_storage([])):
+        list(llm.stream_ai_response("t", "u-a", message_id="m2", tz_offset=0))
+    first = seen["messages"][1]["content"]
+    assert [p["type"] for p in first] == ["text", "text", "image_url", "text"]
+    assert first[2]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert "Text of the attached PDF poster.pdf" in first[3]["text"] and "Communication protocols poster" in first[3]["text"]
+    last = seen["messages"][-1]["content"]
+    assert isinstance(last, str) and "thoughts?" in last and "[Note from the Choir app" in last
+
+
+def test_groq_reads_text_only_and_never_downloads_images():
     calls: list[str] = []
     with patch.object(files, "_download", fake_storage(calls)):
-        blocks, text = files.read_for_ai([{"attachments": [PNG, PDF, WORD, SLIDES]}], native=False)
-    assert blocks == [] and PNG["path"] not in calls
+        opened = files.read_for_ai([{"id": "m", "sender_type": "user", "attachments": [PNG, PDF, WORD, SLIDES]}], "groq")
+    text = llm.openai_content(opened["m"], "groq")
+    assert isinstance(text, str) and PNG["path"] not in calls
     assert "Text of the attached PDF poster.pdf" in text and "Communication protocols poster" in text
     assert "Project plan\nSensors & pumps by Friday" in text
     assert text.index("Slide 1:\nIntro") < text.index("Slide 2:\nResults") < text.index("Slide 3:\nThanks")
+
+
+def _one(attachments: list[dict], **extra) -> list[dict]:
+    message = {"id": "m", "sender_type": "user", "attachments": attachments, **extra}
+    return files.read_for_ai([message], "anthropic").get("m", [])
 
 
 def test_long_pdfs_go_as_text_and_unreadable_ones_say_so():
@@ -247,10 +231,10 @@ def test_long_pdfs_go_as_text_and_unreadable_ones_say_so():
     broken = {**PDF, "path": "t/7/broken.pdf", "name": "broken.pdf"}
     contents = {long_pdf["path"]: blank_pdf(files.PDF_PAGES + 1), broken["path"]: b"%PDF-1.4 not really"}
     with patch.object(files, "_download", fake_storage([], contents)):
-        blocks, text = files.read_for_ai([{"attachments": [long_pdf, broken]}], native=True)
-    assert blocks == []
-    assert "Text of the attached PDF long.pdf" in text and "no readable text" in text
-    assert "Text of the attached PDF broken.pdf" in text
+        blocks = _one([long_pdf, broken])
+    assert kinds(blocks) == ["text", "text"]
+    assert "Text of the attached PDF long.pdf" in blocks[0]["text"] and "no readable text" in blocks[0]["text"]
+    assert "Text of the attached PDF broken.pdf" in blocks[1]["text"]
 
 
 def test_big_binary_or_unreadable_files_stay_as_notes():
@@ -267,8 +251,7 @@ def test_big_binary_or_unreadable_files_stay_as_notes():
         return b"\xff\xfe\x00bad" if path == binary["path"] else None
 
     with patch.object(files, "_download", download):
-        blocks, text = files.read_for_ai([{"attachments": [big_image, big_text, binary, missing, svg, zipped]}], native=True)
-    assert blocks == [] and text == ""
+        assert _one([big_image, big_text, binary, missing, svg, zipped]) == []
     assert calls == [binary["path"], missing["path"]]
 
 
@@ -286,21 +269,62 @@ def test_only_files_in_the_messages_own_thread_are_opened():
     calls: list[str] = []
     stray = {**NOTES, "path": "other-thread/1/secret.txt"}
     with patch.object(files, "_download", fake_storage(calls)):
-        blocks, text = files.read_for_ai([{"thread_id": "t", "attachments": [stray, NOTES]}], native=True)
+        _one([stray, NOTES], thread_id="t")
     assert calls == [NOTES["path"]]
 
 
-def test_caps_on_images_documents_and_text():
+def test_caps_on_images_documents_and_text_are_shared_by_the_whole_conversation():
     many_images = [{**PNG, "path": f"t/i{i}/p.png"} for i in range(7)]
     many_pdfs = [{**PDF, "path": f"t/d{i}/p.pdf"} for i in range(5)]
     texts = [{**NOTES, "path": f"t/x{i}/n.txt", "name": f"n{i}.txt"} for i in range(3)]
     contents = {f["path"]: POSTER for f in many_pdfs} | {f["path"]: b"z" * 40_000 for f in texts}
     contents |= {f["path"]: b"img" for f in many_images}
+    messages = [{"id": f"m{i}", "sender_type": "user", "attachments": [f]} for i, f in enumerate(many_images + many_pdfs + texts)]
     with patch.object(files, "_download", fake_storage([], contents)):
-        blocks, text = files.read_for_ai([{"attachments": many_images + many_pdfs + texts}], native=True)
+        opened = files.read_for_ai(messages, "anthropic")
+    blocks = [block for found in opened.values() for block in found]
     assert sum(b["type"] == "image" for b in blocks) == files.AI_IMAGES
     assert sum(b["type"] == "document" for b in blocks) == files.AI_DOCS
-    assert text.count("z") == files.TEXT_TOTAL
+    assert sum(b["text"].count("z") for b in blocks if b["type"] == "text") == files.TEXT_TOTAL
+
+
+def test_catch_me_up_findings_and_export_see_files_in_their_message():
+    def one_shot(run, thread: str):
+        seen: list = []
+        poster = {**PDF, "path": f"{thread}/3/poster.pdf"}
+        db = world([
+            msg(1, thread=thread, sender="u-a", text="the plan", attachments=[poster]),
+            msg(2, thread=thread, sender="u-a", text="thoughts?"),
+        ])
+
+        def fake(provider, model, key, system, prompt, max_tokens):
+            seen.append(prompt)
+            return "ok"
+
+        with (
+            patch.object(llm, "get_db", return_value=db),
+            patch.object(llm, "get_api_key", return_value="sk"),
+            patch.object(llm, "complete_once", side_effect=fake),
+            patch.object(findings, "complete_once", side_effect=fake),
+            patch.object(handoff, "complete_once", side_effect=fake),
+            patch.object(files, "_download", fake_storage([], {poster["path"]: POSTER})),
+        ):
+            run()
+        return seen[-1]
+
+    for prompt in (
+        one_shot(lambda: llm.generate_digest("t", "u-a"), "t"),
+        one_shot(lambda: findings.draft_findings("priv", "u-a"), "priv"),
+        one_shot(lambda: handoff.draft_handoff_prompt("priv", "u-a"), "priv"),
+    ):
+        assert kinds(prompt) == ["text", "text", "document", "text"]
+        assert "the plan\n[Attached file: poster.pdf (PDF" in prompt[0]["text"] and "thoughts?" not in prompt[0]["text"]
+        assert prompt[1]["text"] == "[File: poster.pdf]" and prompt[2]["title"] == "poster.pdf"
+        assert "thoughts?" in prompt[3]["text"]
+
+
+def test_one_shot_prompts_stay_plain_text_without_files():
+    assert llm.with_files("HEAD\n", [msg(1, text="hi")], lambda m: m["content"], "anthropic") == "HEAD\nhi"
 
 
 def test_markdown_export_lists_files():

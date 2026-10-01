@@ -735,11 +735,11 @@ def _resolve_provider_and_model(
 
 
 def complete_once(
-    provider: str, model: str, api_key: str, system_prompt: str, user_prompt: str, max_tokens: int
+    provider: str, model: str, api_key: str, system_prompt: str, user_prompt: str | list[dict[str, Any]], max_tokens: int
 ) -> str:
     """
-    Single non-streaming completion. Raises RuntimeError with a friendly message
-    on a rate limit or other upstream provider error.
+    Single non-streaming completion. `user_prompt` is text, or blocks with files (with_files).
+    Raises RuntimeError with a friendly message on a rate limit or other upstream provider error.
     """
     try:
         if provider == "anthropic":
@@ -762,7 +762,7 @@ def complete_once(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+                {"role": "user", "content": openai_content(user_prompt, provider)},
             ],
         )
         return response.choices[0].message.content or ""
@@ -781,6 +781,53 @@ def complete_once(
 # ---------------------------------------------------------------------------
 
 
+def openai_content(content: str | list[dict[str, Any]], provider: str) -> str | list[dict[str, Any]]:
+    """Anthropic-shaped blocks as OpenAI chat parts: images as data URLs (if the provider sees
+    images), the rest as text. Plain text when no image is left, which every model takes."""
+    if isinstance(content, str):
+        return content
+    parts: list[dict[str, Any]] = []
+    for block in content:
+        if block["type"] == "image" and files.sees_images(provider):
+            source = block["source"]
+            parts.append({"type": "image_url", "image_url": {"url": f"data:{source['media_type']};base64,{source['data']}"}})
+        elif block["type"] == "text":
+            parts.append({"type": "text", "text": block["text"]})
+        # A PDF opened for Anthropic reaches another provider only after a rate-limit switch
+        # mid-answer; its note line in the message still says it's there.
+    if any(p["type"] == "image_url" for p in parts):
+        return parts
+    return "\n\n".join(p["text"] for p in parts)
+
+
+def content_chars(content: str | list[dict[str, Any]]) -> int:
+    return len(content) if isinstance(content, str) else sum(len(b.get("text", "")) for b in content)
+
+
+def with_files(
+    head: str, messages: list[dict[str, Any]], render: Any, provider: str, sep: str = "\n\n"
+) -> str | list[dict[str, Any]]:
+    """
+    A one-shot prompt (Catch me up, Publish findings, Export as prompt): `head`, then each
+    message as `render(message)` with its opened files right after it, as in the chat. Plain text
+    when no file is opened.
+    """
+    order = list(reversed(messages))
+    opened = files.read_for_ai(order, provider) if any(files.attachments_of(m) for m in order) else {}
+    parts: list[dict[str, Any]] = []
+    text = head
+    for msg in messages:
+        text += render(msg) + sep
+        if msg.get("id") in opened:
+            parts += [{"type": "text", "text": text}, *opened[msg["id"]]]
+            text = ""
+    if not parts:
+        return text.rstrip()
+    if text.strip():
+        parts.append({"type": "text", "text": text.rstrip()})
+    return parts
+
+
 def _sse(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
@@ -791,17 +838,29 @@ def _stream_text(
     api_key: str,
     system_stable: str,
     system_volatile: str,
-    chat_messages: list[dict[str, str]],
+    chat_messages: list[dict[str, Any]],
     search: bool = False,
-    media: list[dict[str, Any]] | None = None,
 ) -> Generator[str | dict[str, Any], None, None]:
     """
     Yield text chunks from one provider call. `system_stable` is the part of the
     system prompt that stays the same across turns in this thread (team roster,
-    role/style instructions); `system_volatile` is what changes every turn (who's
-    talking, the trimmed recent context). `media` (Anthropic image and document blocks)
-    goes with the last message, the one being answered.
+    role/style instructions); `system_volatile` is what changes every turn (the time, who's
+    asking, the Decisions). It goes at the end of the last turn, after the conversation, so
+    everything before it (files included) is the same next turn and can be cached.
+    A message's content is text or a list of Anthropic-shaped blocks (its files).
     """
+    chat_messages = list(chat_messages)
+    if chat_messages and chat_messages[-1]["role"] == "user":
+        content = chat_messages[-1]["content"]
+        blocks = [{"type": "text", "text": content}] if isinstance(content, str) else list(content)
+        if provider == "anthropic":
+            # Cache the conversation up to here; Anthropic finds it again next turn.
+            blocks[-1] = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
+        if system_volatile:
+            blocks.append({"type": "text", "text": system_volatile})
+        chat_messages[-1] = {"role": "user", "content": blocks}
+        system_volatile = ""
+
     if provider == "anthropic":
         import anthropic  # type: ignore
 
@@ -823,14 +882,11 @@ def _stream_text(
         extra: dict[str, Any] = (
             {"tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 4}]} if search else {}
         )
-        messages: list[dict[str, Any]] = list(chat_messages)
-        if media and messages and messages[-1]["role"] == "user":
-            messages[-1] = {"role": "user", "content": [*media, {"type": "text", "text": messages[-1]["content"]}]}
         with client.messages.stream(
             model=model,
             max_tokens=4096,
             system=system_blocks,
-            messages=messages,  # type: ignore[arg-type]
+            messages=chat_messages,  # type: ignore[arg-type]
             **extra,  # type: ignore[arg-type]
         ) as stream:
             # Text comes out as str; what the model is doing (searching, reading results)
@@ -865,7 +921,10 @@ def _stream_text(
     base_url: str | None = config["base_url"] or None
     client = openai_module.OpenAI(api_key=api_key, base_url=base_url)
     system_prompt = "\n".join(part for part in (system_stable, system_volatile) if part)
-    all_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}, *chat_messages]
+    all_messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt},
+        *({"role": m["role"], "content": openai_content(m["content"], provider)} for m in chat_messages),
+    ]
     with client.chat.completions.create(  # type: ignore[call-overload]
         model=model,
         messages=all_messages,  # type: ignore[arg-type]
@@ -1025,41 +1084,6 @@ def stream_ai_response(
         else:
             target = None
 
-    # The files the question is about, and only those (live failure: with a PDF and a later image
-    # both handed over unlabelled, "what do you see?" about the image got an answer about both):
-    # the asking message's own files and the replied-to message's; else the replied-to message's;
-    # else the latest earlier message with files ("what do you think of this poster?" after the
-    # upload). Every file is labelled with where it came from. Anthropic sees images and PDFs
-    # themselves; every provider reads text, Word and PowerPoint files. Other files in the thread
-    # stay as their note line.
-    def has_files(m: dict[str, Any] | None) -> bool:
-        return bool(m and m.get("sender_type") == "user" and files.attachments_of(m))
-
-    def earlier(m: dict[str, Any]) -> str:
-        return f"attached earlier by {sender_label(m, names)}, {when(m.get('created_at'), tz)}"
-
-    asked: list[tuple[dict[str, Any], str]] = []
-    if has_files(trigger):
-        asked.append((trigger, "attached to the message you're answering"))  # type: ignore[arg-type]
-        if has_files(target):
-            asked.append((target, f"attached to the message it replies to ({earlier(target)})"))  # type: ignore[arg-type]
-    elif has_files(target):
-        asked.append((target, f"attached to the message being replied to ({earlier(target)})"))  # type: ignore[arg-type]
-    elif trigger:
-        # No file of its own and not a reply: every file from the latest messages, newest first,
-        # each labelled, so "who's building it according to the pdf?" finds the PDF even after a
-        # screenshot was shared since (live failure: only the newest file was opened).
-        recent, _ = _fetch_page(thread_id, None, until, newest=True, limit=files.RECENT_FILE_MESSAGES)
-        for m in reversed(recent):
-            if m.get("id") != trigger.get("id") and has_files(m):
-                asked.append((m, earlier(m)))
-    if asked:
-        yield _sse({"activity": "Opening the attached files"})
-    ai_media, file_text = files.read_for_ai(
-        [m for m, _ in asked], native=provider == "anthropic", where=[place for _, place in asked]
-    )
-    file_block = f"\n\n{file_text}" if file_text else ""
-
 
     if thread["type"] == "private":
         # Find the shared thread for this project
@@ -1088,7 +1112,7 @@ def stream_ai_response(
         # Team Space gets a quarter of what's left; this thread gets the rest. Team Space isn't
         # compacted from here (that would post a card there on a private thread's behalf); its
         # durable content reaches this thread through project memory and Decisions.
-        room = max(budget - len(system_stable) - len(reply_quote) - len(file_block) - len(decisions_text), budget // 3)
+        room = max(budget - len(system_stable) - len(reply_quote) - len(decisions_text), budget // 3)
         team_space_block = "[No shared team context yet]"
         if shared_thread_id:
             shared_view = thread_view(shared_thread_id, None, room // 4)
@@ -1127,7 +1151,7 @@ def stream_ai_response(
         )
         if memory_text:
             system_stable += "\n" + memory_text + "\n"
-        room = max(budget - len(system_stable) - len(reply_quote) - len(file_block) - len(decisions_text), budget // 3)
+        room = max(budget - len(system_stable) - len(reply_quote) - len(decisions_text), budget // 3)
         view = thread_view(thread_id, until, room)
         if view["overflow"]:
             yield _sse({"activity": COMPACTING})
@@ -1137,17 +1161,38 @@ def stream_ai_response(
             system_stable += "\n" + summary + "\n"
         chat_messages = _to_chat_messages(view["messages"], names, tz)
 
-    if (reply_quote or file_block) and chat_messages and chat_messages[-1]["role"] == "user":
-        chat_messages[-1] = {"role": "user", "content": reply_quote + chat_messages[-1]["content"] + file_block}
+    if reply_quote and chat_messages and chat_messages[-1]["role"] == "user":
+        chat_messages[-1] = {"role": "user", "content": reply_quote + chat_messages[-1]["content"]}
 
-    # What changes from turn to turn: the time, who asks, and the Decisions as of right now.
+    # Files stay inside the message they were sent with, like ChatGPT and Claude.ai: the AI sees
+    # which file came when and from whom, so nothing has to guess which file a question means
+    # (three guessing rules each broke a live case). The asked and replied-to messages' files are
+    # opened first, then newest to oldest until the caps; the rest stay as note lines.
+    in_view = {m.get("id"): i for i, m in enumerate(view["messages"])}
+    order = [m for m in (trigger, target) if m] + list(reversed(view["messages"]))
+    if any(files.attachments_of(m) for m in order):
+        yield _sse({"activity": "Opening the attached files"})
+    # ponytail: file text sits outside the thread budget (half of it at most); fine for
+    # Choir's providers, measure before adding files to a smaller one.
+    opened = files.read_for_ai(order, provider, min(files.TEXT_TOTAL, budget // 2))
+    for mid, blocks in opened.items():
+        # A replied-to message too old for the window brings its files along with its quote.
+        index = in_view.get(mid, len(chat_messages) - 1 if target and mid == target["id"] else None)
+        if index is not None and chat_messages and chat_messages[index]["role"] == "user":
+            content = chat_messages[index]["content"]
+            head = [{"type": "text", "text": content}] if isinstance(content, str) else content
+            chat_messages[index] = {"role": "user", "content": [*head, *blocks]}
+
+    # What changes from turn to turn: the time, who asks, and the Decisions as of right now. It goes
+    # after the conversation (inside the last turn, see _stream_text), so the conversation and its
+    # files can be cached, and a fresh pin still comes last and outweighs earlier replies.
     # Worded as a note, not "you are answering X": the model once opened a reply with that line.
     asked_at = f", sent {when(until, tz)}" if until else ""
     system_volatile = (
-        f"{today_line(tz)}\nThe last message below is the one to answer (from {user_name_ctx}, "
-        f"{role_ctx.removeprefix('a ')}{asked_at}). Answer only it; leave other people's earlier questions "
-        f"to their own replies unless it asks about them. Never mention these notes or say whose message "
-        f"you are answering.\n\n" + decisions_text
+        f"[Note from the Choir app, not part of the message above. {today_line(tz)} The last message is "
+        f"the one to answer (from {user_name_ctx}, {role_ctx.removeprefix('a ')}{asked_at}). Answer only it; "
+        f"leave other people's earlier questions to their own replies unless it asks about them. Never "
+        f"mention these notes or say whose message you are answering.]\n\n" + decisions_text
     )
 
     # ── Stream from LLM ───────────────────────────────────────────────────────
@@ -1171,7 +1216,6 @@ def stream_ai_response(
                 for chunk in _stream_text(
                     provider, model, api_key, system_stable, system_volatile, chat_messages,
                     search=provider == "anthropic" and wants_search,
-                    media=ai_media if provider == "anthropic" else None,
                 ):
                     if isinstance(chunk, dict):
                         if "sources" in chunk:
@@ -1220,7 +1264,7 @@ def stream_ai_response(
                 # A provider with a smaller budget (Groq) gets the oldest turns dropped until it fits.
                 if context_chars(candidate.provider) < context_chars(provider):
                     limit = context_chars(candidate.provider) - len(system_stable) - len(system_volatile)
-                    while len(chat_messages) > 1 and sum(len(m["content"]) for m in chat_messages) > limit:
+                    while len(chat_messages) > 1 and sum(content_chars(m["content"]) for m in chat_messages) > limit:
                         chat_messages = chat_messages[1:]
                 provider = candidate.provider
                 model = candidate.model or _default_model(provider)
@@ -1314,7 +1358,7 @@ def generate_digest(thread_id: str, user_id: str, tz_offset: int | None = None) 
     parts = []
     if older:
         parts.append("EARLIER NEW MESSAGES (condensed):\n" + fold("", older, names, tz, provider, model, api_key))
-    parts.append("LATEST NEW MESSAGES:\n" + transcript(recent, names, tz))
+    parts.append("LATEST NEW MESSAGES:\n")
     # prompts.DIGEST_JOB: the helper must know exactly what range it was given.
     if not last_seen:
         coverage = (
@@ -1328,7 +1372,10 @@ def generate_digest(thread_id: str, user_id: str, tz_offset: int | None = None) 
             + (f"; the earliest {len(older)} of these are condensed, the latest {len(recent)} are word for word" if older else ", word for word")
             + (f". {skipped} earlier new messages were not included." if skipped else ".")
         )
-    user_prompt = f"{today_line(tz)}\n{coverage}\n\n" + "\n\n".join(parts)
+    # The latest messages carry their opened files, as in the chat.
+    user_prompt = with_files(
+        f"{today_line(tz)}\n{coverage}\n\n" + "\n\n".join(parts), recent, lambda m: transcript([m], names, tz), provider
+    )
 
     summary = complete_once(provider, model, api_key, DIGEST_SYSTEM_PROMPT, user_prompt, max_tokens=700)
 

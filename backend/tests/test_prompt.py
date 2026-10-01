@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from backend import llm
-from tests.fakes import FakeClient, anthropic_stream
+from tests.fakes import FakeClient, anthropic_stream, app_note, turn_text
 
 NAMES = {"u-owner": "Venu", "u-bob": "Bob", "u-quiet": "Quiet Priya"}
 
@@ -70,8 +70,13 @@ def _flatten_system(captured: dict) -> str:
     them back to one string for the older substring assertions below."""
     blocks = captured["system"]
     assert blocks[0]["cache_control"] == {"type": "ephemeral"}
-    assert "cache_control" not in blocks[-1] or len(blocks) == 1
-    return "\n".join(block["text"] for block in blocks)
+    # The volatile note ends the last turn, after the cached conversation; with no turn of the
+    # person's to end, it stays in the instructions.
+    if not captured["messages"]:
+        assert len(blocks) == 2 and "cache_control" not in blocks[1]
+        return blocks[0]["text"] + "\n" + blocks[1]["text"]
+    assert len(blocks) == 1
+    return blocks[0]["text"] + "\n" + app_note(captured)
 
 
 def test_roster_lists_every_member_with_role_in_join_order():
@@ -86,7 +91,7 @@ def test_shared_thread_prompt_includes_whole_team_and_labels_each_sender(fake_ba
     assert "TEAM MEMBERS (3): Venu (owner); Bob (member) - the person you are talking to; Quiet Priya (member)." in system
     assert "(from Bob, " in system
 
-    turns = [(m["role"], m["content"]) for m in fake_backend["messages"]]
+    turns = [(m["role"], turn_text(m["content"])) for m in fake_backend["messages"]]
     # Component #4: every person's turn carries who wrote it and when.
     assert ("user", "[Venu · 1]: lets do frontend") in turns
     assert ("user", "[Bob · 2]: yo gang") in turns
@@ -104,7 +109,7 @@ def test_private_thread_context_names_shared_thread_senders(fake_backend):
     assert "[Choir AI · 3]: Hi team" in system
     assert "Team Member:" not in system
     # Private turns carry only the time: only the owner writes there.
-    assert fake_backend["messages"] == [{"role": "user", "content": "[5] how many members?"}]
+    assert [(m["role"], turn_text(m["content"])) for m in fake_backend["messages"]] == [("user", "[5] how many members?")]
 
 
 def test_search_tool_is_only_attached_when_the_message_asks_for_it(fake_backend):

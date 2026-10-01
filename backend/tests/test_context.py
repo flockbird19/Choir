@@ -23,7 +23,7 @@ from unittest.mock import patch
 import pytest
 
 from backend import llm, memory
-from tests.fakes import FakeClient, anthropic_stream
+from tests.fakes import FakeClient, anthropic_stream, app_note, turn_text
 
 
 def at(i: int) -> str:
@@ -186,7 +186,8 @@ def captured():
 
 
 def _system(seen: dict) -> str:
-    return "\n".join(block["text"] for block in seen["system"])
+    """The instructions plus the note that ends the last turn (the time, who asks, the Decisions)."""
+    return "\n".join(block["text"] for block in seen["system"]) + "\n" + app_note(seen)
 
 
 def test_answer_is_built_from_the_thread_as_it_stood_at_the_asking_message(captured):
@@ -197,7 +198,7 @@ def test_answer_is_built_from_the_thread_as_it_stood_at_the_asking_message(captu
     ])
     with patch.object(llm, "get_db", return_value=db):
         list(llm.stream_ai_response("t", "u-a", message_id="m2", tz_offset=0))
-    turns = [m["content"] for m in captured["messages"]]
+    turns = [turn_text(m["content"]) for m in captured["messages"]]
     assert turns[-1].endswith("Priya asks about sensors")
     assert not any("newer" in t for t in turns)
     assert "(from Priya, " in _system(captured) and "Never mention these notes" in _system(captured)
@@ -222,7 +223,7 @@ def test_reply_target_date_and_decisions_are_in_the_prompt(captured):
     system = _system(captured)
     # Live failure: a quote only in the instructions lost to the message just above. It now
     # sits inside the person's own (last) turn.
-    last = captured["messages"][-1]["content"]
+    last = turn_text(captured["messages"][-1]["content"])
     assert last.startswith("(Replying to this message from Arjun") and "peristaltic pump" in last
     assert last.endswith("is this still right?")
     assert "Today is" in system and "UTC+05:30" in system
@@ -239,11 +240,13 @@ def test_decisions_come_last_and_override_earlier_replies(captured):
     ])
     with patch.object(llm, "get_db", return_value=db):
         list(llm.stream_ai_response("t", "u-a", message_id="m3"))
-    volatile = captured["system"][-1]["text"]
-    assert "cache_control" not in captured["system"][-1]  # read fresh, never cached
+    # The note comes after everything else, outside the cache, so a fresh pin has the last word.
+    last = captured["messages"][-1]["content"]
+    volatile = last[-1]["text"]
+    assert "cache_control" not in last[-1] and last[-2]["cache_control"] == {"type": "ephemeral"}
     assert "TEAM DECISIONS" in volatile and "TimescaleDB" in volatile
     assert "overrides anything your earlier replies, project memory or summaries said" in volatile
-    assert "TEAM DECISIONS" not in captured["system"][0]["text"]
+    assert len(captured["system"]) == 1 and "TEAM DECISIONS" not in captured["system"][0]["text"]
 
 
 def test_one_long_pin_cannot_push_the_other_decisions_out():

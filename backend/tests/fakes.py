@@ -149,3 +149,18 @@ def anthropic_stream(texts, extra_events=()):
     yield from extra_events
     for text in texts:
         yield NS(type="content_block_delta", index=0, delta=NS(type="text_delta", text=text))
+
+
+def turn_text(content) -> str:
+    """A chat turn's own text: the string, or its text blocks without the app's trailing note."""
+    if isinstance(content, str):
+        return content
+    texts = [block["text"] for block in content if block.get("type") == "text"]
+    if texts and texts[-1].startswith("[Note from the Choir app"):
+        texts = texts[:-1]
+    return "\n\n".join(texts)
+
+
+def app_note(captured: dict) -> str:
+    """The time, asker and Decisions note that ends the last turn (after the cached conversation)."""
+    return captured["messages"][-1]["content"][-1]["text"]
