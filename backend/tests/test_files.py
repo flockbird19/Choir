@@ -21,7 +21,7 @@ import main
 from backend import files, findings, handoff, llm
 from backend.auth import get_current_user
 from tests.fakes import FakeClient, turn_text
-from tests.test_context import captured, msg, world  # noqa: F401  (captured is a fixture)
+from tests.test_context import at, captured, msg, world  # noqa: F401  (captured is a fixture)
 from tests.test_prompts import chat
 
 
@@ -321,6 +321,34 @@ def test_catch_me_up_findings_and_export_see_files_in_their_message():
         assert "the plan\n[Attached file: poster.pdf (PDF" in prompt[0]["text"] and "thoughts?" not in prompt[0]["text"]
         assert prompt[1]["text"] == "[File: poster.pdf]" and prompt[2]["title"] == "poster.pdf"
         assert "thoughts?" in prompt[3]["text"]
+
+
+def test_catch_me_up_shows_a_file_sent_before_the_last_catch_up_as_context():
+    # Live failure: PDF sent, Catch me up, "@ai here's the product", Catch me up again: the second
+    # summary only had the two new messages and asked the person to share the document.
+    seen: list = []
+    db = world(
+        [
+            msg(1, sender="u-a", text="", attachments=[PDF]),
+            msg(3, sender="u-a", text="@ai heres the product we are building"),
+            msg(4, sender=None, text="I've read the abstract."),
+        ],
+        thread_reads=[{"thread_id": "t", "user_id": "u-a", "last_seen_at": at(2)}],
+    )
+    with (
+        patch.object(llm, "get_db", return_value=db),
+        patch.object(llm, "get_api_key", return_value="sk"),
+        patch.object(llm, "complete_once", side_effect=lambda p, m, k, system, prompt, max_tokens: seen.append(prompt) or "ok"),
+        patch.object(files, "_download", fake_storage([])),
+    ):
+        result = llm.generate_digest("t", "u-a")
+    prompt = seen[-1]
+    assert result["message_count"] == 2
+    assert kinds(prompt) == ["text", "text", "document", "text"]
+    assert "Before them come the last 1 messages they had already seen, as context only." in prompt[0]["text"]
+    assert "ALREADY SEEN (context only; never report these as new):\n[Priya · " in prompt[0]["text"]
+    assert "heres the product" not in prompt[0]["text"]
+    assert prompt[3]["text"].startswith("LATEST NEW MESSAGES:\n[Priya · ") and "I've read the abstract." in prompt[3]["text"]
 
 
 def test_one_shot_prompts_stay_plain_text_without_files():

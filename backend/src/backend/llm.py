@@ -1295,6 +1295,7 @@ def stream_ai_response(
 DIGEST_SYSTEM_PROMPT = prompts.system(prompts.DIGEST_JOB)
 
 DIGEST_MAX_MESSAGES = 1_000
+DIGEST_CONTEXT_MESSAGES = 10  # already-seen messages shown before the new ones, as context
 
 
 def generate_digest(thread_id: str, user_id: str, tz_offset: int | None = None) -> dict[str, Any]:
@@ -1355,6 +1356,13 @@ def generate_digest(thread_id: str, user_id: str, tz_offset: int | None = None) 
     names = team_names_for_thread(thread)
     budget = context_chars(provider)
     recent, older = _fit(new_messages, budget // 2)
+    # A few messages they'd already seen, files included, so new ones that point back ("here's the
+    # product" about a PDF sent before their last catch-up) make sense (live failure: it asked the
+    # person to share the document).
+    seen: list[dict[str, Any]] = []
+    if last_seen:
+        seen, _ = _fetch_page(thread_id, None, last_seen, newest=True, limit=DIGEST_CONTEXT_MESSAGES)
+        seen, _ = _fit(seen, budget // 6)
     parts = []
     if older:
         parts.append("EARLIER NEW MESSAGES (condensed):\n" + fold("", older, names, tz, provider, model, api_key))
@@ -1371,11 +1379,18 @@ def generate_digest(thread_id: str, user_id: str, tz_offset: int | None = None) 
             f"({when(last_seen, tz)})"
             + (f"; the earliest {len(older)} of these are condensed, the latest {len(recent)} are word for word" if older else ", word for word")
             + (f". {skipped} earlier new messages were not included." if skipped else ".")
+            + (f" Before them come the last {len(seen)} messages they had already seen, as context only." if seen else "")
         )
-    # The latest messages carry their opened files, as in the chat.
-    user_prompt = with_files(
-        f"{today_line(tz)}\n{coverage}\n\n" + "\n\n".join(parts), recent, lambda m: transcript([m], names, tz), provider
-    )
+    # Messages carry their opened files, as in the chat (newest first within the caps).
+    head = f"{today_line(tz)}\n{coverage}\n\n"
+    if seen:
+        head += "ALREADY SEEN (context only; never report these as new):\n"
+    new_heading = "\n\n".join(parts)
+
+    def render(m: dict[str, Any]) -> str:
+        return (new_heading if seen and m is recent[0] else "") + transcript([m], names, tz)
+
+    user_prompt = with_files(head if seen else head + new_heading, seen + recent, render, provider)
 
     summary = complete_once(provider, model, api_key, DIGEST_SYSTEM_PROMPT, user_prompt, max_tokens=700)
 
