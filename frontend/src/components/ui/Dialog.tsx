@@ -99,7 +99,8 @@ export function Dialog({
           </div>
           <IconButton label="Close" icon={<X />} size="sm" tooltip={false} onClick={() => ref.current?.close()} className="-mr-1.5 -mt-1" />
         </div>
-        {children && <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">{children}</div>}
+        {/* relative: hidden labels (sr-only) anchor here, not on the <dialog>, or they stretch it and it scrolls past the card */}
+        {children && <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-3">{children}</div>}
         {footer && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-3.5">{footer}</div>}
       </div>
     </dialog>
@@ -156,7 +157,7 @@ export function Sheet({
           </h2>
           <IconButton label="Close" icon={<X />} size="sm" tooltip={false} onClick={() => ref.current?.close()} />
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        <div className="relative min-h-0 flex-1 overflow-y-auto">{children}</div>
       </div>
     </dialog>
   );
