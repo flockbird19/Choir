@@ -15,9 +15,10 @@ export interface GlobalSearchMessage {
   id: string;
   content: string;
   created_at: string;
-  sender_type: "user" | "assistant";
+  sender_type: "user" | "assistant" | "agent";
   sender_id: string | null;
-  /** Who wrote it: "Choir AI", a teammate's name, or "Former member". */
+  via_client?: string | null;
+  /** Who wrote it: "Choir AI", a teammate's name, "Claude Code (Priya's agent)", or "Former member". */
   sender_name: string;
   // A `!inner` join on a to-one FK always returns a single row, not an array —
   // Supabase's select-string type inference can't tell that apart from a
@@ -69,6 +70,7 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
       created_at,
       sender_type,
       sender_id,
+      via_client,
       thread_id,
       threads!thread_id!inner (
         id,
@@ -127,7 +129,12 @@ export async function globalSearch(query: string): Promise<GlobalSearchResult> {
     threads: (threads as GlobalSearchThread[] | null) || [],
     messages: rows.map(({ thread_id: _threadId, ...m }) => ({
       ...m,
-      sender_name: m.sender_type === "assistant" ? "Choir AI" : names[m.sender_id ?? ""] ?? "Former member",
+      sender_name:
+        m.sender_type === "assistant"
+          ? "Choir AI"
+          : m.sender_type === "agent"
+            ? `${m.via_client || "Coding agent"} (${names[m.sender_id ?? ""] ?? "a former member"}’s agent)`
+            : names[m.sender_id ?? ""] ?? "Former member",
     })),
   };
 }

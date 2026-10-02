@@ -43,7 +43,9 @@ export interface Thread {
 export interface Message {
   id: string;
   thread_id: string;
-  sender_type: 'user' | 'assistant';
+  // Feature D stage 2: 'agent' = a coding agent posting for its person (sender_id), named by via_client.
+  sender_type: 'user' | 'assistant' | 'agent';
+  via_client?: string | null;
   sender_id?: string;
   content: string;
   model_provider?: string;
@@ -67,8 +69,11 @@ export interface Message {
   // Component #4: 'checkpoint' = a compact card (a summary the AI reads instead of the
   // messages up to covers_through). Written only by the backend.
   // Feature D: 'task_done' = the "finished" line complete_task posts in Team Space.
-  kind?: "message" | "checkpoint" | "task_done";
+  // Feature D stage 2: 'task_review' = an agent's "ready for review" card in a task thread.
+  kind?: "message" | "checkpoint" | "task_done" | "task_review";
   task_id?: string | null;
+  review?: { summary?: string; suggested_result?: string; links?: string[] } | null;
+  review_state?: "open" | "done" | "sent_back" | null;
   covers_through?: string | null;
   covers_count?: number | null;
   // Web pages an AI reply's search found, shown as its Sources. Written only by the backend.
@@ -94,6 +99,11 @@ export interface Task {
   source_message_ids: string[] | null;
   source_decision_ids: string[] | null;
   suggested_by_ai: boolean;
+  // Feature D stage 2: the tool working on it ("via Claude Code"), the person's task thread and the
+  // review card waiting for them. Only the claimer is ever shown the thread or the review.
+  via_client?: string | null;
+  thread_id?: string | null;
+  review_message_id?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

@@ -19,6 +19,7 @@ import { previewLine } from "@/utils/markdown-preview";
 import { messageText } from "@/utils/attachments";
 import type { Attachment } from "@/types/database";
 import { MessageAttachments } from "./MessageAttachments";
+import { ReviewCard } from "@/components/tasks/ReviewCard";
 import { whoHasSeen } from "@/hooks/useSeenBy";
 import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 import type { StatusId } from "@/app/(main)/profile/actions";
@@ -38,8 +39,11 @@ interface Message {
   reply_to_message_id?: string | null;
   publish_edited?: boolean;
   withdrawn_at?: string | null;
-  kind?: "message" | "checkpoint" | "task_done";
+  kind?: "message" | "checkpoint" | "task_done" | "task_review";
   task_id?: string | null;
+  via_client?: string | null;
+  review?: { summary?: string; suggested_result?: string; links?: string[] } | null;
+  review_state?: "open" | "done" | "sent_back" | null;
   covers_through?: string | null;
   covers_count?: number | null;
   sources?: Source[] | null;
@@ -461,8 +465,11 @@ const MessageItem = memo(function MessageItem({
   compactedBy,
   onUndoCheckpoint,
   doneTask,
+  answersReview,
 }: {
   doneTask?: DoneTaskInfo;
+  /** Feature D stage 2: this review card is for the current user (their agent asked them). */
+  answersReview?: boolean;
   msg: Message;
   isOwn: boolean;
   senderName: string;
@@ -483,8 +490,13 @@ const MessageItem = memo(function MessageItem({
   onUndoCheckpoint?: (msg: Message) => void;
 }) {
   const isAI = msg.sender_type === "assistant";
+  const isAgent = msg.sender_type === "agent";
   const isSharedFrom = !!msg.shared_by;
   const isPinned = !!msg.is_decision;
+
+  if (msg.kind === "task_review") {
+    return <ReviewCard msg={msg} tool={msg.via_client || "Your coding agent"} canAnswer={!!answersReview} />;
+  }
 
   if (msg.kind === "checkpoint") {
     return <CheckpointCard msg={msg} by={compactedBy} onUndo={onUndoCheckpoint} />;
@@ -576,7 +588,7 @@ const MessageItem = memo(function MessageItem({
             ${isOwn ? "bg-private-soft text-private" : isAI ? "bg-team-soft text-team" : "bg-selected text-fg-muted"}
             ${showSender || isOwn ? "" : "invisible"}`}
         >
-          {isAI ? <Bot size={13} /> : getInitials(senderName)}
+          {isAI || isAgent ? <Bot size={13} /> : getInitials(senderName)}
         </div>
 
         <div className={`flex flex-col min-w-0 ${isOwn ? "items-end" : "items-start"}`}>
@@ -700,6 +712,7 @@ const MessageItem = memo(function MessageItem({
 });
 
 function senderKey(msg: Message) {
+  if (msg.sender_type === "agent") return `agent:${msg.via_client ?? ""}`;
   return msg.sender_type === "assistant" ? "assistant" : `user:${msg.sender_id ?? ""}`;
 }
 
@@ -815,6 +828,12 @@ export function MessageList({
   const resolveSenderName = useCallback(
     (msg: Message) => {
       if (msg.sender_type === "assistant") return "Choir AI";
+      // Feature D stage 2: a coding agent posts for its person; it is never shown as them.
+      if (msg.sender_type === "agent") {
+        const tool = msg.via_client || "Coding agent";
+        if (msg.sender_id === currentUserId) return `${tool} · your agent`;
+        return `${tool} (${memberNames[msg.sender_id ?? ""] ?? "a teammate"}’s agent)`;
+      }
       const isOwn = !msg.sender_id || msg.sender_id === currentUserId;
       return isOwn
         ? (currentUserId && memberNames[currentUserId]) || "You"
@@ -887,7 +906,7 @@ export function MessageList({
             const msg = messages[virtualRow.index];
             const isAI = msg.sender_type === "assistant";
             // Optimistic messages have no sender_id yet; only the current user creates those.
-            const isOwn = !isAI && (!msg.sender_id || msg.sender_id === currentUserId);
+            const isOwn = !isAI && msg.sender_type !== "agent" && (!msg.sender_id || msg.sender_id === currentUserId);
             const senderName = resolveSenderName(msg);
             const previous = messages[virtualRow.index - 1];
             const showSender = !previous || senderKey(previous) !== senderKey(msg) || !!msg.shared_by;
@@ -932,6 +951,7 @@ export function MessageList({
                   }
                   onUndoCheckpoint={onUndoCheckpoint}
                   doneTask={msg.kind === "task_done" && msg.task_id ? tasksById?.[msg.task_id] : undefined}
+                  answersReview={msg.kind === "task_review" && !!currentUserId && msg.sender_id === currentUserId}
                 />
               </div>
             );

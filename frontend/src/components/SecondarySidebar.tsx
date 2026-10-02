@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Settings, Lock, Plus, MessagesSquare, Trash2, Info } from "lucide-react";
+import { Settings, Lock, Plus, MessagesSquare, Trash2, Info, Bot } from "lucide-react";
 import type { SessionUser } from "@/utils/supabase/access";
 import { getDisplayName, getInitials } from "@/utils/display-name";
 import { Team, Project, Thread } from "@/types/database";
@@ -157,7 +157,12 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
                   : "text-fg-muted hover:bg-hover hover:text-fg"
               }`}
             >
-              <span className="size-1.5 shrink-0 rounded-full bg-private" aria-hidden="true" />
+              {/* ponytail: task threads are recognised by the name start_task gives them; add a column if names ever collide. */}
+              {thread.name?.startsWith("Task · ") ? (
+                <Bot size={13} className="shrink-0 text-private" aria-hidden="true" />
+              ) : (
+                <span className="size-1.5 shrink-0 rounded-full bg-private" aria-hidden="true" />
+              )}
               <span className="min-w-0 flex-1 truncate">{thread.name || "Untitled"}</span>
               <button
                 onClick={(e) => handleDeleteThread(e, thread.id, thread.name || "Untitled")}

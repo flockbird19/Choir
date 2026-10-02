@@ -76,6 +76,12 @@ export async function completeTask(taskId: string, result: string): Promise<Resu
   return { error: (await call("complete_task", args, "Couldn't mark the task done.")).error };
 }
 
+/** Feature D stage 2: send an agent's work back with a note; it's posted in the task thread as yours. */
+export async function sendBackTask(taskId: string, note: string): Promise<Result> {
+  const args = { p_task_id: taskId, p_note: note.trim().slice(0, 2000) };
+  return { error: (await call("send_back_task", args, "Couldn't send it back.")).error };
+}
+
 export async function reopenTask(taskId: string): Promise<Result> {
   return { error: (await call("reopen_task", { p_task_id: taskId }, "Couldn't reopen the task.")).error };
 }

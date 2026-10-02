@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Check, CircleDashed, CircleDot, ListChecks, MessageSquare, MoreHorizontal, Pin, Plus, Sparkles, X } from "lucide-react";
-import { Button, IconButton, Input, Menu, MenuItem, Sheet, Textarea } from "@/components/ui";
+import { useRouter } from "next/navigation";
+import { Bot, Check, ChevronDown, CircleDashed, CircleDot, ListChecks, MessageSquare, MessageSquareLock, MoreHorizontal, Pin, Plus, Sparkles, X } from "lucide-react";
+import { Button, IconButton, Input, Menu, MenuItem, Sheet, Textarea, buttonClasses } from "@/components/ui";
+import { createClient } from "@/utils/supabase/client";
 import { useToast } from "@/components/Toast";
 import { formatRelative } from "@/utils/format";
 import type { Task, TaskStatus } from "@/types/database";
@@ -61,6 +63,17 @@ export function TasksPanel({
   const toast = useToast();
   const [adding, setAdding] = useState(false);
   const [showAllDone, setShowAllDone] = useState(false);
+  // Feature D stage 2: whether you have a coding tool connected ("Work on this with…" offers to connect one first).
+  const [hasAgent, setHasAgent] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    void createClient()
+      .from("agent_grants")
+      .select("id")
+      .is("revoked_at", null)
+      .limit(1)
+      .then(({ data }) => setHasAgent(!!data?.length));
+  }, [open]);
 
   const who = (id: string | null) => (id === currentUserId ? "You" : (id && names[id]) || "A former member");
 
@@ -73,7 +86,7 @@ export function TasksPanel({
     .sort((a, b) => (b.done_at ?? "").localeCompare(a.done_at ?? ""));
   const doneShown = showAllDone ? done : done.slice(0, DONE_SHOWN);
 
-  const rowProps = { who, currentUserId, isOwner, inTeamSpace, sharedThreadId, onJumpToMessage, onClose, toast };
+  const rowProps = { who, currentUserId, isOwner, inTeamSpace, sharedThreadId, onJumpToMessage, onClose, toast, hasAgent };
 
   return (
     <Sheet open={open} onClose={onClose} side="right" title="Tasks" hideHeader width="24rem">
@@ -238,7 +251,9 @@ function TaskRow({
   onJumpToMessage,
   onClose,
   toast,
+  hasAgent,
 }: {
+  hasAgent: boolean;
   task: Task;
   who: (id: string | null) => string;
   currentUserId: string;
@@ -255,6 +270,18 @@ function TaskRow({
   const [title, setTitle] = useState(task.title);
   const [details, setDetails] = useState(task.details ?? "");
   const [expanded, setExpanded] = useState(false);
+  const router = useRouter();
+
+  // What to say to a coding tool to start this task (the MCP shortcut in Claude Code, a sentence elsewhere).
+  const shortId = task.id.slice(0, 8);
+  const handOver = async (text: string, tool: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`Copied. Paste it into ${tool}.`);
+    } catch {
+      toast.error(`Couldn’t copy. In ${tool}, say: ${text}`);
+    }
+  };
 
   const mine = task.claimed_by === currentUserId;
   const canManage = mine || isOwner;
@@ -359,7 +386,8 @@ function TaskRow({
         {task.status === "open" && (task.suggested_by_ai ? `Suggested by Choir AI · added by ${who(task.created_by)}` : `Added by ${who(task.created_by)}`)}
         {task.status === "claimed" && task.claimed_at && (
           <>
-            <span className="font-medium text-fg-muted">{who(task.claimed_by)}</span> · claimed {formatRelative(task.claimed_at)}
+            <span className="font-medium text-fg-muted">{who(task.claimed_by)}</span>
+            {task.via_client && ` via ${task.via_client}`} · claimed {formatRelative(task.claimed_at)}
           </>
         )}
         {task.status === "done" && task.done_at && (
@@ -408,9 +436,37 @@ function TaskRow({
       )}
 
       {task.status === "claimed" && mine && mode === "view" && (
-        <Button size="sm" variant="secondary" leadingIcon={<Check size={14} aria-hidden="true" />} onClick={() => setMode("done")}>
-          Mark done
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="secondary" leadingIcon={<Check size={14} aria-hidden="true" />} onClick={() => setMode("done")}>
+            Mark done
+          </Button>
+          <Menu
+            label={`Work on ${task.title} with a coding tool`}
+            trigger={(props) => (
+              <button {...props} type="button" className={buttonClasses({ variant: "secondary", size: "sm" })}>
+                <Bot size={14} aria-hidden="true" />
+                Work on this with
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            )}
+          >
+            {hasAgent ? (
+              <>
+                <MenuItem onSelect={() => void handOver(`/mcp__choir__task ${shortId}`, "Claude Code")}>Copy for Claude Code</MenuItem>
+                <MenuItem onSelect={() => void handOver(`Work on Choir task ${shortId}`, "Cursor’s chat")}>Copy for Cursor</MenuItem>
+                <MenuItem onSelect={() => void handOver(`Work on Choir task ${shortId}`, "Codex")}>Copy for Codex</MenuItem>
+              </>
+            ) : (
+              <MenuItem onSelect={() => router.push("/settings")}>Connect your AI first</MenuItem>
+            )}
+          </Menu>
+          {task.thread_id && (
+            <Link href={`/thread/${task.thread_id}`} onClick={onClose} className={buttonClasses({ variant: "ghost", size: "sm" })}>
+              <MessageSquareLock size={14} aria-hidden="true" />
+              Task thread
+            </Link>
+          )}
+        </div>
       )}
 
       {mode === "done" && (

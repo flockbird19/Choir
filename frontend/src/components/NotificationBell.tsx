@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCheck, KeyRound } from "lucide-react";
+import { Bell, Bot, CheckCheck, KeyRound } from "lucide-react";
 import { useNotifications, type AppNotification } from "@/hooks/useNotifications";
 import { providerName } from "@/utils/providers";
 import { formatDayLabel, formatTime } from "@/utils/format";
@@ -28,6 +28,11 @@ function describe(n: AppNotification): { title: string; hint: string } {
       title: `Your ${provider} key hit its rate limit in ${project}`,
       hint: `Check your usage limits with ${provider}.`,
     };
+  }
+  if (n.kind === "task_review") {
+    const tool = typeof n.payload.tool === "string" && n.payload.tool ? n.payload.tool : "Your coding agent";
+    const title = typeof n.payload.title === "string" ? n.payload.title : "a task";
+    return { title: `${tool} says “${title}” is ready for your review`, hint: "Mark it done or send it back in the task thread." };
   }
   return { title: "You have a new notification", hint: "" };
 }
@@ -135,7 +140,7 @@ export function NotificationBell() {
             <p className={cn("px-4 pb-4 text-sm", s.muted)}>Loading…</p>
           ) : items.length === 0 ? (
             <p className={cn("px-4 pb-4 text-sm", s.muted)}>
-              Nothing yet. You&apos;ll hear here when one of your keys hits its rate limit.
+              Nothing yet. You&apos;ll hear here when a key hits its rate limit or a coding agent asks for your review.
             </p>
           ) : (
             <ul className="min-h-0 overflow-y-auto px-1.5 pb-1.5">
@@ -148,7 +153,11 @@ export function NotificationBell() {
                       onClick={() => openItem(n)}
                       className={cn("flex w-full cursor-pointer items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors", s.item)}
                     >
-                      <KeyRound size={16} strokeWidth={1.75} aria-hidden="true" className={cn("mt-0.5 shrink-0", s.muted)} />
+                      {n.kind === "task_review" ? (
+                        <Bot size={16} strokeWidth={1.75} aria-hidden="true" className={cn("mt-0.5 shrink-0", s.muted)} />
+                      ) : (
+                        <KeyRound size={16} strokeWidth={1.75} aria-hidden="true" className={cn("mt-0.5 shrink-0", s.muted)} />
+                      )}
                       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                         <span className={cn("text-sm leading-snug", n.read_at ? "font-normal" : "font-semibold")}>
                           {!n.read_at && <span className="sr-only">Unread: </span>}
