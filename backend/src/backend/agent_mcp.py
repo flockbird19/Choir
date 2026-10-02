@@ -21,7 +21,9 @@ from mcp.server.transport_security import TransportSecuritySettings
 from backend import agent_tools as tools
 from backend import auth
 
-RESOURCE_URL = os.getenv("MCP_RESOURCE_URL", "http://localhost:8000/mcp").rstrip("/")
+# 127.0.0.1, not localhost: coding tools (Node) try "localhost" as IPv6 (::1) first, and the dev server
+# listens on IPv4 only, so a localhost URL is refused. Production sets MCP_RESOURCE_URL.
+RESOURCE_URL = os.getenv("MCP_RESOURCE_URL", "http://127.0.0.1:8000/mcp").rstrip("/")
 
 
 class GrantVerifier:
@@ -65,7 +67,8 @@ mcp_server = MCPServer(
     name="choir",
     instructions=INSTRUCTIONS,
     token_verifier=GrantVerifier(),
-    auth=AuthSettings(issuer_url=auth._issuer(), resource_server_url=RESOURCE_URL),
+    # Supabase tokens carry aud "authenticated", never this URL; GrantVerifier checks audience and grant itself.
+    auth=AuthSettings(issuer_url=auth._issuer(), resource_server_url=RESOURCE_URL, validate_token_resource=False),
 )
 # DNS-rebinding protection (on by default for localhost) also has to know the deployed host name.
 TRANSPORT_SECURITY = TransportSecuritySettings(

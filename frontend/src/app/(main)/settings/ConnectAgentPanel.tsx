@@ -8,7 +8,9 @@ import { formatRelative } from "@/utils/format";
 import { disconnectAgent } from "@/app/(main)/agents/actions";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
-const MCP_URL = `${BACKEND_URL.replace(/\/$/, "")}/mcp`;
+// Same address the backend advertises (agent_mcp.RESOURCE_URL): 127.0.0.1 locally, because coding tools try
+// "localhost" as IPv6 first and the dev server listens on IPv4 only.
+const MCP_URL = `${BACKEND_URL.replace(/\/$/, "").replace("//localhost:", "//127.0.0.1:")}/mcp`;
 
 export type Connection = { id: string; tool: string; project: string; lastUsed: string | null };
 
