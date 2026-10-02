@@ -163,7 +163,7 @@ export function ReviewCard({ msg, tool, canAnswer }: { msg: ReviewMessage; tool:
               <Button size="sm" variant="secondary" leadingIcon={<Undo2 size={14} aria-hidden="true" />} onClick={() => setMode("back")}>
                 Send back
               </Button>
-              <Button size="sm" variant="primary" leadingIcon={<Check size={14} aria-hidden="true" />} onClick={() => setMode("done")}>
+              <Button size="sm" variant="success" leadingIcon={<Check size={14} aria-hidden="true" />} onClick={() => setMode("done")}>
                 Mark done
               </Button>
             </>
@@ -175,7 +175,7 @@ export function ReviewCard({ msg, tool, canAnswer }: { msg: ReviewMessage; tool:
               </Button>
               <Button
                 size="sm"
-                variant="primary"
+                variant={mode === "back" ? "primary" : "success"}
                 loading={busy}
                 disabled={mode === "back" && !note.trim()}
                 onClick={() => void submit()}

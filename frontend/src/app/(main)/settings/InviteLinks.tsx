@@ -98,7 +98,7 @@ export function InviteLinks({ teamId, origin, invites }: { teamId: string; origi
                   {copiedId === invite.id ? "Copied" : "Copy"}
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="dangerGhost"
                   size="sm"
                   leadingIcon={<Ban size={14} aria-hidden="true" />}
                   onClick={() => setConfirmInvite(invite)}

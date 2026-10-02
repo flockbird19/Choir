@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* dark: follows the app's theme (next-themes puts .dark on <html>), not the OS setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
   /* Text is Hanken Grotesk; code and model names are JetBrains Mono. Screens still
      using font-inter get Hanken Grotesk too (DESIGN.md 4.1: only three families load). */

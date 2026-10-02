@@ -282,7 +282,7 @@ export function TeamPageClient({
                   You lose access to Team Space. If you&apos;re the last owner, ownership passes to the longest-standing member.
                 </p>
               </div>
-              <Button size="sm" className="text-danger" leadingIcon={<LogOut size={14} aria-hidden="true" />} onClick={() => setLeaving(true)}>
+              <Button size="sm" variant="dangerSoft" leadingIcon={<LogOut size={14} aria-hidden="true" />} onClick={() => setLeaving(true)}>
                 Leave team
               </Button>
             </li>
@@ -294,7 +294,7 @@ export function TeamPageClient({
                     Deletes Team Space, every project and every private thread in it, for everyone.
                   </p>
                 </div>
-                <Button size="sm" className="text-danger" leadingIcon={<Trash2 size={14} aria-hidden="true" />} onClick={() => setDeleting(true)}>
+                <Button size="sm" variant="dangerSoft" leadingIcon={<Trash2 size={14} aria-hidden="true" />} onClick={() => setDeleting(true)}>
                   Delete team
                 </Button>
               </li>

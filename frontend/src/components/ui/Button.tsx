@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn, focusRing } from "./cn";
 import { Spinner } from "./Spinner";
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "danger" | "inverse" | "inverseGhost";
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "danger" | "dangerSoft" | "dangerGhost" | "success" | "inverse" | "inverseGhost";
 export type ButtonSize = "sm" | "md" | "lg";
 
 const VARIANTS: Record<ButtonVariant, string> = {
@@ -10,7 +10,14 @@ const VARIANTS: Record<ButtonVariant, string> = {
   secondary: "border border-line bg-card text-fg shadow-soft hover:border-line-strong hover:bg-hover",
   ghost: "text-fg-muted hover:bg-hover hover:text-fg",
   subtle: "bg-sunken text-fg hover:bg-selected",
+  // Solid red only to confirm inside a dialog; the button that opens it is dangerSoft (DESIGN.md 6).
   danger: "bg-danger text-white shadow-soft hover:opacity-90 dark:text-bg",
+  dangerSoft: "border border-danger-line bg-danger-soft text-danger hover:border-danger",
+  // Small destructive text actions in a row (Revoke, Remove, Sign out). cn() doesn't merge, so
+  // a colour passed in className can lose to a variant's own: use this instead.
+  dangerGhost: "text-danger hover:bg-danger-soft",
+  // Finishing something (Mark done).
+  success: "bg-success text-white shadow-soft hover:opacity-90 dark:text-bg",
   // For dark brand panels that stay dark in both themes.
   inverse: "bg-white text-[#111230] shadow-soft hover:bg-white/90",
   inverseGhost: "text-white/85 hover:bg-white/10 hover:text-white",

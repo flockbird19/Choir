@@ -437,7 +437,7 @@ function TaskRow({
 
       {task.status === "claimed" && mine && mode === "view" && (
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary" leadingIcon={<Check size={14} aria-hidden="true" />} onClick={() => setMode("done")}>
+          <Button size="sm" variant="success" leadingIcon={<Check size={14} aria-hidden="true" />} onClick={() => setMode("done")}>
             Mark done
           </Button>
           <Menu
@@ -486,7 +486,7 @@ function TaskRow({
             </Button>
             <Button
               size="sm"
-              variant="primary"
+              variant="success"
               loading={busy}
               onClick={async () => {
                 if (await run(() => completeTask(task.id, result), "Marked done.")) setMode("view");

@@ -137,7 +137,7 @@ export function ProfileClient({ initialName, email, initials, initialStatus }: P
       {/* Sign out */}
       <div className="pt-2 border-t border-line">
         <form action={signOut}>
-          <Button type="submit" variant="ghost" fullWidth leadingIcon={<LogOut size={15} />} className="justify-start text-danger hover:bg-danger-soft hover:text-danger">
+          <Button type="submit" variant="dangerGhost" fullWidth leadingIcon={<LogOut size={15} />} className="justify-start">
             Sign out
           </Button>
         </form>

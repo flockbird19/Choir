@@ -119,7 +119,7 @@ export function ConnectAgentPanel({ connections }: { connections: Connection[] }
                   {c.project} · {c.lastUsed ? `active ${formatRelative(c.lastUsed)}` : "not used yet"}
                 </p>
               </div>
-              <Button size="sm" variant="danger" loading={removing === c.id} disabled={removing !== null} onClick={() => void remove(c.id)}>
+              <Button size="sm" variant="dangerSoft" loading={removing === c.id} disabled={removing !== null} onClick={() => void remove(c.id)}>
                 Disconnect
               </Button>
             </li>

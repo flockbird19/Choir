@@ -166,12 +166,11 @@ export function KeyCard({ provider, isSaved, onSaved, onDeleted }: KeyCardProps)
 
           {isSaved && (
             <Button
-              variant="ghost"
+              variant="dangerGhost"
               size="sm"
               onClick={handleDelete}
               disabled={isPending}
               leadingIcon={<Trash2 size={12} />}
-              className="text-danger hover:bg-danger-soft hover:text-danger"
             >
               Remove
             </Button>
