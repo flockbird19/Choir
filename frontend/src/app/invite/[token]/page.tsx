@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 function InviteProblem({ message }: { message: string }) {
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-fg">
+      <h1 className="font-display text-[30px] font-medium leading-tight tracking-[-0.02em] text-fg">
         This invite doesn&rsquo;t work
       </h1>
       <FormAlert tone="error">{message}</FormAlert>
@@ -63,7 +63,7 @@ export default async function InvitePage({
       ) : (
         <div className="animate-rise motion-reduce:animate-none">
           <p className="text-[13px] font-medium uppercase tracking-[0.08em] text-primary">You&rsquo;re invited</p>
-          <h1 className="mt-2 font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-fg [overflow-wrap:anywhere]">
+          <h1 className="mt-2 font-display text-[30px] font-medium leading-tight tracking-[-0.02em] text-fg [overflow-wrap:anywhere]">
             Join {team.name}
           </h1>
           <p className="mt-2 mb-7 text-[15px] leading-relaxed text-fg-muted">

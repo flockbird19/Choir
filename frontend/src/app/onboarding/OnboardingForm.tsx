@@ -53,7 +53,7 @@ export function OnboardingForm() {
   return (
     <div className={riseClass}>
       <p className="text-[13px] font-medium uppercase tracking-[0.08em] text-primary">Step 1 of 2</p>
-      <h1 className="mt-2 font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-fg">
+      <h1 className="mt-2 font-display text-[30px] font-medium leading-tight tracking-[-0.02em] text-fg">
         Create your workspace
       </h1>
       <p className="mt-2 text-[15px] leading-relaxed text-fg-muted">
@@ -104,7 +104,7 @@ function KeyStep({ onContinue }: { onContinue: () => void }) {
       <h1
         ref={headingRef}
         tabIndex={-1}
-        className="mt-2 font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-fg outline-none"
+        className="mt-2 font-display text-[30px] font-medium leading-tight tracking-[-0.02em] text-fg outline-none"
       >
         Add an AI key
       </h1>
@@ -174,7 +174,7 @@ function WorkspaceReady({ workspace }: { workspace: ReadyWorkspace }) {
       <h1
         ref={headingRef}
         tabIndex={-1}
-        className="mt-3 font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-fg outline-none [overflow-wrap:anywhere]"
+        className="mt-3 font-display text-[30px] font-medium leading-tight tracking-[-0.02em] text-fg outline-none [overflow-wrap:anywhere]"
       >
         {workspace.teamName}
       </h1>

@@ -148,7 +148,7 @@ function ModeTabs({ view, onChange }: { view: AuthView; onChange: (view: AuthVie
 function Heading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div className="mb-6">
-      <h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.02em] text-fg">{title}</h1>
+      <h1 className="font-display text-[30px] font-medium leading-tight tracking-[-0.02em] text-fg">{title}</h1>
       <p className="mt-2 text-[15px] leading-relaxed text-fg-muted">{subtitle}</p>
     </div>
   );
@@ -247,7 +247,7 @@ function CheckInbox({
       <span className="mb-5 flex size-12 items-center justify-center rounded-card bg-primary-soft text-primary">
         <MailCheck size={22} aria-hidden="true" />
       </span>
-      <h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.02em]">Check your inbox</h1>
+      <h1 className="font-display text-[30px] font-medium leading-tight tracking-[-0.02em]">Check your inbox</h1>
       <p className="mt-2 text-[15px] leading-relaxed text-fg-muted" role="status">
         {children} <span className="font-medium text-fg [overflow-wrap:anywhere]">{email}</span>.
       </p>

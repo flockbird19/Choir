@@ -28,7 +28,7 @@ export function ResetPasswordForm({ email }: { email: string }) {
       <span className="mb-5 flex size-12 items-center justify-center rounded-2xl bg-primary-soft text-primary">
         <KeyRound size={22} aria-hidden="true" />
       </span>
-      <h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.02em]">Set a new password</h1>
+      <h1 className="font-display text-[30px] font-medium leading-tight tracking-[-0.02em]">Set a new password</h1>
       <p className="mt-2 mb-6 text-[15px] leading-relaxed text-fg-muted">
         Choose a new password for <span className="font-medium text-fg [overflow-wrap:anywhere]">{email}</span>.
       </p>

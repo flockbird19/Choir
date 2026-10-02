@@ -89,6 +89,8 @@
   --color-team-rose: var(--ds-team-rose);
   --color-team-cocoa: var(--ds-team-cocoa);
   --color-on-team-colour: var(--ds-on-team-colour);
+  --color-glow-green: var(--ds-glow-green);
+  --color-glow-warm: var(--ds-glow-warm);
 
   --shadow-raised: var(--ds-shadow-raised);
   --shadow-overlay: var(--ds-shadow-overlay);
@@ -256,6 +258,9 @@
   --ds-team-rose:  #A3335A;
   --ds-team-cocoa: #77502F;
   --ds-on-team-colour: #FFFFFF;
+  /* DESIGN.md 3.4 glows, strength included (blurple left out: no purple in Choir). */
+  --ds-glow-green: rgb(196 235 212 / 0.5);
+  --ds-glow-warm:  rgb(251 227 194 / 0.45);
   /* Code syntax colours (DESIGN.md §7, code blocks): each ≥ 4.5:1 on sunken. */
   --ds-code-keyword:  #1F4E99;
   --ds-code-function: #0B6B70;
@@ -345,6 +350,8 @@
   --ds-team-rose:  #F294B5;
   --ds-team-cocoa: #D6AC86;
   --ds-on-team-colour: #0D0E12;
+  --ds-glow-green: rgb(31 138 87 / 0.14);
+  --ds-glow-warm:  rgb(154 91 6 / 0.12);
   --ds-code-keyword:  #7FA8E0;
   --ds-code-function: #5CC6C6;
   --ds-code-type:     #EE8FB4;
