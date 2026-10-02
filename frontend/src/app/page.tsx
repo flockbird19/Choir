@@ -18,7 +18,10 @@ import {
   Link2,
   EyeOff,
   KeyRound,
-  Waypoints,
+  ListChecks,
+  Bot,
+  CircleCheck,
+  Undo2,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { InteractiveMark } from "@/components/landing/InteractiveMark";
@@ -423,6 +426,25 @@ export default function LandingPage() {
         .choir-landing .moment-decision { display: flex; align-items: center; gap: 9px; margin-top: 12px; color: var(--app-decision); font-size: 13px; font-weight: 700; }
 
         .choir-landing .privacy-grid { display: grid; grid-template-columns: .78fr 1.22fr; gap: 68px; align-items: center; }
+        /* PublishDemo button ("Review post", "Post to Team Space"): the private action, solid green (DESIGN.md 6). */
+        .choir-landing .landing-post-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px; background: var(--app-private); color: #fff; font-size: 13px; font-weight: 650; cursor: pointer; transition: opacity .15s; }
+        .choir-landing .landing-post-btn:hover { opacity: .9; }
+        .choir-landing .landing-post-btn:disabled { cursor: default; background: var(--app-private-soft); color: var(--app-private); }
+        .choir-landing .tasks-grid { grid-template-columns: 1.1fr .9fr; }
+        .choir-landing .task-row { display: grid; grid-template-columns: 22px 1fr auto; gap: 12px; align-items: center; padding: 12px 2px; border-bottom: 1px solid var(--app-line); }
+        .choir-landing .task-row strong { display: block; font-size: 14px; }
+        .choir-landing .task-row small { color: var(--app-subtle); font-size: 12.5px; }
+        .choir-landing .task-row.done strong { color: var(--app-subtle); text-decoration: line-through; }
+        .choir-landing .task-check { display: grid; place-items: center; width: 18px; height: 18px; border: 1.5px solid var(--app-line-strong); border-radius: 5px; color: var(--app-private); }
+        .choir-landing .task-row.done .task-check { border: 0; }
+        .choir-landing .task-check svg { width: 18px; height: 18px; }
+        .choir-landing .task-claim { padding: 5px 11px; border: 1px solid var(--app-line-strong); border-radius: 9px; font-size: 13px; font-weight: 650; }
+        .choir-landing .task-review { margin-top: 18px; padding: 14px; border: 1px solid var(--app-line); border-radius: 14px; background: var(--app-sunken); }
+        .choir-landing .task-review-head { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 700; }
+        .choir-landing .task-bot { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; background: var(--app-bg); border: 1px solid var(--app-line); }
+        .choir-landing .task-bot svg { width: 13px; height: 13px; }
+        .choir-landing .task-review p { margin-top: 8px; color: var(--app-fg); font-size: 14px; line-height: 1.55; }
+        .choir-landing .task-review-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
         .choir-landing .privacy-points { display: grid; gap: 21px; margin-top: 33px; }
         .choir-landing .privacy-point { display: grid; grid-template-columns: 34px 1fr; gap: 13px; align-items: start; }
         .choir-landing .privacy-icon { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 9px; color: #555c68; background: #fff; }
@@ -532,6 +554,7 @@ export default function LandingPage() {
           .choir-landing .difference-wrap { grid-template-columns: 1fr; }
           .choir-landing .comparison { margin-top: 10px; }
           .choir-landing .privacy-grid { grid-template-columns: 1fr; gap: 45px; }
+          .choir-landing .tasks-grid > .moment-card { order: 2; }
           .choir-landing .trust-band { grid-template-columns: 1fr; gap: 44px; }
         }
 
@@ -631,7 +654,7 @@ export default function LandingPage() {
             <div className="hero-copy">
               <div className="eyebrow"><span className="eyebrow-dot" />One shared AI chat for your whole team</div>
               <h1 id="hero-title">One team chat. <em>One shared AI.</em></h1>
-              <p className="hero-lede">Ask AI in Team Space, explore privately when you need to, and publish what&rsquo;s worth sharing. Nobody explains the project twice.</p>
+              <p className="hero-lede">Your team and its AI work from the same context, so nobody explains the project twice.</p>
               <div className="hero-actions">
                 <Link className="btn btn-dark" href={SIGN_UP}>Create workspace <span aria-hidden="true">&rarr;</span></Link>
                 <a className="btn btn-light" href="#how">See how it works</a>
@@ -739,7 +762,7 @@ export default function LandingPage() {
 
         <section className="section section-tight" id="why" aria-labelledby="why-title">
           <div className="wrap">
-            <h2 className="section-heading" id="why-title">You keep explaining the same project to AI, over and over.</h2>
+            <h2 className="section-heading" id="why-title">Every teammate&rsquo;s AI starts from zero.</h2>
             <p className="section-lede">Useful answers get stuck in one person&rsquo;s chat. Teammates repeat research someone already did. Decisions get lost in scrollback.</p>
             <div className="before-after">
               <div className="before">
@@ -779,8 +802,8 @@ export default function LandingPage() {
         <section className="section alt" aria-labelledby="private-title">
           <div className="wrap privacy-grid">
             <div>
-              <h2 className="section-heading" id="private-title">Ask together. <em>Think alone when you need to.</em></h2>
-              <p className="section-lede">A private thread can read Team Space. Nothing you write there reaches the team unless you publish it.</p>
+              <h2 className="section-heading" id="private-title">Think out loud. <em>Only you can see it.</em></h2>
+              <p className="section-lede">A private thread reads Team Space for context. Nothing you write there reaches the team unless you publish it.</p>
               <div className="privacy-points">
                 <div className="privacy-point"><span className="privacy-icon"><Users /></span><div><strong>Team Space is shared</strong><p>People, messages, published findings, and Decisions stay visible to project members.</p></div></div>
                 <div className="privacy-point"><span className="privacy-icon"><LockKeyhole /></span><div><strong>Private threads stay yours</strong><p>Your prompts, drafts, and AI answers remain owner-only.</p></div></div>
@@ -796,8 +819,7 @@ export default function LandingPage() {
                 <div className="private-head-copy"><strong>Launch positioning</strong><p>Only visible to you</p></div>
                 <div className="private-actions">
                   <span className="private-action active"><ShieldCheck style={{ width: 14, marginRight: 5 }} />Private</span>
-                  <span className="private-action">Select</span>
-                  <span className="private-action">Publish findings</span>
+                  <span className="private-action">Publish</span>
                 </div>
               </div>
               <div className="private-layout">
@@ -833,9 +855,9 @@ export default function LandingPage() {
 
         <section className="section" id="how" aria-labelledby="how-title">
           <div className="wrap">
-            <div className="section-marker">How Choir works</div>
-            <h2 className="section-heading" id="how-title">Ask together. Explore privately. Publish what matters.</h2>
-            <p className="section-lede">No copying between tools. Select the useful part, review exactly what the team will see, then publish it with its source attached.</p>
+            <div className="section-marker">How sharing works</div>
+            <h2 className="section-heading" id="how-title">Share the answer, <em>not the whole chat.</em></h2>
+            <p className="section-lede">Pick the part worth sharing, check exactly what the team will see, and it arrives with a link back to where it came from.</p>
             <div className="workflow-preview" aria-label="A private finding being prepared for Team Space">
               <section className="workflow-pane private" aria-label="Private thread preview">
                 <div className="share-instruction">Select only the answer you want to share. The rest of this thread stays private.</div>
@@ -881,12 +903,41 @@ export default function LandingPage() {
           </div>
         </section>
 
+        <section className="section" id="tasks" aria-labelledby="tasks-title">
+          <div className="wrap privacy-grid tasks-grid">
+            <div className="moment-card" aria-label="A polished vision of Choir tasks and an agent review">
+              <div className="moment-head">
+                <div className="moment-title">Tasks <span>2 open</span></div>
+              </div>
+              <div className="moment-body">
+                <div className="task-row"><span className="task-check" /><div><strong>Write the 90-second demo script</strong><small>Open</small></div><span className="task-claim">Claim</span></div>
+                <div className="task-row"><span className="task-check" /><div><strong>Handle ETA edge cases</strong><small>Asha &middot; via Claude Code</small></div></div>
+                <div className="task-row done"><span className="task-check"><CircleCheck /></span><div><strong>Tighten the match screen copy</strong><small>Done by Devon</small></div></div>
+                <div className="task-review">
+                  <div className="task-review-head"><span className="task-bot"><Bot /></span>Claude Code says this is ready for your review</div>
+                  <p>ETA now shows a time range when GPS drops, instead of a wrong exact time. Tests added.</p>
+                  <div className="task-review-actions"><span className="private-action"><Undo2 style={{ width: 14, marginRight: 5 }} />Send back</span><span className="private-action active">Mark done</span></div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <h2 className="section-heading" id="tasks-title">Hand off a task. <em>You decide when it&rsquo;s done.</em></h2>
+              <p className="section-lede">Claim a task so nobody doubles up. Connect Claude Code, Cursor or Codex in one click, and it reads the project, does the work and reports back to you.</p>
+              <div className="privacy-points">
+                <div className="privacy-point"><span className="privacy-icon"><ListChecks /></span><div><strong>One person per task</strong><p>The first to claim it gets it. The team sees who took it and when it&rsquo;s done.</p></div></div>
+                <div className="privacy-point"><span className="privacy-icon"><Bot /></span><div><strong>Your agent talks only to you</strong><p>Its updates and questions land in a private thread for that task, never in Team Space.</p></div></div>
+                <div className="privacy-point"><span className="privacy-icon"><CircleCheck /></span><div><strong>Only people mark it done</strong><p>The agent asks for review. You mark it done or send it back with a note.</p></div></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="audience-section" id="teams" aria-labelledby="teams-title">
           <div className="wrap audience-layout">
-            <h2 className="audience-title" id="teams-title">Built first for small teams that move before process catches up.</h2>
+            <h2 className="audience-title" id="teams-title">Made for small teams that move fast.</h2>
             <div className="audience-copy">
-              <p><strong>Small teams are Choir&rsquo;s beachhead.</strong> They feel context loss fastest and can adopt a shared way of working without a long rollout.</p>
-              <p style={{ marginTop: 14 }}>The collaboration model can grow toward larger organizations later. Today, the product stays focused on helping a tight team move together.</p>
+              <p><strong>Three people, five AI chats, one deadline.</strong> That&rsquo;s where context gets lost first.</p>
+              <p style={{ marginTop: 14 }}>Choir gives a team one place to think together, with nothing to roll out.</p>
               <div className="audience-list" aria-label="Teams Choir is built for">
                 <span>Founding teams</span><span>Hackathon crews</span><span>Agency sprints</span><span>Game jams</span><span>Student projects</span><span>Open-source groups</span>
               </div>
@@ -906,7 +957,6 @@ export default function LandingPage() {
                 <div className="trust-item"><EyeOff /><div><strong>Private means owner-only</strong><p>Private threads are not visible to teammates and are never silently added to Team Space.</p></div></div>
                 <div className="trust-item"><KeyRound /><div><strong>Keys stay server-side</strong><p>Provider keys are encrypted and never sent back to the browser.</p></div></div>
                 <div className="trust-item"><ShieldCheck /><div><strong>Lent keys respect the boundary</strong><p>A voluntarily lent key may help Team Space. It is never used inside another person&rsquo;s private thread.</p></div></div>
-                <div className="trust-item"><Waypoints /><div><strong>Use the provider that fits the work</strong><p>Choose from supported Anthropic, OpenAI, Gemini, and Groq models without splitting the team&rsquo;s project context.</p></div></div>
               </div>
             </div>
           </div>
@@ -915,8 +965,8 @@ export default function LandingPage() {
         <section className="section section-tight" aria-labelledby="cta-title">
           <div className="wrap">
             <div className="final-cta">
-              <h2 id="cta-title">Give your next team one shared AI conversation.</h2>
-              <p>Create a workspace, invite your team, and stop repeating the project to AI.</p>
+              <h2 id="cta-title">Start your Team Space.</h2>
+              <p>Set up a workspace in a minute, invite your team with a link, and bring the AI key you already use.</p>
               <div className="hero-actions">
                 <Link className="btn btn-light" href={SIGN_UP}>Create workspace <span aria-hidden="true">&rarr;</span></Link>
                 <Link className="btn btn-ghost" href="/login">Sign in</Link>
@@ -939,7 +989,7 @@ export default function LandingPage() {
             <Logo />
             <span>Choir</span>
           </a>
-          <span className="footer-note">One shared AI. Private threads. Team decisions.</span>
+          <span className="footer-note">The team chat where your AI knows the project.</span>
         </div>
         <div className="footer-links">
           <a href="#why">Why Choir</a>
