@@ -40,7 +40,7 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
   ]);
   const ids = (memberships ?? []).map((m) => m.user_id as string);
   const { data: profiles } = ids.length
-    ? await supabase.from("profiles").select("id, display_name, kind, owner_id").in("id", ids)
+    ? await supabase.from("profiles").select("id, display_name").in("id", ids)
     : { data: [] };
   const profileOf = new Map((profiles ?? []).map((p) => [p.id as string, p]));
 
@@ -51,8 +51,6 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
       name: (profile?.display_name as string | null) || "Teammate",
       role: m.role === "owner" ? "owner" : "member",
       joinedAt: m.joined_at as string | null,
-      isAgent: profile?.kind === "agent",
-      agentOwnerId: (profile?.owner_id as string | null) ?? null,
     };
   });
 

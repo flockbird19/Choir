@@ -19,8 +19,6 @@ export interface TeamMemberRow {
   name: string;
   role: "owner" | "member";
   joinedAt: string | null;
-  isAgent: boolean;
-  agentOwnerId: string | null;
 }
 
 interface Lender {
@@ -69,7 +67,6 @@ export function TeamPageClient({
 
   const me = members.find((m) => m.id === currentUserId);
   const iAmOwner = me?.role === "owner";
-  const people = members.filter((m) => !m.isAgent);
 
   // ── Edit name and description ──
   const [editing, setEditing] = useState(false);
@@ -112,7 +109,7 @@ export function TeamPageClient({
   const [deleting, setDeleting] = useState(false);
   // Same rule as leave_team in schema.sql: you're the last person, or the last owner (then the
   // longest-standing person takes over). Agents don't count; yours leave with you.
-  const others = people.filter((m) => m.id !== currentUserId);
+  const others = members.filter((m) => m.id !== currentUserId);
   const lastPerson = others.length === 0;
   const successor =
     iAmOwner && !others.some((m) => m.role === "owner")
@@ -202,7 +199,7 @@ export function TeamPageClient({
               const canManage = iAmOwner && !isMe;
               return (
                 <li key={member.id} className="flex items-center gap-3 px-4 py-3">
-                  <Avatar name={member.name} colorKey={member.id} size="lg" status={member.isAgent ? undefined : status} />
+                  <Avatar name={member.name} colorKey={member.id} size="lg" status={status} />
                   <div className="min-w-0 flex-1">
                     <p className="flex flex-wrap items-center gap-1.5 text-body-sm font-semibold text-fg">
                       <span className="truncate">{member.name}</span>
@@ -211,16 +208,9 @@ export function TeamPageClient({
                           You
                         </span>
                       )}
-                      {member.isAgent && (
-                        <span className="rounded-pill bg-sunken px-1.5 py-0.5 font-mono text-[11px] font-medium uppercase tracking-wide text-fg-muted">
-                          Agent
-                        </span>
-                      )}
                     </p>
                     <p className="truncate text-caption text-fg-muted">
-                      {member.isAgent
-                        ? `Connected by ${nameOf(member.agentOwnerId)}`
-                        : STATUS_LABEL[status][0].toUpperCase() + STATUS_LABEL[status].slice(1)}
+                      {STATUS_LABEL[status][0].toUpperCase() + STATUS_LABEL[status].slice(1)}
                     </p>
                   </div>
                   <span className="hidden text-body-sm text-fg-muted sm:inline">{member.role === "owner" ? "Owner" : "Member"}</span>
@@ -239,7 +229,7 @@ export function TeamPageClient({
                         </button>
                       )}
                     >
-                      {member.role !== "owner" && !member.isAgent && (
+                      {member.role !== "owner" && (
                         <MenuItem icon={<Crown size={16} />} onSelect={() => setPromoting(member)}>
                           Make owner
                         </MenuItem>
