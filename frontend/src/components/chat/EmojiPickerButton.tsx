@@ -42,8 +42,11 @@ export function EmojiPickerButton({ onPick }: { onPick: (emoji: string) => void 
     } catch {
       // Storage blocked: recents just aren't remembered.
     }
-    setOpen(false);
+    // Stay open for more picks (it closes on a click outside or Escape). Inserting moves focus to the
+    // textarea, so hand it back to the search box or emoji the user was on.
+    const active = document.activeElement as HTMLElement | null;
     onPick(emoji);
+    if (active && rootRef.current?.contains(active)) active.focus();
   };
 
   return (
