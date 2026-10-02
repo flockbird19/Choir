@@ -34,6 +34,9 @@
 -- messages.kind 'task_done' + messages.task_id (the "finished" line), leaving releases your tasks.
 -- Pending re-run (2026-10-02, agents stage 2, branch stage2-agents): agents' OAuth tokens refused
 -- everywhere (is_first_party, a "Choir app only" rule per table and on storage, a pre-request check).
+-- APPLIED 2026-10-02 (live RLS 57/57). Pending re-run (same branch, part 2): agent_grants +
+-- connect_agent, tasks.via_client/thread_id/review_message_id, messages sender_type 'agent',
+-- via_client, kind 'task_review' + review/review_state, send_back_task, complete/release/leave updates.
 -- ============================================================================
 
 begin;
@@ -50,7 +53,7 @@ begin
   foreach t in array array['messages', 'threads', 'projects', 'team_members', 'teams',
                            'team_invitations', 'user_api_keys', 'thread_reads', 'ai_request_log',
                            'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections',
-                           'project_memory', 'tasks']
+                           'project_memory', 'tasks', 'agent_grants']
   loop
     if to_regclass('public.' || t) is not null then
       execute format('lock table public.%I in access exclusive mode', t);
@@ -368,7 +371,40 @@ create index if not exists tasks_project_status_idx on public.tasks (project_id,
 -- complete_task). Re-adding the kind check keeps this script re-runnable.
 alter table public.messages add column if not exists task_id uuid references public.tasks(id) on delete set null;
 alter table public.messages drop constraint if exists messages_kind_check;
-alter table public.messages add constraint messages_kind_check check (kind in ('message', 'checkpoint', 'task_done'));
+alter table public.messages add constraint messages_kind_check check (kind in ('message', 'checkpoint', 'task_done', 'task_review'));
+
+-- Feature D stage 2: coding agents. A person connects a tool (Claude Code, Cursor...) through the
+-- "Allow" page; the grant says which project it works on, one project per tool at a time (the user,
+-- 2026-10-02). Choir's MCP server checks it on every call; Disconnect sets revoked_at.
+create table if not exists public.agent_grants (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  project_id uuid not null references public.projects(id) on delete cascade,
+  client_id text not null,
+  client_name text not null default 'Coding agent' check (char_length(client_name) between 1 and 80),
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz,
+  revoked_at timestamptz,
+  unique (user_id, client_id)
+);
+
+-- A task handed to an agent: the tool's name ("via Claude Code"), the person's private thread for
+-- it, and the review card waiting for them (never shown to the team).
+alter table public.tasks add column if not exists via_client text;
+alter table public.tasks add column if not exists thread_id uuid references public.threads(id) on delete set null;
+alter table public.tasks add column if not exists review_message_id uuid references public.messages(id) on delete set null;
+
+-- Agent messages: sender_type 'agent', sender_id = the person it works for, via_client = the tool.
+-- A review card is kind 'task_review' with its details in review ({summary, suggested_result,
+-- links}) and review_state open | done | sent_back. Only the backend writes these columns.
+alter table public.messages drop constraint if exists messages_sender_type_check;
+alter table public.messages add constraint messages_sender_type_check check (sender_type in ('user', 'assistant', 'agent'));
+alter table public.messages add column if not exists via_client text;
+alter table public.messages add column if not exists review jsonb;
+alter table public.messages add column if not exists review_state text;
+alter table public.messages drop constraint if exists messages_review_state_check;
+alter table public.messages add constraint messages_review_state_check
+  check (review_state is null or review_state in ('open', 'done', 'sent_back'));
 
 -- ── 1b. Indexes on the columns the app filters by ────────────────────────────
 -- Postgres indexes primary keys and unique constraints, but never foreign keys.
@@ -442,6 +478,7 @@ alter table public.thread_summaries enable row level security;
 alter table public.agent_connections enable row level security;
 alter table public.project_memory   enable row level security;
 alter table public.tasks            enable row level security;
+alter table public.agent_grants     enable row level security;
 
 -- ── 4. Access helpers (same rules as the app and backend access checks) ──────
 
@@ -674,7 +711,7 @@ begin
       and tablename in ('teams', 'team_members', 'projects', 'threads', 'messages',
                         'user_api_keys', 'team_invitations', 'thread_reads', 'ai_request_log',
                         'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections',
-                        'project_memory', 'tasks')
+                        'project_memory', 'tasks', 'agent_grants')
   loop
     execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
   end loop;
@@ -860,6 +897,10 @@ begin
      and project_id in (select id from projects where team_id = p_team_id);
   delete from agent_connections
    where owner_id = p_user_id
+     and project_id in (select id from projects where team_id = p_team_id);
+  -- Feature D stage 2: their coding agents stop working on this team's projects.
+  update agent_grants set revoked_at = now()
+   where user_id = p_user_id and revoked_at is null
      and project_id in (select id from projects where team_id = p_team_id);
   delete from team_members
    where team_id = p_team_id
@@ -1053,6 +1094,13 @@ create policy "Members add open tasks as themselves" on public.tasks
     and (source_decision_ids is null or public.all_messages_accessible(source_decision_ids))
   );
 
+-- Feature D stage 2: you see and disconnect your own coding agents. They're added only through
+-- connect_agent (below), which checks the project is yours.
+create policy "View your own agent grants" on public.agent_grants
+  for select using (user_id = auth.uid());
+create policy "Disconnect your own agents" on public.agent_grants
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid() and revoked_at is not null);
+
 -- Is the caller an owner of the team this task belongs to? Owners can release, edit and reopen
 -- anyone's task (someone went quiet, or left a task half done).
 create or replace function public.task_team_owner(p_task_id uuid)
@@ -1092,7 +1140,7 @@ returns void
 language plpgsql security definer set search_path = public
 as $$
 begin
-  update tasks set status = 'open', claimed_by = null, claimed_at = null, updated_at = now()
+  update tasks set status = 'open', claimed_by = null, claimed_at = null, via_client = null, updated_at = now()
    where id = p_task_id and status = 'claimed'
      and (claimed_by = auth.uid() or public.task_team_owner(p_task_id));
   if not found then
@@ -1126,8 +1174,11 @@ begin
     raise exception 'Keep the result under 1000 characters';
   end if;
 
-  update tasks set status = 'done', result = v_result, done_at = now(), done_by = auth.uid(), updated_at = now()
+  update tasks set status = 'done', result = v_result, done_at = now(), done_by = auth.uid(),
+                   review_message_id = null, updated_at = now()
    where id = p_task_id;
+  -- An agent's review card waiting in the task thread is answered by this.
+  update messages set review_state = 'done' where id = v_task.review_message_id and review_state = 'open';
   select id into v_shared from threads where project_id = v_task.project_id and type = 'shared' limit 1;
   insert into messages (thread_id, sender_type, sender_id, content, kind, task_id)
   values (
@@ -1185,12 +1236,69 @@ begin
   delete from tasks where id = p_task_id;
 end $$;
 
+-- Feature D stage 2: send an agent's work back. The claimer's note goes into the task's private
+-- thread as their own message (the agent reads it there) and the review card shows "Sent back";
+-- the task stays theirs. Returns the note's message id.
+create or replace function public.send_back_task(p_task_id uuid, p_note text)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_task tasks%rowtype;
+  v_note text := btrim(coalesce(p_note, ''));
+  v_message uuid;
+begin
+  select * into v_task from tasks where id = p_task_id;
+  if v_task.id is null or v_task.status <> 'claimed' or v_task.claimed_by is distinct from auth.uid()
+     or not coalesce(public.can_access_thread(v_task.thread_id), false) then
+    raise exception 'Only the person who claimed it can send it back' using errcode = '42501';
+  end if;
+  if v_task.review_message_id is null then
+    raise exception 'There''s no review waiting on this task';
+  end if;
+  if char_length(v_note) not between 1 and 2000 then
+    raise exception 'Say what to change (up to 2000 characters)';
+  end if;
+  update messages set review_state = 'sent_back' where id = v_task.review_message_id;
+  update tasks set review_message_id = null, updated_at = now() where id = p_task_id;
+  insert into messages (thread_id, sender_type, sender_id, content, task_id)
+  values (v_task.thread_id, 'user', auth.uid(), v_note, p_task_id)
+  returning id into v_message;
+  return v_message;
+end $$;
+
+-- Feature D stage 2: the "Allow" page connects a tool to one of your projects. Connecting the same
+-- tool again moves it to the new project (one project per tool, the user's choice 2026-10-02).
+create or replace function public.connect_agent(p_client_id text, p_client_name text, p_project_id uuid)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_grant uuid;
+begin
+  if not public.is_project_member(p_project_id) then
+    raise exception 'You can only connect a tool to your own team''s project' using errcode = '42501';
+  end if;
+  if char_length(btrim(coalesce(p_client_id, ''))) = 0 then
+    raise exception 'Missing tool id';
+  end if;
+  insert into agent_grants (user_id, project_id, client_id, client_name)
+  values (auth.uid(), p_project_id, p_client_id,
+          coalesce(nullif(left(btrim(coalesce(p_client_name, '')), 80), ''), 'Coding agent'))
+  on conflict (user_id, client_id) do update
+    set project_id = excluded.project_id, client_name = excluded.client_name,
+        created_at = now(), last_used_at = null, revoked_at = null
+  returning id into v_grant;
+  return v_grant;
+end $$;
+
 do $$
 declare
   f text;
 begin
   foreach f in array array['claim_task(uuid)', 'release_task(uuid)', 'complete_task(uuid, text)',
-                           'reopen_task(uuid)', 'edit_task(uuid, text, text)', 'delete_task(uuid)']
+                           'reopen_task(uuid)', 'edit_task(uuid, text, text)', 'delete_task(uuid)',
+                           'send_back_task(uuid, text)', 'connect_agent(text, text, uuid)']
   loop
     execute format('revoke execute on function public.%s from public, anon', f);
     execute format('grant execute on function public.%s to authenticated', f);
@@ -1281,6 +1389,10 @@ grant update (items, version, updated_by, updated_at) on public.project_memory t
 revoke insert, update, delete on public.tasks from anon, authenticated;
 grant insert (project_id, title, details, source_message_ids, source_decision_ids, suggested_by_ai, created_by)
   on public.tasks to authenticated;
+
+-- Feature D stage 2: Disconnect is the only direct change people make to a grant.
+revoke insert, update, delete on public.agent_grants from anon, authenticated;
+grant update (revoked_at) on public.agent_grants to authenticated;
 
 -- ── 7. File storage (2026-09-30) ─────────────────────────────────────────────
 -- One private bucket; files are only ever reached through short-lived signed links, which

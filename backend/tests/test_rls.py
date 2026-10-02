@@ -65,6 +65,7 @@ FEATURES = {
     "attachments": ("messages", "attachments"),
     "team_page": ("teams", "icon_kind,description"),
     "tasks": ("tasks", "id,status,claimed_by"),
+    "agents": ("agent_grants", "id,client_id"),
 }
 
 
@@ -1277,3 +1278,88 @@ def _agent_side_doors(world, agent) -> None:
     assert not _sign(agent, file["path"]).is_success
     assert not _upload(agent, _file(world.pa)["path"]).is_success
     ok(a.api.rpc("claim_task", {"p_task_id": task}))  # Control: the person still can
+
+
+# ── Agents: grants, agent messages, review cards (feature D stage 2) ─────────
+
+
+def connect(user, project, client="e2e-client", name="Claude Code") -> httpx.Response:
+    return user.api.rpc("connect_agent", {"p_client_id": client, "p_client_name": name, "p_project_id": project})
+
+
+def test_agent_grants_are_yours_and_connect_only_to_your_projects(world):
+    needs(world, "agents")
+    a, b, c = world.a, world.b, world.c
+    assert_denied(connect(c, world.p1))  # not your team's project
+    grant = ok(connect(a, world.p1))  # Control
+    assert ok(connect(a, world.p1, name="Claude Code 2")) == grant  # connecting again reuses it
+    assert len(ok(a.api.select("agent_grants", id=eq(grant)))) == 1
+    assert_blocked(b.api.select("agent_grants", id=eq(grant)))  # a teammate can't see it
+    assert_blocked(b.api.update("agent_grants", {"revoked_at": "2026-10-02T00:00:00Z"}, id=eq(grant)))
+    assert_denied(a.api.insert("agent_grants", {"user_id": a.id, "project_id": world.p1, "client_id": "x"}))
+    assert_denied(a.api.update("agent_grants", {"project_id": world.p2}, id=eq(grant)))
+    assert len(ok(a.api.update("agent_grants", {"revoked_at": "2026-10-02T00:00:00Z"}, id=eq(grant)))) == 1  # Control
+    assert_denied(a.api.update("agent_grants", {"revoked_at": None}, id=eq(grant)))  # no undoing it directly
+
+
+def test_people_cannot_post_as_an_agent_or_fake_a_review_card(world):
+    needs(world, "agents")
+    a = world.a
+    row = {"thread_id": world.pa, "sender_type": "user", "sender_id": a.id, "content": "hi"}
+    for forged in ({"sender_type": "agent"}, {"via_client": "Claude Code"}, {"kind": "task_review"},
+                   {"review_state": "open"}, {"review": {"summary": "x"}}):  # fmt: skip
+        assert_denied(a.api.insert("messages", {**row, **forged}))
+    ok(a.api.insert("messages", row))  # Control
+
+
+def agent_review(world, user, task: str, thread: str) -> str:
+    """What the MCP server does on request_review: an agent's card in the task thread (service key)."""
+    card = ok(world.admin.insert("messages", {
+        "thread_id": thread, "sender_type": "agent", "sender_id": user.id, "via_client": "Claude Code",
+        "content": "Ready for review", "kind": "task_review", "review_state": "open",
+        "review": {"summary": "Done", "suggested_result": "PR #1"}, "task_id": task,
+    }))[0]["id"]  # fmt: skip
+    ok(world.admin.update("tasks", {"thread_id": thread, "review_message_id": card, "via_client": "Claude Code"}, id=eq(task)))
+    return card
+
+
+def test_send_back_and_mark_done_answer_the_review_card(world):
+    needs(world, "agents")
+    a, b = world.a, world.b
+    t = new_task(world, a, "Agent work")
+    ok(a.api.rpc("claim_task", {"p_task_id": t}))
+    thread = ok(world.admin.insert("threads", {"project_id": world.p1, "type": "private", "owner_id": a.id, "name": "Task"}))[0]["id"]
+    card = agent_review(world, a, t, thread)
+
+    assert_denied(b.api.rpc("send_back_task", {"p_task_id": t, "p_note": "Not yours"}))
+    assert not a.api.rpc("send_back_task", {"p_task_id": t, "p_note": "  "}).is_success  # a note is needed
+    note = ok(a.api.rpc("send_back_task", {"p_task_id": t, "p_note": "Add the tests"}))  # Control
+    sent = admin_row(world, "messages", note)
+    assert sent["thread_id"] == thread and sent["sender_id"] == a.id and sent["sender_type"] == "user"
+    assert admin_row(world, "messages", card)["review_state"] == "sent_back"
+    assert task_row(world, t)["review_message_id"] is None and task_row(world, t)["status"] == "claimed"
+    assert not a.api.rpc("send_back_task", {"p_task_id": t, "p_note": "again"}).is_success  # nothing waiting
+
+    card2 = agent_review(world, a, t, thread)
+    ok(a.api.rpc("complete_task", {"p_task_id": t, "p_result": "PR #1"}))
+    assert admin_row(world, "messages", card2)["review_state"] == "done"
+    assert task_row(world, t)["review_message_id"] is None
+
+    t2 = new_task(world, a, "Agent work 2")
+    ok(a.api.rpc("claim_task", {"p_task_id": t2}))
+    ok(world.admin.update("tasks", {"via_client": "Claude Code"}, id=eq(t2)))
+    ok(a.api.rpc("release_task", {"p_task_id": t2}))
+    assert task_row(world, t2)["via_client"] is None  # released tasks lose their "via"
+
+
+def test_leaving_the_team_disconnects_your_agents(world):
+    needs(world, "agents")
+    needs(world, "team_page")
+    a, b = world.a, world.b
+    team = fresh_team(world, a, b)
+    try:
+        grant = ok(connect(b, team.project, client="e2e-leaver"))
+        assert ok(b.api.rpc("leave_team", {"p_team_id": team.id})) == "left"
+        assert admin_row(world, "agent_grants", grant)["revoked_at"] is not None
+    finally:
+        world.admin.delete("teams", id=eq(team.id))
