@@ -1348,7 +1348,7 @@ def test_send_back_and_mark_done_answer_the_review_card(world):
     t2 = new_task(world, a, "Agent work 2")
     ok(a.api.rpc("claim_task", {"p_task_id": t2}))
     ok(world.admin.update("tasks", {"via_client": "Claude Code"}, id=eq(t2)))
-    ok(a.api.rpc("release_task", {"p_task_id": t2}))
+    assert a.api.rpc("release_task", {"p_task_id": t2}).is_success
     assert task_row(world, t2)["via_client"] is None  # released tasks lose their "via"
 
 
