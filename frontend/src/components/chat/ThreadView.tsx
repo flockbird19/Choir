@@ -7,8 +7,8 @@ import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
 import { ExportPromptDialog } from "./ExportPromptDialog";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X, Layers, NotebookText, Paperclip, ListChecks, ChevronDown, Ellipsis, Braces, Wand2 } from "lucide-react";
-import { Button, Dialog, IconButton, Input, Menu, MenuItem, MenuLabel, MenuSeparator, Textarea } from "@/components/ui";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X, Layers, NotebookText, Paperclip, ListChecks, ChevronDown, Ellipsis, Wand2 } from "lucide-react";
+import { Button, Dialog, IconButton, Input, Menu, MenuItem, MenuSeparator, Textarea } from "@/components/ui";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { TasksPanel } from "../tasks/TasksPanel";
 import { SuggestTasksDialog } from "../tasks/SuggestTasksDialog";
@@ -196,16 +196,16 @@ export function ThreadView({
 
 
   // ── Export ─────────────────────────────────────────────────────────────────
-  const [isExporting, setIsExporting] = useState<"md" | "json" | false>(false);
+  const [isExporting, setIsExporting] = useState(false);
 
-  const handleExport = async (format: "md" | "json") => {
-    setIsExporting(format);
+  const handleExport = async () => {
+    setIsExporting(true);
     try {
       const token = await getSessionToken();
       if (!token) throw new Error("No session token");
 
       const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
-      const res = await fetch(`${BACKEND_URL}/api/export/${thread.id}?format=${format}`, {
+      const res = await fetch(`${BACKEND_URL}/api/export/${thread.id}?format=md`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -215,12 +215,12 @@ export function ThreadView({
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${localName || "thread"}_export.${format}`;
+      a.download = `${localName || "thread"}_export.md`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      toastSuccess(`Thread exported as ${format.toUpperCase()}!`);
+      toastSuccess("Thread exported as Markdown!");
     } catch (err: unknown) {
       toastError(err instanceof Error ? err.message : "Failed to export thread.");
     } finally {
@@ -1120,15 +1120,11 @@ export function ThreadView({
                 Compact this thread
               </MenuItem>
               <MenuSeparator />
-              <MenuLabel>Export</MenuLabel>
-              <MenuItem icon={<Download size={16} />} onSelect={() => handleExport("md")} disabled={isExporting !== false}>
-                {isExporting === "md" ? "Exporting…" : "As Markdown"}
-              </MenuItem>
-              <MenuItem icon={<Braces size={16} />} onSelect={() => handleExport("json")} disabled={isExporting !== false}>
-                {isExporting === "json" ? "Exporting…" : "As JSON"}
+              <MenuItem icon={<Download size={16} />} onSelect={handleExport} disabled={isExporting}>
+                {isExporting ? "Exporting…" : "Export as Markdown"}
               </MenuItem>
               <MenuItem icon={<Wand2 size={16} />} onSelect={handleExportPrompt}>
-                As a prompt for another AI
+                Export as prompt
               </MenuItem>
             </Menu>
           </div>
