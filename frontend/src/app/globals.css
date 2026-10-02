@@ -175,7 +175,8 @@
 }
 
 /* ─── Light Mode ────────────────────────────────── */
-:root {
+/* .theme-light forces these values on one element even under .dark (the cookie card on the light-only landing page). */
+:root, .theme-light {
   /* Warm parchment base — not cold white */
   --color-canvas:        #F7F6F2;
   --color-surface:       #FFFFFF;

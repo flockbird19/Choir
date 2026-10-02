@@ -32,16 +32,11 @@ export function useToast() {
 
 // ── Individual Toast item ─────────────────────────────────────────────────────
 
+// Amber means Decision only (DESIGN.md 3.2), so warnings use a neutral icon.
 const ICONS: Record<ToastType, React.ReactNode> = {
-  success: <CheckCircle size={16} className="shrink-0 text-green-500" aria-hidden="true" />,
-  error: <XCircle size={16} className="shrink-0 text-red-500" aria-hidden="true" />,
-  warning: <AlertCircle size={16} className="shrink-0 text-amber-500" aria-hidden="true" />,
-};
-
-const BORDER_COLORS: Record<ToastType, string> = {
-  success: "border-green-200 dark:border-green-800/50",
-  error: "border-red-200 dark:border-red-800/50",
-  warning: "border-amber-200 dark:border-amber-800/50",
+  success: <CheckCircle size={18} className="shrink-0 text-success" aria-hidden="true" />,
+  error: <XCircle size={18} className="shrink-0 text-danger" aria-hidden="true" />,
+  warning: <AlertCircle size={18} className="shrink-0 text-fg" aria-hidden="true" />,
 };
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
@@ -53,40 +48,36 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
     return () => clearTimeout(t);
   }, []);
 
-  // Auto-dismiss after 4.5s
+  // Auto-dismiss after 4s (DESIGN.md §6); leaving takes ~70% of arriving.
   useEffect(() => {
     const t = setTimeout(() => {
       setVisible(false);
-      setTimeout(() => onDismiss(toast.id), 300);
-    }, 4500);
+      setTimeout(() => onDismiss(toast.id), 170);
+    }, 4000);
     return () => clearTimeout(t);
   }, [toast.id, onDismiss]);
 
   const handleDismiss = () => {
     setVisible(false);
-    setTimeout(() => onDismiss(toast.id), 300);
+    setTimeout(() => onDismiss(toast.id), 170);
   };
 
   return (
     <div
-      role="alert"
-      className={`
-        flex items-start gap-3 min-w-[280px] max-w-sm
-        bg-surface border ${BORDER_COLORS[toast.type]}
-        px-4 py-3 rounded-2xl shadow-lg shadow-ink/10
-        transition-all duration-300 ease-out
-        ${visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}
-      `}
+      role="status"
+      className={`flex max-w-[min(32rem,calc(100vw-2rem))] items-center gap-2.5 rounded-pill border border-line bg-card py-2 pl-4 pr-1.5 shadow-overlay transition-[opacity,transform] ${
+        visible ? "translate-y-0 opacity-100 duration-[240ms] ease-out-expo" : "translate-y-2 opacity-0 duration-[170ms]"
+      }`}
     >
       {ICONS[toast.type]}
-      <p className="flex-1 text-sm text-ink leading-snug">{toast.message}</p>
+      <p className="flex-1 text-body-sm leading-snug text-fg">{toast.message}</p>
       <button
         onClick={handleDismiss}
-        className="shrink-0 p-0.5 rounded-lg text-graphite/50 hover:text-graphite transition-colors"
+        className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-pill text-fg-muted hover:bg-hover hover:text-fg"
         aria-label="Dismiss"
         data-tooltip="Dismiss"
       >
-        <X size={13} />
+        <X size={16} aria-hidden="true" />
       </button>
     </div>
   );
@@ -117,10 +108,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      {/* Toast container — fixed bottom-right */}
+      {/* Bottom centre, raised clear of the chat composer. */}
       <div
         aria-live="polite"
-        className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-2 items-end pointer-events-none"
+        className="pointer-events-none fixed inset-x-0 bottom-24 z-[9999] flex flex-col items-center gap-2 px-4"
       >
         {toasts.map((t) => (
           <div key={t.id} className="pointer-events-auto">
