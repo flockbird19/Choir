@@ -37,6 +37,9 @@
 -- APPLIED 2026-10-02 (live RLS 57/57). Pending re-run (same branch, part 2): agent_grants +
 -- connect_agent, tasks.via_client/thread_id/review_message_id, messages sender_type 'agent',
 -- via_client, kind 'task_review' + review/review_state, send_back_task, complete/release/leave updates.
+-- Pending re-run (2026-10-02, branch retire-old-agents; push the code first): the M1/M2 spike's
+-- agent_connections table, profiles.kind/owner_id and the old synthetic agent account (and the
+-- test messages it posted) are deleted; the team functions stop special-casing agents.
 -- ============================================================================
 
 begin;
@@ -52,7 +55,7 @@ declare
 begin
   foreach t in array array['messages', 'threads', 'projects', 'team_members', 'teams',
                            'team_invitations', 'user_api_keys', 'thread_reads', 'ai_request_log',
-                           'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections',
+                           'notifications', 'shared_keys', 'profiles', 'thread_summaries',
                            'project_memory', 'tasks', 'agent_grants']
   loop
     if to_regclass('public.' || t) is not null then
@@ -163,25 +166,23 @@ select u.id, coalesce(nullif(u.raw_user_meta_data->>'full_name', ''), nullif(u.r
 from auth.users u
 on conflict (id) do nothing;
 
--- M2 spike: an "agent" is a real (synthetic, non-login) auth.users account owned by
--- the person who connected it, so it's already a normal team_members/messages.sender_id
--- everywhere else — no RLS or FK changes needed for it to post or be seen.
-alter table public.profiles add column if not exists kind text not null default 'human' check (kind in ('human', 'agent'));
-alter table public.profiles add column if not exists owner_id uuid references auth.users(id);
-
--- M1 spike: one row per connected coding tool. The token is hashed (never stored raw) —
--- the backend hashes an incoming token and looks it up, it never needs to recover it.
-create table if not exists public.agent_connections (
-  id uuid primary key default gen_random_uuid(),
-  agent_user_id uuid references auth.users(id) on delete cascade,
-  owner_id uuid references auth.users(id) on delete cascade,
-  project_id uuid references public.projects(id) on delete cascade,
-  name text not null,
-  kind text,
-  token_hash text not null unique,
-  created_at timestamptz default now(),
-  last_seen_at timestamptz
-);
+-- 2026-10-02: the M1/M2 spike's agents (synthetic accounts with hashed tokens) are retired;
+-- agents now sign in as their person (agent_grants). One-time cleanup, a no-op once the
+-- columns are gone: the old agent accounts and the test messages they posted, then their
+-- table and columns.
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'profiles' and column_name = 'kind') then
+    delete from public.thread_summaries where thread_id in (
+      select m.thread_id from public.messages m join public.profiles p on p.id = m.sender_id where p.kind = 'agent');
+    delete from public.messages where sender_id in (select id from public.profiles where kind = 'agent');
+    delete from auth.users where id in (select id from public.profiles where kind = 'agent');
+  end if;
+end $$;
+drop table if exists public.agent_connections;
+alter table public.profiles drop column if exists kind;
+alter table public.profiles drop column if exists owner_id;
 
 create or replace function public.create_profile_for_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -475,7 +476,6 @@ alter table public.notifications    enable row level security;
 alter table public.shared_keys      enable row level security;
 alter table public.profiles         enable row level security;
 alter table public.thread_summaries enable row level security;
-alter table public.agent_connections enable row level security;
 alter table public.project_memory   enable row level security;
 alter table public.tasks            enable row level security;
 alter table public.agent_grants     enable row level security;
@@ -710,7 +710,7 @@ begin
     where schemaname = 'public'
       and tablename in ('teams', 'team_members', 'projects', 'threads', 'messages',
                         'user_api_keys', 'team_invitations', 'thread_reads', 'ai_request_log',
-                        'notifications', 'shared_keys', 'profiles', 'thread_summaries', 'agent_connections',
+                        'notifications', 'shared_keys', 'profiles', 'thread_summaries',
                         'project_memory', 'tasks', 'agent_grants')
   loop
     execute format('drop policy if exists %I on public.%I', pol.policyname, pol.tablename);
@@ -883,7 +883,7 @@ revoke execute on function public.withdraw_publication(uuid) from public, anon;
 grant execute on function public.withdraw_publication(uuid) to authenticated;
 
 -- Team page (2026-10-01): taking someone off a team. Their keys stop being lent to its projects,
--- coding agents they connected leave with them, and invite links they made stop working.
+-- their coding agents stop working there, and invite links they made stop working.
 -- Their messages stay (shown under their name); their private threads stay saved but closed
 -- (can_access_thread needs membership) until they're invited again. Internal: called only by
 -- leave_team and remove_member below.
@@ -895,16 +895,10 @@ begin
   delete from shared_keys
    where user_id = p_user_id
      and project_id in (select id from projects where team_id = p_team_id);
-  delete from agent_connections
-   where owner_id = p_user_id
-     and project_id in (select id from projects where team_id = p_team_id);
   -- Feature D stage 2: their coding agents stop working on this team's projects.
   update agent_grants set revoked_at = now()
    where user_id = p_user_id and revoked_at is null
      and project_id in (select id from projects where team_id = p_team_id);
-  delete from team_members
-   where team_id = p_team_id
-     and user_id in (select id from profiles where kind = 'agent' and owner_id = p_user_id);
   update team_invitations set revoked_at = now()
    where team_id = p_team_id and created_by = p_user_id and revoked_at is null;
   -- Feature D: tasks they had claimed go back to the team.
@@ -932,11 +926,8 @@ begin
     raise exception 'You are not in this team' using errcode = '42501';
   end if;
 
-  -- People left besides you (agents don't count: they act for someone).
-  if not exists (
-    select 1 from team_members tm left join profiles pr on pr.id = tm.user_id
-     where tm.team_id = p_team_id and tm.user_id <> auth.uid() and coalesce(pr.kind, 'human') = 'human'
-  ) then
+  -- Nobody left besides you.
+  if not exists (select 1 from team_members where team_id = p_team_id and user_id <> auth.uid()) then
     delete from teams where id = p_team_id;
     return 'deleted';
   end if;
@@ -944,10 +935,10 @@ begin
   perform drop_team_member(p_team_id, auth.uid());
 
   if v_role = 'owner' and not exists (select 1 from team_members where team_id = p_team_id and role = 'owner') then
-    select tm.user_id into v_next
-      from team_members tm left join profiles pr on pr.id = tm.user_id
-     where tm.team_id = p_team_id and coalesce(pr.kind, 'human') = 'human'
-     order by tm.joined_at asc nulls last, tm.user_id
+    select user_id into v_next
+      from team_members
+     where team_id = p_team_id
+     order by joined_at asc nulls last, user_id
      limit 1;
     update team_members set role = 'owner' where team_id = p_team_id and user_id = v_next;
     return 'left_new_owner';
@@ -981,7 +972,7 @@ end $$;
 revoke execute on function public.remove_member(uuid, uuid, boolean) from public, anon;
 grant execute on function public.remove_member(uuid, uuid, boolean) to authenticated;
 
--- Owners make another person (never an agent) an owner too.
+-- Owners make another person an owner too.
 create or replace function public.make_owner(p_team_id uuid, p_user_id uuid)
 returns void
 language plpgsql security definer set search_path = public
@@ -990,9 +981,8 @@ begin
   if not public.is_team_owner(p_team_id) then
     raise exception 'Only owners can make someone an owner' using errcode = '42501';
   end if;
-  update team_members tm set role = 'owner'
-   where tm.team_id = p_team_id and tm.user_id = p_user_id
-     and not exists (select 1 from profiles pr where pr.id = p_user_id and pr.kind = 'agent');
+  update team_members set role = 'owner'
+   where team_id = p_team_id and user_id = p_user_id;
   if not found then
     raise exception 'Only people in this team can become owners' using errcode = '22023';
   end if;
@@ -1003,12 +993,6 @@ grant execute on function public.make_owner(uuid, uuid) to authenticated;
 -- API keys: only your own (the backend reads them with the service key)
 create policy "Manage own API keys" on public.user_api_keys
   for all using (user_id = auth.uid()) with check (user_id = auth.uid());
-
--- Agent connections: only the person who connected an agent can see or revoke it.
--- Never touched by the agent's own requests — those go through the backend's
--- service-role client after it verifies the token itself.
-create policy "Manage own agent connections" on public.agent_connections
-  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
 -- Invitations: team members only — no public reading of tokens.
 -- Accepting an invite uses the server's admin client, so it still works.
