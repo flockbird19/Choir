@@ -176,7 +176,9 @@ function useMenu() {
 
 const itemClass =
   "flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-[8px] px-2.5 text-left text-body-sm text-fg outline-none sm:min-h-8 " +
-  "hover:bg-hover focus-visible:bg-hover focus:bg-hover disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0";
+  // focus-visible, not focus: the first item gets focus when the menu opens, and opening with the
+  // mouse shouldn't look like that item is already picked. Keyboard users still see it.
+  "hover:bg-hover focus-visible:bg-hover disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0";
 
 export function MenuItem({
   onSelect,
