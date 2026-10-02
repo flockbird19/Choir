@@ -45,7 +45,7 @@ export default async function ThreadPage({
 
   if (!thread) {
     return (
-      <div className="h-full flex items-center justify-center bg-canvas text-ink p-8">
+      <div className="h-full flex items-center justify-center bg-bg text-fg p-8">
         <p>Thread not found or access denied.</p>
       </div>
     );

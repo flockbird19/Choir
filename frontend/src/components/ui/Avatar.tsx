@@ -4,16 +4,15 @@ import type { StatusId } from "@/app/(main)/profile/actions";
 import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 import { cn } from "./cn";
 
-// Soft, readable pairs; the same person always gets the same color.
+// The team colours (DESIGN.md 3.7) as soft fills with the strong colour as text; the same
+// person always gets the same colour. FU-14: was Tailwind palette colours, including purple.
 const PALETTE = [
-  "bg-rose-100 text-rose-800 dark:bg-rose-400/15 dark:text-rose-200",
-  "bg-amber-100 text-amber-900 dark:bg-amber-400/15 dark:text-amber-200",
-  "bg-emerald-100 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-200",
-  "bg-sky-100 text-sky-800 dark:bg-sky-400/15 dark:text-sky-200",
-  "bg-violet-100 text-violet-800 dark:bg-violet-400/15 dark:text-violet-200",
-  "bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-400/15 dark:text-fuchsia-200",
-  "bg-lime-100 text-lime-900 dark:bg-lime-400/15 dark:text-lime-200",
-  "bg-orange-100 text-orange-900 dark:bg-orange-400/15 dark:text-orange-200",
+  "bg-team-slate/15 text-team-slate",
+  "bg-team-teal/15 text-team-teal",
+  "bg-team-olive/15 text-team-olive",
+  "bg-team-rust/15 text-team-rust",
+  "bg-team-rose/15 text-team-rose",
+  "bg-team-cocoa/15 text-team-cocoa",
 ];
 
 function colorFor(key: string) {

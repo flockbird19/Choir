@@ -10,14 +10,14 @@ import { cn } from "@/components/ui/cn";
 
 const STYLES = {
   button:
-    "w-11 h-11 rounded-full text-graphite hover:bg-surface-hover hover:text-ink aria-expanded:bg-surface-hover aria-expanded:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-  count: "bg-accent text-accent-fg ring-2 ring-canvas",
-  panel: "left-full bottom-0 ml-2 w-80 rounded-2xl border border-border bg-surface text-ink shadow-lg shadow-ink/10",
-  heading: "font-semibold text-sm text-ink",
-  muted: "text-graphite",
-  item: "hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent",
-  unread: "bg-accent",
-  action: "text-graphite hover:text-ink hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent",
+    "w-11 h-11 rounded-full text-fg-muted hover:bg-hover hover:text-fg aria-expanded:bg-hover aria-expanded:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+  count: "bg-primary text-on-primary ring-2 ring-sunken",
+  panel: "left-full bottom-0 ml-2 w-80 rounded-card border border-line bg-card text-fg shadow-overlay",
+  heading: "font-semibold text-sm text-fg",
+  muted: "text-fg-muted",
+  item: "hover:bg-hover focus-visible:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+  unread: "bg-primary",
+  action: "text-fg-muted hover:text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-ring",
 };
 
 function describe(n: AppNotification): { title: string; hint: string } {

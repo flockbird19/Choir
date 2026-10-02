@@ -43,7 +43,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className="h-full antialiased">
       <body
-        className={`${jetbrainsMono.variable} ${newsreader.variable} ${hankenGrotesk.variable} h-full bg-canvas text-ink font-sans flex flex-col selection:bg-accent selection:text-accent-fg overflow-hidden`}
+        className={`${jetbrainsMono.variable} ${newsreader.variable} ${hankenGrotesk.variable} h-full bg-bg text-fg font-sans flex flex-col selection:bg-primary selection:text-on-primary overflow-hidden`}
       >
         <ThemeProvider
           attribute="class"

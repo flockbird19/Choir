@@ -20,7 +20,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-      className="p-2 rounded-full hover:bg-surface-hover transition-colors text-graphite hover:text-ink"
+      className="p-2 rounded-full hover:bg-hover transition-colors text-fg-muted hover:text-fg"
       aria-label="Toggle theme"
       data-tooltip={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
       data-tooltip-side="right"

@@ -381,8 +381,8 @@
 
 /* ─── Base ──────────────────────────────────────── */
 body {
-  background-color: var(--color-canvas);
-  color: var(--color-ink);
+  background-color: var(--color-bg);
+  color: var(--color-fg);
   font-feature-settings: "kern" 1, "liga" 1;
   -webkit-font-smoothing: antialiased;
 }
@@ -396,11 +396,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
+  background: var(--color-line-strong);
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-graphite);
+  background: var(--color-fg-subtle);
 }
 
 /* ─── No-scrollbar utility ──────────────────────────────── */

@@ -1,7 +1,9 @@
 import { Logo } from "@/components/Logo";
 import { Skeleton } from "@/components/ui/Skeleton";
 
-export default function MainLoading() {
+// The whole app shell while (main)/layout.tsx loads the workspace (only there: login and the
+// other public pages show no skeleton).
+export function ShellSkeleton() {
   return (
     <div className="flex h-screen w-full bg-bg overflow-hidden">
 

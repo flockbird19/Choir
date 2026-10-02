@@ -7,8 +7,8 @@ import { ContextDrawer } from "../ContextDrawer";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { CatchMeUpModal } from "./CatchMeUpModal";
 import { ExportPromptDialog } from "./ExportPromptDialog";
-import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X, Layers, NotebookText, Paperclip, ListChecks } from "lucide-react";
-import { Button, Dialog, IconButton, Input, Menu, MenuItem, Textarea } from "@/components/ui";
+import { PanelRightOpen, Lock, Users, CheckSquare, Download, Pin, Sparkles, Megaphone, MessageSquareLock, Pencil, Check, X, Layers, NotebookText, Paperclip, ListChecks, ChevronDown, Ellipsis, Braces, Wand2 } from "lucide-react";
+import { Button, Dialog, IconButton, Input, Menu, MenuItem, MenuLabel, MenuSeparator, Textarea } from "@/components/ui";
 import { ProjectMemoryPanel } from "./ProjectMemoryPanel";
 import { TasksPanel } from "../tasks/TasksPanel";
 import { SuggestTasksDialog } from "../tasks/SuggestTasksDialog";
@@ -968,8 +968,8 @@ export function ThreadView({
               )}
               <p className="text-xs text-fg-subtle leading-tight mt-0.5">
                 {isPrivate
-                  ? "Only you can see this · Nothing reaches Team Space until you publish it"
-                  : "Visible to the entire team · use @AI to collaborate"}
+                  ? "Only you can see this"
+                  : "Everyone on the team · @AI to ask"}
               </p>
             </div>
           </div>
@@ -1007,32 +1007,8 @@ export function ThreadView({
               </div>
             )}
 
-            {/* Export — one icon button opening a menu, instead of a permanent two-pill
-                group; this was the easiest thing to move out of an overcrowded header
-                since it's the least frequently reached-for action here. */}
-            <Menu
-              label="Export thread"
-              align="end"
-              trigger={(props) => (
-                <IconButton
-                  {...props}
-                  label="Export thread"
-                  icon={<Download size={15} />}
-                  variant="secondary"
-                  disabled={isExporting !== false}
-                />
-              )}
-            >
-              <MenuItem onSelect={() => handleExport("md")}>
-                {isExporting === "md" ? "Exporting…" : "Export as Markdown"}
-              </MenuItem>
-              <MenuItem onSelect={() => handleExport("json")}>
-                {isExporting === "json" ? "Exporting…" : "Export as JSON"}
-              </MenuItem>
-              <MenuItem onSelect={handleExportPrompt}>Export as prompt</MenuItem>
-            </Menu>
-
-            {/* Feature D: who's doing what. */}
+            {/* The header keeps each thread's three most-used actions; the rest live in
+                "More" so the row never wraps (2026-10-02, DESIGN.md §7 thread header). */}
             <Button
               variant="secondary"
               size="sm"
@@ -1049,104 +1025,112 @@ export function ThreadView({
               )}
             </Button>
 
-            {/* Component #4: what the AI reads — project memory, and compacting this thread. */}
-            <IconButton
-              label="Project memory"
-              icon={<NotebookText size={15} />}
-              variant="secondary"
-              aria-pressed={memoryOpen}
-              onClick={() => setMemoryOpen(true)}
-            />
-            <IconButton
-              label="Compact this thread"
-              icon={<Layers size={15} />}
-              variant="secondary"
-              onClick={openCompact}
-            />
-
-            {/* Catch Me Up — only on the shared thread itself */}
             {!isPrivate && (
-              <button
-                onClick={handleCatchMeUp}
-                data-tooltip="Catch me up on what you missed"
-                aria-label="Catch me up on what you missed"
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all text-on-primary"
-                style={{ backgroundImage: "linear-gradient(180deg, var(--ds-primary-from, var(--color-primary)), var(--ds-primary-to, var(--color-primary)))" }}
-              >
-                <Sparkles size={15} />
-                <span className="hidden sm:inline">Catch me up</span>
-              </button>
-            )}
-
-            {/* Decisions toggle — only on the shared thread itself */}
-            {!isPrivate && (
-              <button
-                onClick={() => setDecisionsOpen(!decisionsOpen)}
-                data-tooltip="View pinned decisions"
+              <Button
+                variant="secondary"
+                size="sm"
+                leadingIcon={<Pin size={15} aria-hidden="true" />}
                 aria-label={`View pinned decisions${decisions.length > 0 ? ` (${decisions.length})` : ""}`}
                 aria-pressed={decisionsOpen}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border
-                  ${decisionsOpen
-                    ? "bg-decision-soft text-decision border-decision-line"
-                    : "bg-card text-fg-muted border-line-strong hover:border-decision-line hover:text-decision"
-                  }`}
+                onClick={() => setDecisionsOpen(!decisionsOpen)}
+                data-tooltip="View pinned decisions"
+                className="aria-pressed:border-decision-line aria-pressed:bg-decision-soft aria-pressed:text-decision"
               >
-                <Pin size={15} />
-                <span className="hidden sm:inline">Decisions{decisions.length > 0 ? ` (${decisions.length})` : ""}</span>
-              </button>
+                Decisions
+                {decisions.length > 0 && (
+                  <span className="rounded-full border border-line bg-sunken px-1.5 font-mono text-[11px] text-fg-muted tabular-nums">
+                    {decisions.length}
+                  </span>
+                )}
+              </Button>
             )}
 
-
-            {/* Select mode toggle — only for private threads */}
-            {isPrivate && sharedThread && (
-              <button
-                onClick={() => {
-                  setSelectMode(!selectMode);
-                  if (selectMode) setSelectedMessageIds(new Set()); // clear on cancel
-                }}
-                aria-label="Select messages to post to Team Space"
-                aria-pressed={selectMode}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border
-                  ${selectMode
-                    ? "bg-private-soft text-private border-private-line"
-                    : "bg-card text-fg-muted border-line-strong hover:border-line-strong hover:text-fg"
-                  }`}
+            {!isPrivate && (
+              <Button
+                variant="primary"
+                size="sm"
+                leadingIcon={<Sparkles size={15} aria-hidden="true" />}
+                onClick={handleCatchMeUp}
+                data-tooltip="Catch me up on what you missed"
+                style={{ backgroundImage: "linear-gradient(180deg, var(--ds-primary-from, var(--color-primary)), var(--ds-primary-to, var(--color-primary)))" }}
               >
-                <CheckSquare size={15} />
-                <span className="hidden sm:inline">Select</span>
-              </button>
+                Catch me up
+              </Button>
             )}
 
-            {/* Publish findings — only for private threads */}
             {isPrivate && sharedThread && (
-              <button
-                onClick={() => void findings.start()}
-                data-tooltip="Publish findings to Team Space"
-                aria-label="Publish findings"
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border bg-card text-fg-muted border-line-strong hover:border-team-line hover:text-team"
-              >
-                <Megaphone size={15} aria-hidden="true" />
-                <span className="hidden sm:inline">Publish findings</span>
-              </button>
-            )}
-
-            {/* Context drawer toggle — only for private threads */}
-            {isPrivate && sharedThread && (
-              <button
-                onClick={() => setDrawerOpen(!drawerOpen)}
-                data-tooltip="Peek at Team Space"
+              <Button
+                variant="secondary"
+                size="sm"
+                leadingIcon={<PanelRightOpen size={15} aria-hidden="true" />}
                 aria-label="Peek at Team Space"
                 aria-pressed={drawerOpen}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-pill text-sm font-medium transition-all border
-                  ${drawerOpen
-                    ? "bg-team-soft text-team border-team-line"
-                    : "bg-card text-fg-muted border-line-strong hover:border-team-line hover:text-team"
-                  }`}
+                onClick={() => setDrawerOpen(!drawerOpen)}
+                data-tooltip="Peek at Team Space"
+                className="aria-pressed:border-team-line aria-pressed:bg-team-soft aria-pressed:text-team"
               >
-                <PanelRightOpen size={15} />
-                <span className="hidden sm:inline">Team Space</span>
-              </button>
+                Team Space
+              </Button>
             )}
+
+            {/* Publish: an AI draft of your findings, or messages you pick yourself. */}
+            {isPrivate && sharedThread && (
+              <Menu
+                label="Publish to Team Space"
+                align="end"
+                trigger={(props) => (
+                  <Button
+                    {...props}
+                    variant="secondary"
+                    size="sm"
+                    leadingIcon={<Megaphone size={15} aria-hidden="true" />}
+                    trailingIcon={<ChevronDown size={14} aria-hidden="true" />}
+                    data-tooltip="Publish to Team Space"
+                  >
+                    Publish
+                  </Button>
+                )}
+              >
+                <MenuItem icon={<Sparkles size={16} />} onSelect={() => void findings.start()}>
+                  Draft findings with AI
+                </MenuItem>
+                <MenuItem
+                  icon={<CheckSquare size={16} />}
+                  onSelect={() => {
+                    setSelectMode(true);
+                    setSelectedMessageIds(new Set());
+                  }}
+                >
+                  Pick messages to post
+                </MenuItem>
+              </Menu>
+            )}
+
+            <Menu
+              label="More actions"
+              align="end"
+              trigger={(props) => (
+                <IconButton {...props} label="More actions" icon={<Ellipsis size={16} />} variant="secondary" size="sm" />
+              )}
+            >
+              <MenuItem icon={<NotebookText size={16} />} onSelect={() => setMemoryOpen(true)}>
+                Project memory
+              </MenuItem>
+              <MenuItem icon={<Layers size={16} />} onSelect={openCompact}>
+                Compact this thread
+              </MenuItem>
+              <MenuSeparator />
+              <MenuLabel>Export</MenuLabel>
+              <MenuItem icon={<Download size={16} />} onSelect={() => handleExport("md")} disabled={isExporting !== false}>
+                {isExporting === "md" ? "Exporting…" : "As Markdown"}
+              </MenuItem>
+              <MenuItem icon={<Braces size={16} />} onSelect={() => handleExport("json")} disabled={isExporting !== false}>
+                {isExporting === "json" ? "Exporting…" : "As JSON"}
+              </MenuItem>
+              <MenuItem icon={<Wand2 size={16} />} onSelect={handleExportPrompt}>
+                As a prompt for another AI
+              </MenuItem>
+            </Menu>
           </div>
         </div>
 
