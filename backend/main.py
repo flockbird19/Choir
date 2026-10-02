@@ -12,8 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from backend.agent_mcp import mcp_server
-from backend.agents import AgentError, create_agent_connection
+from backend.agent_mcp import TRANSPORT_SECURITY, mcp_server
 from backend.auth import get_current_user
 from backend.db import find_missing_tables, get_accessible_thread, get_db, verify_thread_access
 from backend.errors import ErrorMiddleware, safe_sse_stream
@@ -49,11 +48,14 @@ def parse_allowed_origins(value: str | None) -> list[str]:
     return [origin.strip().rstrip("/") for origin in (value or DEFAULT_ALLOWED_ORIGINS).split(",") if origin.strip()]
 
 
-# M1 spike: the MCP server a connected coding agent talks to directly, with its own
-# hashed-token auth (see agent_mcp.py) instead of this app's normal JWT auth. Built
-# once here (not inside app.mount) because its lifespan has to be driven manually
-# below -- see the comment in lifespan().
-mcp_app = mcp_server.streamable_http_app(streamable_http_path="/")
+# Feature D stage 2: the MCP server connected coding agents talk to (agent_mcp.py), signed in through
+# Supabase's OAuth server instead of this app's own routes. It serves /mcp and the sign-in metadata at
+# /.well-known/oauth-protected-resource/mcp, so it's mounted at the root, after every route below.
+# Built once here because its lifespan has to be driven manually (see lifespan()). Stateless, so it
+# works on serverless hosting (Vercel).
+mcp_app = mcp_server.streamable_http_app(
+    streamable_http_path="/mcp", stateless_http=True, transport_security=TRANSPORT_SECURITY
+)
 
 
 @asynccontextmanager
@@ -88,8 +90,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.mount("/mcp", mcp_app)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -144,28 +144,6 @@ def remove_key(provider: str, user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail=f"Invalid provider '{provider}'.")
     delete_api_key(user_id, provider)
     return {"message": f"API key for '{provider}' removed."}
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# M1/M2 spike — connecting a coding agent to a project
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-class ConnectAgentRequest(BaseModel):
-    project_id: str
-    kind: str = "Agent"  # a free-text label, e.g. "Claude Code" -- not enforced
-
-
-@app.post("/api/agents/connect", status_code=201)
-def connect_agent(body: ConnectAgentRequest, user_id: str = Depends(get_current_user)):
-    """
-    Create (or reuse) this person's agent account and mint a new MCP token for a
-    project. The raw token is returned once -- only its hash is ever stored.
-    """
-    try:
-        return create_agent_connection(user_id, body.project_id, body.kind)
-    except AgentError as exc:
-        raise HTTPException(status_code=403, detail=str(exc))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -563,3 +541,7 @@ def export_thread(thread_id: str, format: str = "md", user_id: str = Depends(get
             "Content-Disposition": f'attachment; filename="{filename}"'
         },
     )
+
+
+# Last, so every route above matches first (see mcp_app).
+app.mount("/", mcp_app)

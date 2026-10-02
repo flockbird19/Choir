@@ -25,6 +25,14 @@ def coverage_line(view: dict[str, Any]) -> str:
     return f"COVERAGE: the whole thread, all {latest} messages word for word."
 
 
+def _who(msg: dict[str, Any]) -> str:
+    if msg["sender_type"] == "assistant":
+        return "Choir AI"
+    if msg["sender_type"] == "agent":
+        return f"{msg.get('via_client') or 'Coding agent'} (my coding agent)"
+    return "Me"
+
+
 def draft_findings(thread_id: str, user_id: str) -> dict[str, Any]:
     """
     Returns {"draft": markdown, "source_message_ids": [...]}: the ids are exactly the messages
@@ -66,7 +74,7 @@ def draft_findings(thread_id: str, user_id: str) -> dict[str, Any]:
     user_prompt = llm.with_files(
         "\n\n".join(part for part in parts if part),
         messages,
-        lambda m: f"{'Choir AI' if m['sender_type'] == 'assistant' else 'Me'}: {m['content']}",
+        lambda m: f"{_who(m)}: {m['content']}",
         provider,
     )
 

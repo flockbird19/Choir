@@ -61,6 +61,14 @@ class FakeQuery:
         self._filters.append((column, "lte", value))
         return self
 
+    def is_(self, column: str, value: str) -> "FakeQuery":
+        self._filters.append((column, "is", None if value == "null" else value))
+        return self
+
+    def ilike(self, column: str, pattern: str) -> "FakeQuery":
+        self._filters.append((column, "ilike", pattern.strip("%").replace("\\", "").lower()))
+        return self
+
     def in_(self, column: str, values: Any) -> "FakeQuery":
         self._filters.append((column, "in", list(values)))
         return self
@@ -94,6 +102,10 @@ class FakeQuery:
             if op == "lte" and (actual is None or actual > value):
                 return False
             if op == "in" and actual not in value:
+                return False
+            if op == "is" and actual is not value:
+                return False
+            if op == "ilike" and value not in str(actual or "").lower():
                 return False
         return True
 

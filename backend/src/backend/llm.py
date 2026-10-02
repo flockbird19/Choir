@@ -222,7 +222,11 @@ def _format_roster(roster: list[dict[str, str]], current_user_id: str) -> str:
 def sender_label(msg: dict[str, Any], names: dict[str, str]) -> str:
     if msg["sender_type"] == "assistant":
         return "Choir AI"
-    return names.get(msg.get("sender_id") or "", FORMER_MEMBER)
+    person = names.get(msg.get("sender_id") or "", FORMER_MEMBER)
+    if msg["sender_type"] == "agent":
+        # Feature D stage 2: a coding agent posts for its person; never its person's own words.
+        return f"{msg.get('via_client') or 'Coding agent'} ({person}'s agent)"
+    return person
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +266,9 @@ def _to_chat_messages(
         role = "assistant" if msg["sender_type"] == "assistant" else "user"
         content = msg["content"]
         stamp = when(msg.get("created_at"), tz)
-        if role == "user" and names is not None:
+        if msg["sender_type"] == "agent" and names is None:
+            content = f"[{msg.get('via_client') or 'Coding agent'} (the person's coding agent, not the person) · {stamp}]: {content}"
+        elif role == "user" and names is not None:
             label = sender_label(msg, names) + (f" · {stamp}" if stamp else "") + _pin_mark(msg)
             if msg.get("shared_by"):
                 content = f"[{label}, shared from their private thread]\n{content}"
@@ -285,7 +291,7 @@ def _format_shared_as_system_context(
     lines = ["--- SHARED THREAD (Read-Only) ---"]
     for msg in messages:
         label = sender_label(msg, names)
-        if current_user_id and msg["sender_type"] != "assistant" and msg.get("sender_id") == current_user_id:
+        if current_user_id and msg["sender_type"] == "user" and msg.get("sender_id") == current_user_id:
             label += " (you)"
         lines.append(f"{label}: {msg['content']}")
     lines.append("--- END SHARED ---")
@@ -471,7 +477,7 @@ def transcript(
     for msg in messages:
         head = f"[msg:{msg['id']}] " if ids and msg.get("id") else ""
         label = sender_label(msg, names)
-        if me and msg["sender_type"] != "assistant" and msg.get("sender_id") == me:
+        if me and msg["sender_type"] == "user" and msg.get("sender_id") == me:
             label += " (you)"
         if msg.get("shared_by"):
             label += ", published from their private thread"

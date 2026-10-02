@@ -22,7 +22,7 @@ HANDOFF_SYSTEM_PROMPT = prompts.system(prompts.HANDOFF_JOB)
 
 def _line(msg: dict[str, Any], names: dict[str, str], user_id: str) -> str:
     label = sender_label(msg, names)
-    if msg["sender_type"] != "assistant" and msg.get("sender_id") == user_id:
+    if msg["sender_type"] == "user" and msg.get("sender_id") == user_id:
         label += " (me)"
     return f"{label}: {msg['content']}"
 
