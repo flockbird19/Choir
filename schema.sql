@@ -32,6 +32,8 @@
 -- the public "team-icons" storage bucket (§7).
 -- Pending re-run (2026-10-02, tasks stage 1, branch tasks): the tasks table and its functions,
 -- messages.kind 'task_done' + messages.task_id (the "finished" line), leaving releases your tasks.
+-- Pending re-run (2026-10-02, agents stage 2, branch stage2-agents): agents' OAuth tokens refused
+-- everywhere (is_first_party, a "Choir app only" rule per table and on storage, a pre-request check).
 -- ============================================================================
 
 begin;
@@ -442,6 +444,30 @@ alter table public.project_memory   enable row level security;
 alter table public.tasks            enable row level security;
 
 -- ── 4. Access helpers (same rules as the app and backend access checks) ──────
+
+-- Feature D stage 2 (2026-10-02): a coding agent signed in through Supabase's OAuth server gets
+-- the person's own login token plus a client_id claim. Those tokens must never reach data
+-- directly (the spike read private threads and keys with one); agents go through Choir's MCP
+-- server, which checks their grant. Used by the "Choir app only" rules in §5 and §7.
+create or replace function public.is_first_party()
+returns boolean
+language sql stable
+as $$
+  select (auth.jwt() ->> 'client_id') is null;
+$$;
+
+-- The same rule for every API request, including functions (security definer functions skip
+-- the table rules): PostgREST runs this before each request (set up at the end of §5).
+create or replace function public.refuse_third_party()
+returns void
+language plpgsql stable
+as $$
+begin
+  if (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'client_id') is not null then
+    raise exception 'Agents connect through Choir''s MCP server, not the database'
+      using errcode = '42501';
+  end if;
+end $$;
 
 create or replace function public.is_team_member(p_team_id uuid)
 returns boolean
@@ -1171,6 +1197,26 @@ begin
   end loop;
 end $$;
 
+-- Feature D stage 2: only the Choir app's own logins reach data (see is_first_party). One
+-- restrictive rule per table: Postgres combines it with AND, so every rule above still decides
+-- who sees what, and an agent's token sees nothing, live updates included. Covers every public
+-- table with RLS on, so a new table is covered without being listed.
+do $$
+declare
+  t text;
+begin
+  for t in select tablename from pg_tables where schemaname = 'public' and rowsecurity loop
+    execute format('drop policy if exists "Choir app only" on public.%I', t);
+    execute format(
+      'create policy "Choir app only" on public.%I as restrictive for all to authenticated '
+      'using (public.is_first_party()) with check (public.is_first_party())', t);
+  end loop;
+end $$;
+
+-- And before every API request, so agent tokens can't call the functions above either.
+alter role authenticator set pgrst.db_pre_request = 'public.refuse_third_party';
+notify pgrst, 'reload config';
+
 -- ── 6. Column permissions ────────────────────────────────────────────────────
 
 -- Signed-in users may only change a message's pin fields, never its content or
@@ -1285,5 +1331,11 @@ create policy "Choir: members add their team's icon" on storage.objects
 create policy "Choir: members remove their team's icon" on storage.objects
   for delete to authenticated
   using (bucket_id = 'team-icons' and coalesce(public.is_team_member(public.attachment_thread(name)), false));
+
+-- Feature D stage 2: agents' tokens can't read, add or remove files either (see §5's rule).
+drop policy if exists "Choir app only" on storage.objects;
+create policy "Choir app only" on storage.objects
+  as restrictive for all to authenticated
+  using (public.is_first_party()) with check (public.is_first_party());
 
 commit;

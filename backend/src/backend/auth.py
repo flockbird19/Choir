@@ -51,8 +51,14 @@ def verify_token(token: str) -> str:
     """
     try:
         header = jwt.get_unverified_header(token)
+        # A coding agent's OAuth token is the person's own token plus a client_id. It may only
+        # reach Choir through the MCP server, never these routes (keys, chat...). Reading the claim
+        # unverified is safe here: it can only make us refuse.
+        is_agent = jwt.decode(token, options={"verify_signature": False}).get("client_id") is not None
     except jwt.PyJWTError:
         raise _unauthorized()
+    if is_agent:
+        raise HTTPException(status_code=401, detail="Agents connect to Choir through its MCP server.")
 
     if str(header.get("alg", "")).upper().startswith("HS"):
         return _verify_with_auth_server(token)

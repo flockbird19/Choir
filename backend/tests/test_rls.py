@@ -16,11 +16,14 @@ users and is deleted at the end, even when a test fails.
 Tests for Batch 1 columns and tables skip until schema.sql has been run.
 """
 
+import base64
+import hashlib
 import os
 import secrets
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -1182,3 +1185,95 @@ def test_leaving_the_team_releases_your_claims(world):
         assert task_row(world, t)["status"] == "open" and task_row(world, t)["claimed_by"] is None
     finally:
         world.admin.delete("teams", id=eq(team.id))
+
+
+# ── Agents' OAuth tokens (feature D stage 2, spec §7.2) ──────────────────────
+
+
+def agent_token(world, user) -> tuple[str, str]:
+    """A real coding-agent token for this user, the way Claude Code gets one: register a client,
+    ask to authorize, the person clicks Allow (the consent call the /oauth/consent page makes),
+    then swap the code for a token. Needs Supabase's OAuth server with dynamic registration on.
+    Returns (token, client_id); remove the client afterwards with remove_client."""
+    http = world.http
+    redirect = "http://localhost:9/callback"
+    client = http.post(
+        "/auth/v1/oauth/clients/register",
+        json={
+            "client_name": "Choir e2e agent",
+            "redirect_uris": [redirect],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "none",
+        },
+        headers={"apikey": ANON_KEY},
+    )
+    assert client.is_success, f"{client.status_code}: {client.text}"
+    client_id = client.json()["client_id"]
+    verifier = secrets.token_urlsafe(48)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    authorize = http.get(
+        "/auth/v1/oauth/authorize",
+        params={
+            "response_type": "code", "client_id": client_id, "redirect_uri": redirect, "scope": "email",
+            "code_challenge": challenge, "code_challenge_method": "S256", "state": "e2e",
+        },
+        headers={"apikey": ANON_KEY},
+    )  # fmt: skip
+    assert authorize.status_code in (302, 303), f"{authorize.status_code}: {authorize.text}"
+    authorization_id = parse_qs(urlparse(authorize.headers["location"]).query)["authorization_id"][0]
+    # The consent page reads the request first (this ties it to the signed-in person), then approves.
+    details = http.get(f"/auth/v1/oauth/authorizations/{authorization_id}", headers=user.api.headers)
+    assert details.is_success, f"{details.status_code}: {details.text}"
+    consent = http.post(
+        f"/auth/v1/oauth/authorizations/{authorization_id}/consent", json={"action": "approve"}, headers=user.api.headers
+    )
+    assert consent.is_success, f"{consent.status_code}: {consent.text}"
+    code = parse_qs(urlparse(consent.json()["redirect_url"]).query)["code"][0]
+    token = http.post(
+        "/auth/v1/oauth/token",
+        data={"grant_type": "authorization_code", "code": code, "redirect_uri": redirect,
+              "client_id": client_id, "code_verifier": verifier},
+        headers={"apikey": ANON_KEY},
+    )  # fmt: skip
+    assert token.is_success, f"{token.status_code}: {token.text}"
+    return token.json()["access_token"], client_id
+
+
+def remove_client(world, client_id: str) -> None:
+    world.http.delete(f"/auth/v1/admin/oauth/clients/{client_id}", headers=world.admin.headers)
+
+
+def test_agent_tokens_reach_nothing_directly(world):
+    needs(world, "tasks")
+    needs(world, "attachments")
+    a = world.a
+    token, client_id = agent_token(world, a)
+    try:
+        _agent_side_doors(world, Rest(world.http, ANON_KEY, token))
+    finally:
+        remove_client(world, client_id)
+
+
+def _agent_side_doors(world, agent) -> None:
+    a = world.a
+    task = new_task(world, a, "Agent side door")
+    file = _stored(a.api, world.pa)
+    ok(_post(a, world.pa, [file]))
+
+    # Control: the same person's own session reads their private thread, key and file, and claims.
+    assert len(ok(a.api.select("threads", id=eq(world.pa)))) == 1
+    assert len(ok(a.api.select("user_api_keys", id=eq(world.key_a)))) == 1
+    assert _download(a.api, file["path"]).is_success
+
+    # Their agent's token: refused on tables, functions, files and uploads.
+    assert_denied(agent.select("threads", id=eq(world.pa)))
+    assert_denied(agent.select("messages", thread_id=eq(world.pa)))
+    assert_denied(agent.select("user_api_keys"))
+    assert_denied(agent.insert("messages", {"thread_id": world.s1, "sender_type": "user", "sender_id": a.id, "content": "x"}))
+    assert_denied(agent.rpc("claim_task", {"p_task_id": task}))
+    assert task_row(world, task)["status"] == "open"
+    assert not _download(agent, file["path"]).is_success
+    assert not _sign(agent, file["path"]).is_success
+    assert not _upload(agent, _file(world.pa)["path"]).is_success
+    ok(a.api.rpc("claim_task", {"p_task_id": task}))  # Control: the person still can
