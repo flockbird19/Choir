@@ -185,34 +185,6 @@ export async function deleteApiKey(
   return { success: true };
 }
 
-// M1/M2 spike: connect a coding agent (Claude Code, Cursor, Codex...) to a project.
-export async function connectAgent(
-  projectId: string,
-  kind: string
-): Promise<{ token?: string; error?: string }> {
-  const supabase = await createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) return { error: "Not logged in" };
-
-  const res = await fetch(`${BACKEND_URL}/api/agents/connect`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ project_id: projectId, kind }),
-  });
-
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    return { error: json.detail ?? "Failed to connect an agent." };
-  }
-  const json = await res.json();
-  return { token: json.token };
-}
-
 export async function postToSharedThread(
   sharedThreadId: string,
   content: string,
