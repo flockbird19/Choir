@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/utils/supabase/access";
 import { getWorkspace } from "@/utils/supabase/queries";
 import { ConsentCard, type ProjectOption } from "./ConsentCard";
 
-export const metadata: Metadata = { title: "Allow access — Choir" };
+export const metadata: Metadata = { title: "Allow access · Choir" };
 
 /**
  * Feature D: the page Supabase's OAuth server sends a person to when a coding agent (Claude Code,

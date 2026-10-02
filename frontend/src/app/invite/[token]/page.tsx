@@ -9,7 +9,7 @@ import { AcceptInviteForm } from "./AcceptInviteForm";
 import { isInviteUsable } from "./invite-status";
 
 export const metadata: Metadata = {
-  title: "Join a team — Choir",
+  title: "Join a team · Choir",
   description: "You've been invited to a Choir workspace.",
 };
 

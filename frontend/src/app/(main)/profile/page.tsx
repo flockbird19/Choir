@@ -8,7 +8,7 @@ import { getDisplayName, getInitials } from "@/utils/display-name";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Profile — Choir",
+  title: "Profile · Choir",
   description: "Manage your Choir account and profile preferences.",
 };
 

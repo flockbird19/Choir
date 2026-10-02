@@ -61,13 +61,12 @@ export function ProfileClient({ initialName, email, initials, initialStatus }: P
       {/* Avatar */}
       <div className="flex flex-col items-center gap-3 pb-6 border-b border-line">
         <div className="relative">
-          <div className="w-24 h-24 rounded-full bg-team text-white flex items-center justify-center text-3xl font-bold select-none">
+          <div className="w-24 h-24 rounded-full bg-team text-white dark:text-bg flex items-center justify-center text-3xl font-bold select-none">
             {initials}
           </div>
           {/* Status indicator */}
           <div className={`absolute bottom-1 right-1 w-5 h-5 rounded-full border-2 border-card ${STATUS_DOT_CLASS[status]}`} />
         </div>
-        <p className="text-xs text-fg-subtle">Profile picture via Google OAuth</p>
       </div>
 
       {/* Display Name */}

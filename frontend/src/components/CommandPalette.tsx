@@ -199,8 +199,9 @@ export function CommandPalette() {
         <div
           ref={listRef}
           id="command-palette-listbox"
-          role="listbox"
-          aria-label="Search results"
+          // A listbox only while it holds results: hints and "Searching…" aren't options (axe).
+          role={items.length > 0 ? "listbox" : undefined}
+          aria-label={items.length > 0 ? "Search results" : undefined}
           className="max-h-[60vh] overflow-y-auto"
           aria-live="polite"
         >
@@ -212,7 +213,9 @@ export function CommandPalette() {
             <div role="alert" className="p-16 text-center text-sm text-danger">
               Search didn&rsquo;t respond in time. Try again in a moment.
             </div>
-          ) : items.length === 0 && !isSearching ? (
+          ) : items.length === 0 && isSearching ? (
+            <div className="p-16 text-center text-sm text-fg-subtle">Searching&hellip;</div>
+          ) : items.length === 0 ? (
             <div className="p-16 text-center text-sm text-fg-subtle">
               No results found for &ldquo;{query}&rdquo;. Try a different word, or check the spelling.
             </div>

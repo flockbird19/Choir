@@ -165,7 +165,7 @@ export function CoachMarks({ steps, onDone }: CoachMarksProps) {
             <span className={`flex size-8 shrink-0 items-center justify-center rounded-control ${accentClass}`} aria-hidden="true">
               {step.icon}
             </span>
-            <p id="coach-mark-title" className="font-display text-[15px] font-semibold leading-snug text-fg">
+            <p id="coach-mark-title" className="font-display text-[15px] font-medium leading-snug text-fg">
               {step.title}
             </p>
           </div>

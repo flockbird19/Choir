@@ -74,9 +74,9 @@ export function DecisionsPanel({
               <Pin size={13} className="text-decision" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-fg font-display">Decisions</h3>
+              <h3 className="text-sm font-medium text-fg font-display">Decisions</h3>
               <p className="text-[10px] text-fg-subtle">
-                {decisions.length} pinned in this Team Space
+                {decisionsLoaded ? `${decisions.length} pinned in this Team Space` : "Pinned in this Team Space"}
               </p>
             </div>
           </div>

@@ -98,7 +98,7 @@ export function TasksPanel({
                 <ListChecks size={14} className="text-team" aria-hidden="true" />
               </div>
               <div className="min-w-0">
-                <h3 className="font-display text-sm font-semibold text-fg">Tasks</h3>
+                <h3 className="font-display text-sm font-medium text-fg">Tasks</h3>
                 <p className="text-caption text-fg-subtle">
                   {inTeamSpace ? "Who's doing what. Claim a task to take it on." : "Claim tasks in Team Space. Yours are listed first."}
                 </p>

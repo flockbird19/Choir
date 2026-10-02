@@ -12,12 +12,15 @@ export interface MemberNames {
  * Loads the display names of people who can post in a thread. Fetches again when a
  * message arrives from someone not in the list yet (e.g. a teammate who just joined).
  */
-export function useMemberNames(threadId: string | null | undefined, senderIds: string[]): MemberNames {
-  const [state, setState] = useState<MemberNames & { threadId: string | null }>({
-    names: {},
-    loaded: false,
-    threadId: null,
-  });
+export function useMemberNames(
+  threadId: string | null | undefined,
+  senderIds: string[],
+  /** Names the page already loaded on the server, so nobody shows as "Teammate" while a fetch waits. */
+  initial?: Record<string, string>
+): MemberNames {
+  const [state, setState] = useState<MemberNames & { threadId: string | null }>(() =>
+    initial ? { names: initial, loaded: true, threadId: threadId ?? null } : { names: {}, loaded: false, threadId: null }
+  );
   const attempted = useRef(new Set<string>());
 
   const current = state.threadId === (threadId ?? null) ? state : { names: {}, loaded: false };

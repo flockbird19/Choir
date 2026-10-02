@@ -81,6 +81,7 @@ export function ThreadView({
   teamSpaceSeenSince = null,
   currentUserId,
   currentUserName,
+  memberNames,
   autoCatchUp = false,
   startTour = false,
   isTeamOwner = false,
@@ -94,6 +95,8 @@ export function ThreadView({
   teamSpaceSeenSince?: string | null;
   currentUserId: string;
   currentUserName: string;
+  /** Team members' names, loaded with the page. */
+  memberNames?: Record<string, string>;
   autoCatchUp?: boolean;
   startTour?: boolean;
   /** An owner of this thread's team: can release, edit and reopen anyone's task. */
@@ -332,13 +335,15 @@ export function ThreadView({
     thread.id,
     localMessages
       .flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
-      .concat(Object.keys(seenBy), decisions.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]))
+      .concat(Object.keys(seenBy), decisions.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])),
+    memberNames
   );
   const sharedNames = useMemberNames(
     isPrivate ? sharedThread?.id : undefined,
     localSharedMessages
       .flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])
-      .concat(sharedDecisions.decisions.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""]))
+      .concat(sharedDecisions.decisions.flatMap((m) => [m.sender_id ?? "", m.pinned_by ?? ""])),
+    memberNames
   );
 
   // ── Presence — who else currently has this thread open ─────────────────────
@@ -988,7 +993,7 @@ export function ThreadView({
                   return (
                     <div
                       key={u.id}
-                      className="relative w-7 h-7 rounded-full bg-team text-white flex items-center justify-center text-[10px] font-bold ring-2 ring-card select-none"
+                      className="relative w-7 h-7 rounded-full bg-team text-white dark:text-bg flex items-center justify-center text-[10px] font-bold ring-2 ring-card select-none"
                     >
                       <span aria-hidden="true">{u.name.slice(0, 2).toUpperCase()}</span>
                       <span

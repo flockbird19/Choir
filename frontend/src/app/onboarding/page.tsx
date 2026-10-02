@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/utils/supabase/access";
 import { OnboardingForm } from "./OnboardingForm";
 
 export const metadata: Metadata = {
-  title: "Create your workspace — Choir",
+  title: "Create your workspace · Choir",
   description: "Name your team, get an invite link and start working with your team and AI.",
 };
 

@@ -31,7 +31,7 @@ const hankenGrotesk = Hanken_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Choir — Multiplayer AI",
+  title: "Choir · Multiplayer AI",
   description: "A collaborative workspace where your team and AI share context.",
 };
 

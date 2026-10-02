@@ -6,12 +6,16 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
 // A small card in the bottom-left corner, clear of the composer and of toasts (bottom centre).
+// Public pages only (landing, sign-in, onboarding, invites, reset, Allow): everyone passes sign-in first,
+// and inside the app it covered the notifications bell and the account row (audit 2026-10-02).
 // Choir only stores what it needs (sign-in session, theme, this flag), so there is nothing to opt out of:
 // closing the card is the same as "Got it".
 export function CookieBanner() {
   const [isVisible, setIsVisible] = useState(false);
   // The landing page is light-only (DESIGN.md 2), so the card stays light there too.
-  const lightOnly = usePathname() === "/";
+  const pathname = usePathname();
+  const lightOnly = pathname === "/";
+  const isPublic = lightOnly || ["/login", "/onboarding", "/invite", "/auth", "/oauth"].some((p) => pathname.startsWith(p));
 
   useEffect(() => {
     const hasAccepted = localStorage.getItem("choir_cookies_accepted");
@@ -26,7 +30,7 @@ export function CookieBanner() {
     setIsVisible(false);
   };
 
-  if (!isVisible) return null;
+  if (!isVisible || !isPublic) return null;
 
   return (
     <div

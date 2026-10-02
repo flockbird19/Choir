@@ -10,7 +10,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const user = await getCurrentUser();
   const team = user ? (await getWorkspace(user.id)).teams.find((t) => t.id === id) : null;
-  return { title: `${team?.name ?? "Team"} — Choir` };
+  return { title: `${team?.name ?? "Team"} · Choir` };
 }
 
 // DESIGN.md 6, team page: who's in the team, invites, the team icon, Team Space AI, leave/delete.

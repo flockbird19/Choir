@@ -98,6 +98,9 @@ export function TeamIconEditor({ team }: { team: Team }) {
       <div className="flex min-w-0 flex-col gap-5">
         <Tabs items={KINDS} value={kind} onValueChange={setKind} idBase="team-icon" label="Show" className="self-start" />
 
+        {/* The tab panel the tabs point at (aria-controls). */}
+        <div role="tabpanel" id={`team-icon-panel-${kind}`} aria-labelledby={`team-icon-tab-${kind}`} className="flex flex-col gap-5">
+
         {kind !== "image" && (
           <fieldset className="flex flex-col gap-2">
             <legend className="mb-2 text-body-sm font-semibold text-fg">Colour</legend>
@@ -156,6 +159,7 @@ export function TeamIconEditor({ team }: { team: Team }) {
             )}
           </div>
         )}
+        </div>
       </div>
 
       <div

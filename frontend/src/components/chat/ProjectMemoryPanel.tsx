@@ -193,7 +193,7 @@ export function ProjectMemoryPanel({
               <NotebookText size={14} className="text-team" aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <h3 className="font-display text-sm font-semibold text-fg">Project memory</h3>
+              <h3 className="font-display text-sm font-medium text-fg">Project memory</h3>
               <p className="text-caption text-fg-subtle">
                 What Choir AI knows about this project. Built from Team Space; anyone on the team can edit it.
               </p>

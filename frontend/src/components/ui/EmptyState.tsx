@@ -30,7 +30,7 @@ export function EmptyState({
         </span>
       )}
       <div className="flex max-w-sm flex-col gap-1">
-        <p className={cn("font-display font-semibold text-fg", compact ? "text-body" : "text-title")}>{title}</p>
+        <p className={cn("font-display font-medium text-fg", compact ? "text-body" : "text-title")}>{title}</p>
         {description && <div className="text-body-sm text-fg-muted">{description}</div>}
       </div>
       {action && <div className="mt-1">{action}</div>}

@@ -8,7 +8,7 @@ import { createClient } from "@/utils/supabase/server";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Settings — Choir",
+  title: "Settings · Choir",
   description: "Manage your API keys and integrations.",
 };
 
@@ -32,7 +32,7 @@ export default async function SettingsPage() {
           <p className="text-fg-muted text-sm leading-relaxed">
             Choir uses a{" "}
             <span className="font-medium text-fg">Bring Your Own Key (BYOK)</span>{" "}
-            model. Your API keys are encrypted before being stored — only you can use them.
+            model. Your API keys are encrypted before they are stored, and only you can use them.
             The AI you get in each thread depends on which keys you have saved here.
           </p>
         </div>

@@ -88,7 +88,7 @@ export function Dialog({
       <div className={cn("flex max-h-[85dvh] flex-col rounded-sheet border border-line bg-card shadow-overlay", className)}>
         <div className="flex items-start gap-3 px-5 pb-2 pt-5">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <h2 id={`${id}-title`} className="font-display text-title font-semibold text-fg">
+            <h2 id={`${id}-title`} className="font-display text-title font-medium text-fg">
               {title}
             </h2>
             {description && (
@@ -152,7 +152,7 @@ export function Sheet({
       >
         {side === "bottom" && <div aria-hidden="true" className="mx-auto mt-2 h-1 w-10 rounded-full bg-line-strong" />}
         <div className={cn("flex h-header shrink-0 items-center gap-2 border-b border-line pl-4 pr-2", hideHeader && "sr-only")}>
-          <h2 id={`${id}-title`} className="min-w-0 flex-1 truncate font-display text-body font-semibold text-fg">
+          <h2 id={`${id}-title`} className="min-w-0 flex-1 truncate font-display text-body font-medium text-fg">
             {title}
           </h2>
           <IconButton label="Close" icon={<X />} size="sm" tooltip={false} onClick={() => ref.current?.close()} />

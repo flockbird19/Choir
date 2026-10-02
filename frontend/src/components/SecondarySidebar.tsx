@@ -185,7 +185,7 @@ export function SecondarySidebar({ user, team, project, sharedThread, privateThr
           }`}
         >
           <div className="relative shrink-0">
-            <div className="grid size-8 select-none place-items-center rounded-full bg-team text-[12px] font-semibold text-white">
+            <div className="grid size-8 select-none place-items-center rounded-full bg-team text-[12px] font-semibold text-white dark:text-bg">
               {initials}
             </div>
             <div

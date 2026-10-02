@@ -6,7 +6,7 @@ import { safeRedirectPath } from "@/utils/safe-redirect";
 import type { AuthView } from "./auth-shared";
 
 export const metadata: Metadata = {
-  title: "Sign in — Choir",
+  title: "Sign in · Choir",
   description: "Sign in to Choir, where your team and AI share context.",
 };
 

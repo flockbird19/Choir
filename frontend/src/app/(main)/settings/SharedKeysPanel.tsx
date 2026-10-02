@@ -6,6 +6,15 @@ import { createClient } from "@/utils/supabase/client";
 import { PROVIDER_NAMES, providerName } from "@/utils/providers";
 import { getSharedKeysSetup, type LendingProject } from "./sharedKeysActions";
 import { Menu, MenuRadioItem } from "@/components/ui";
+import { Skeleton } from "@/components/ui/Skeleton";
+
+// Placeholder rows while the lending setup loads (DESIGN.md 6: skeletons, not "Loading…" text).
+const LoadingRows = ({ label }: { label: string }) => (
+  <div role="status" aria-label={label} className="space-y-2">
+    <Skeleton className="h-11 w-full rounded-control" />
+    <Skeleton className="h-11 w-full rounded-control" />
+  </div>
+);
 
 type Mode = "fallback" | "pool";
 type Choice = Mode | "off";
@@ -200,7 +209,7 @@ export function SharedKeysPanel({ savedProviders }: { savedProviders: string[] }
         </div>
 
         {!setupLoaded ? (
-          <p className="text-sm text-fg-muted">Loading your projects…</p>
+          <LoadingRows label="Loading your projects" />
         ) : !setup || setup.projects.length === 0 ? (
           <p className="text-sm text-fg-muted">Join or create a workspace to lend a key to its Team Space.</p>
         ) : (
@@ -247,7 +256,7 @@ export function SharedKeysPanel({ savedProviders }: { savedProviders: string[] }
               {lendable.length === 0 ? (
                 <p className="text-sm text-fg-muted">Save a key above to lend it.</p>
               ) : rows === null ? (
-                <p className="text-sm text-fg-muted">Loading…</p>
+                <LoadingRows label="Loading" />
               ) : (
                 lendable.map((provider) => (
                   <LendChoice
@@ -272,7 +281,7 @@ export function SharedKeysPanel({ savedProviders }: { savedProviders: string[] }
                 Teammates lending to {project?.name ?? "this project"}
               </h3>
               {rows === null ? (
-                <p className="text-sm text-fg-muted">Loading…</p>
+                <LoadingRows label="Loading" />
               ) : others.length === 0 ? (
                 <p className="text-sm text-fg-muted">Nobody else lends a key to this project yet.</p>
               ) : (

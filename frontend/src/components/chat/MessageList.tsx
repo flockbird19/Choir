@@ -23,6 +23,10 @@ import { ReviewCard } from "@/components/tasks/ReviewCard";
 import { whoHasSeen } from "@/hooks/useSeenBy";
 import { STATUS_DOT_CLASS, STATUS_LABEL } from "@/hooks/useTeammateStatuses";
 import type { StatusId } from "@/app/(main)/profile/actions";
+import { AVAILABLE_MODELS } from "./ChatInput";
+
+/** "Claude Haiku 4.5", not "claude-haiku-4-5": the picker's own name, or the id for a model no longer listed. */
+const modelLabel = (id: string) => AVAILABLE_MODELS.find((m) => m.id === id)?.name ?? id;
 
 interface Message {
   id: string;
@@ -551,7 +555,7 @@ const MessageItem = memo(function MessageItem({
       {showSender && !isOwn && (
         <p className="text-[11px] font-semibold text-fg-muted mb-1 ml-10">
           {senderName}
-          {isAI && msg.model_name && <span className="ml-1.5 font-normal font-mono text-fg-subtle">{msg.model_name}</span>}
+          {isAI && msg.model_name && <span className="ml-1.5 font-normal font-mono text-fg-subtle">{modelLabel(msg.model_name)}</span>}
         </p>
       )}
 
@@ -643,7 +647,7 @@ const MessageItem = memo(function MessageItem({
               </span>
             )}
             {msg.model_name && isAI && !showSender && (
-              <span className="text-[10px] text-fg-subtle font-mono">{msg.model_name}</span>
+              <span className="text-[10px] text-fg-subtle font-mono">{modelLabel(msg.model_name)}</span>
             )}
             <span className="text-[10px] text-fg-subtle font-mono">
               {new Date(msg.created_at).toLocaleTimeString([], {
@@ -1002,7 +1006,7 @@ export function MessageList({
         <button
           type="button"
           onClick={scrollToEnd}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 h-8 px-3.5 rounded-pill bg-team text-white text-xs font-medium shadow-raised hover:opacity-90 transition-opacity z-10"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 h-8 px-3.5 rounded-pill bg-team text-white dark:text-bg text-xs font-medium shadow-raised hover:opacity-90 transition-opacity z-10"
         >
           <ArrowDown size={13} />
           {unseen} new message{unseen === 1 ? "" : "s"}

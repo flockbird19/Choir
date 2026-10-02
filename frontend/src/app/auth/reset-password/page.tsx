@@ -7,7 +7,7 @@ import { getCurrentUser } from "@/utils/supabase/access";
 import { ResetPasswordForm } from "./ResetPasswordForm";
 
 export const metadata: Metadata = {
-  title: "Set a new password — Choir",
+  title: "Set a new password · Choir",
 };
 
 export default async function ResetPasswordPage() {

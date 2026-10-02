@@ -1,6 +1,7 @@
 import { getMessages, getWorkspace, getSeenOnboardingTour, getTeamSpaceSeenSince } from "@/utils/supabase/queries";
 import { getAccessibleThread, getCurrentUser } from "@/utils/supabase/access";
 import { getDisplayName } from "@/utils/display-name";
+import { getTeamMemberNames } from "@/utils/supabase/member-names";
 import { ThreadView } from "@/components/chat/ThreadView";
 import { redirect } from "next/navigation";
 import { Thread, Message } from "@/types/database";
@@ -12,12 +13,12 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const thread = user ? await getAccessibleThread(user.id, id) : null;
 
   if (!thread) {
-    return { title: "Thread Not Found — Choir" };
+    return { title: "Thread Not Found · Choir" };
   }
 
   const title = thread.name || (thread.type === "private" ? "Private Thread" : "Team Space");
   return {
-    title: `${title} — Choir`,
+    title: `${title} · Choir`,
     description: `View the ${title} thread in your Choir workspace.`,
   };
 }
@@ -59,12 +60,19 @@ export default async function ThreadPage({
       : null;
   const teamId = workspace.projects.find((p) => p.id === thread.project_id)?.team_id;
 
-  const [sharedMessages, teamSpaceSeenSince]: [Message[], string | null] = sharedThread
-    ? await Promise.all([
-        getMessages(sharedThread.id),
-        teamId ? getTeamSpaceSeenSince(user.id, sharedThread.id, teamId) : Promise.resolve(null),
-      ])
-    : [[], null];
+  // Names load with the page: fetched afterwards they queued behind other server actions and
+  // teammates showed as "Teammate" for ~10 s (audit 2026-10-02).
+  const [[sharedMessages, teamSpaceSeenSince], teamNames]: [[Message[], string | null], Record<string, string>] =
+    await Promise.all([
+      sharedThread
+        ? Promise.all([
+            getMessages(sharedThread.id),
+            teamId ? getTeamSpaceSeenSince(user.id, sharedThread.id, teamId) : Promise.resolve(null),
+          ])
+        : Promise.resolve<[Message[], string | null]>([[], null]),
+      teamId ? getTeamMemberNames(teamId) : Promise.resolve({}),
+    ]);
+  const memberNames = { ...teamNames, [user.id]: getDisplayName(user) };
 
   // Only pay for this round trip when the tour was actually requested.
   const wantsTour = thread.type === "shared" && tour === "1";
@@ -81,6 +89,7 @@ export default async function ThreadPage({
       teamSpaceSeenSince={teamSpaceSeenSince}
       currentUserId={user.id}
       currentUserName={getDisplayName(user)}
+      memberNames={memberNames}
       // Set by the invite flow (?catchup=1) so newcomers get a digest of what they missed.
       autoCatchUp={thread.type === "shared" && catchup === "1"}
       // Set by onboarding's Ready screen (?tour=1), unless this account has
